@@ -45,8 +45,16 @@ async function loadDoc<T>(
   schema: z.ZodType<T>,
   empty: T
 ): Promise<T> {
-  const client = redis();
-  const raw = client ? await client.get(key) : await devRead(file);
+  let raw: unknown;
+  try {
+    const client = redis();
+    raw = client ? await client.get(key) : await devRead(file);
+  } catch (err) {
+    // A storage outage must not take the whole app down: reads degrade to
+    // baseline data (no overrides / seed-only access), writes still fail loud.
+    console.error(`[store] failed to load ${key}; using empty doc:`, err);
+    return empty;
+  }
   if (!raw) return empty;
   const parsed = schema.safeParse(raw);
   if (!parsed.success) {
