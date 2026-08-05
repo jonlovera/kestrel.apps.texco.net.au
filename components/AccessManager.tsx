@@ -6,7 +6,6 @@ import type { GrantingRule, RuleSource } from "@/lib/access-rules";
 import type { NumericField } from "@/lib/access-types";
 import { NUMERIC_FIELDS } from "@/lib/access-types";
 import { TexcoX, TexcoWordmark } from "./TexcoBrand";
-import { PrivacyLock } from "./PrivacyLock";
 
 interface RuleRow {
   email: string;
@@ -318,8 +317,6 @@ export default function AccessManager({
           </button>
         </div>
       </div>
-
-      <PrivacyLock />
     </div>
   );
 }

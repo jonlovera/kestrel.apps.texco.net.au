@@ -4,9 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
 import type { DashboardPayload, ScopedRow } from "@/lib/payload-types";
-import type { NumericField } from "@/lib/access-types";
+import { NUMERIC_FIELDS, type NumericField } from "@/lib/access-types";
 import type { Overrides, HistoryEntry } from "@/lib/schema";
-import { PrivacyLock } from "./PrivacyLock";
 import {
   applyOverrides,
   computeScalesAndBonuses,
@@ -111,6 +110,49 @@ export default function DashboardClient({
   const [selCats, setSelCats] = useState<string[]>(payload.cats);
   const [selDepts, setSelDepts] = useState<string[]>(payload.depts);
   const [selMgrs, setSelMgrs] = useState<string[]>(payload.mgrs);
+
+  // ── privacy: figures are masked by default; reveal per row, or all at once
+  //    via the header button / Space ──
+  const [showAll, setShowAll] = useState(false);
+  const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
+  const isRevealed = (id: string) => showAll || revealedIds.has(id);
+
+  function toggleShowAll() {
+    setShowAll((prev) => {
+      if (prev) setRevealedIds(new Set()); // hiding again clears row reveals
+      return !prev;
+    });
+  }
+
+  function toggleRow(id: string) {
+    setRevealedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== " " || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT" ||
+          t.tagName === "BUTTON" ||
+          t.isContentEditable)
+      ) {
+        return;
+      }
+      e.preventDefault();
+      toggleShowAll();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // ── history tab (editors only, fetched lazily) ──
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
@@ -317,6 +359,7 @@ export default function DashboardClient({
           utilPct={c.utilPct}
           scaleFactor={c.scale}
           scaleLabel={c.scaleLabel}
+          masked={!showAll}
         />
       ));
     }
@@ -362,6 +405,7 @@ export default function DashboardClient({
           utilPct={total / cap}
           scaleFactor={scale}
           scaleLabel={scaleLabel ?? undefined}
+          masked={!showAll}
         />
       );
     };
@@ -371,7 +415,7 @@ export default function DashboardClient({
       card("NSW pool", nCap, nswTotal, sharedNsw, pool.nswScale, "NSW scale factor"),
       card("Group total", gCap, groupTotal, null, null, null),
     ];
-  }, [isEditor, payload, emps, pool]);
+  }, [isEditor, payload, emps, pool, showAll]);
 
   function doSort(key: string) {
     if (sortCol === key) setSortDir((d) => -d);
@@ -383,6 +427,16 @@ export default function DashboardClient({
 
   // ── cell rendering ──
   function cell(r: DisplayRow, c: Column) {
+    // privacy mask: numeric figures hidden until the row (or everything) is
+    // revealed; the "—" placeholders reveal nothing and stay as-is
+    if (
+      (NUMERIC_FIELDS as readonly string[]).includes(c.key) &&
+      !isRevealed(r.id)
+    ) {
+      if (c.key === "da" && (r.sm || !r.inPool))
+        return <span className="text-neutral-300">—</span>;
+      return <span className="select-none text-neutral-300">••••</span>;
+    }
     switch (c.key) {
       case "name":
         return r.name;
@@ -508,6 +562,14 @@ export default function DashboardClient({
             <br />
             <span className="text-[10px] opacity-80">{payload.user.scopeLabel}</span>
           </span>
+          <button
+            type="button"
+            onClick={toggleShowAll}
+            className="rounded border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"
+            title="Or press Space"
+          >
+            {showAll ? "Hide everything" : "Show everything"}
+          </button>
           {isEditor && (
             <Link
               href="/admin"
@@ -603,7 +665,7 @@ export default function DashboardClient({
                           })}
                         </td>
                         <td className="whitespace-nowrap px-3 py-2">{h.actor}</td>
-                        <td className="px-3 py-2">
+                        <td className={`px-3 py-2 ${showAll ? "" : "blur-[6px] select-none"}`}>
                           {h.kind === "access" && (
                             <span className="mr-2 inline-block rounded bg-neutral-200 px-1.5 py-px text-[10px] font-bold uppercase text-neutral-600">
                               access
@@ -641,7 +703,7 @@ export default function DashboardClient({
             </span>
             {typeof totFinal === "number" && (
               <span className="rounded bg-neutral-100 px-2.5 py-1">
-                Total bonuses: {fmt(totFinal)}
+                Total bonuses: {showAll ? fmt(totFinal) : "••••••"}
               </span>
             )}
           </div>
@@ -670,7 +732,16 @@ export default function DashboardClient({
             </thead>
             <tbody>
               {visibleRows.map((r) => (
-                <tr key={r.id} className="group">
+                <tr
+                  key={r.id}
+                  className="group cursor-pointer"
+                  title="Click to show/hide this row's figures"
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest("input,button,a,select,label"))
+                      return;
+                    toggleRow(r.id);
+                  }}
+                >
                   {columns.map((c) => (
                     <td
                       key={c.key}
@@ -694,7 +765,9 @@ export default function DashboardClient({
                         ? ""
                         : (NUMERIC_ORDER.some((n) => n.key === c.key) &&
                             typeof totals[c.key as NumericField] === "number"
-                            ? fmt(totals[c.key as NumericField]!)
+                            ? showAll
+                              ? fmt(totals[c.key as NumericField]!)
+                              : "••••••"
                             : "");
                   return (
                     <td
@@ -719,8 +792,6 @@ export default function DashboardClient({
         texco &ensp;|&ensp; FY26 Employee Bonus Scheme &ensp;|&ensp; Confidential
         &ensp;|&ensp; Innovate. Design. Deliver.
       </footer>
-
-      <PrivacyLock />
     </div>
   );
 }

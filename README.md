@@ -153,10 +153,13 @@ timestamp — visible under the project's **Logs** tab in Vercel.
   when — every Bonus%/IPM%/Disc adj change (old → new value), every
   lock/unlock, and every access grant/change/removal. Stored in Redis
   (newest first, capped at 2,000 entries).
-- **Privacy lock**: press <kbd>Space</kbd> anywhere outside an input to
-  instantly cover the screen with a blank Texco panel (e.g. when someone
-  walks past). Click Resume to continue — the session stays signed in; it's
-  a privacy screen, not a re-authentication.
+- **Privacy by default**: all figures load masked (`••••`) — names and
+  positions are visible, numbers aren't. Click a row to reveal just that
+  row; use the **Show everything** button (top right) or press
+  <kbd>Space</kbd> outside an input to toggle everything, and Space again to
+  instantly re-mask when someone walks past. Pool cards, totals, and the
+  history detail stay masked until "Show everything". Every page load starts
+  masked.
 
 ---
 

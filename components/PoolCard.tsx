@@ -13,12 +13,15 @@ export function PoolCard({
   utilPct,
   scaleFactor,
   scaleLabel,
+  masked = false,
 }: {
   title: string;
   metrics: PoolMetric[];
   utilPct: number;
   scaleFactor?: number | null;
   scaleLabel?: string;
+  /** privacy mode: hide the figures, keep labels and the utilisation bar */
+  masked?: boolean;
 }) {
   const pct = Math.min(utilPct * 100, 100);
   const over = utilPct > 1;
@@ -34,11 +37,11 @@ export function PoolCard({
         >
           <span className="text-[#5C5C5C]">{m.label}</span>
           <span
-            className={`font-bold ${m.negative ? "text-[#FC4D0F]" : "text-[#191919]"} ${
+            className={`font-bold ${m.negative && !masked ? "text-[#FC4D0F]" : "text-[#191919]"} ${
               m.bold ? "text-sm" : ""
-            }`}
+            } ${masked ? "text-neutral-300" : ""}`}
           >
-            {m.value}
+            {masked ? "••••••" : m.value}
           </span>
         </div>
       ))}
@@ -50,8 +53,12 @@ export function PoolCard({
       </div>
       {scaleFactor !== null && scaleFactor !== undefined && (
         <>
-          <div className="mt-2.5 text-center text-[28px] font-medium tracking-tight text-[#FC4D0F]">
-            {scaleFactor.toFixed(4)}x
+          <div
+            className={`mt-2.5 text-center text-[28px] font-medium tracking-tight ${
+              masked ? "text-neutral-300" : "text-[#FC4D0F]"
+            }`}
+          >
+            {masked ? "•.••••x" : `${scaleFactor.toFixed(4)}x`}
           </div>
           <div className="mt-0.5 text-center text-[10px] uppercase tracking-[1.5px] text-[#5C5C5C]">
             {scaleLabel ?? "Scale factor"}
