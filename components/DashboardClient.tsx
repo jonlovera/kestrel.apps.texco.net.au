@@ -17,7 +17,8 @@ import {
   type CalcEmployee,
   type PoolState,
 } from "@/lib/calc";
-import { fmt, fmtPctWhole } from "@/lib/fmt";
+import { fmt, fmtValue } from "@/lib/fmt";
+import type { ColumnFormat } from "@/lib/columns";
 import { TexcoX, TexcoWordmark } from "./TexcoBrand";
 import { PoolCard, type PoolMetric } from "./PoolCard";
 import { MultiSelect } from "./MultiSelect";
@@ -31,19 +32,9 @@ interface Column {
   num?: boolean;
   editable?: boolean;
   noSort?: boolean;
+  format?: ColumnFormat;
+  decimals?: number;
 }
-
-const NUMERIC_ORDER: { key: NumericField; label: string }[] = [
-  { key: "pkg", label: "Package" },
-  { key: "bp", label: "Bonus%" },
-  { key: "ipm", label: "IPM%" },
-  { key: "bipm", label: "After IPM" },
-  { key: "calc", label: "Calc bonus" },
-  { key: "f25", label: "FY25 bonus" },
-  { key: "da", label: "Disc adj" },
-  { key: "yoy", label: "YoY diff" },
-  { key: "final", label: "Final" },
-];
 
 /** Unified row shape the table renders, for both modes. */
 interface DisplayRow extends ScopedRow {
@@ -230,14 +221,15 @@ export default function DashboardClient({
       { key: "dept", label: "Department" },
       { key: "mgr", label: "Manager" }
     );
-    const visible = isEditor
-      ? NUMERIC_ORDER
-      : NUMERIC_ORDER.filter((c) => payload.visibleFields.includes(c.key));
-    const numeric: Column[] = visible.map((c) => ({
+    // Display columns come from the server payload: presentation-config
+    // visible AND scope-visible, in the configured order.
+    const numeric: Column[] = payload.columns.map((c) => ({
       key: c.key,
       label: c.label,
       num: true,
       editable: isEditor && ["bp", "ipm", "da"].includes(c.key),
+      format: c.format,
+      decimals: c.decimals,
     }));
     const lock: Column[] = isEditor
       ? [{ key: "lock", label: "Lock", noSort: true }]
@@ -347,7 +339,7 @@ export default function DashboardClient({
   // ── totals row ──
   const totals = useMemo(() => {
     const t: Partial<Record<NumericField, number>> = {};
-    for (const { key } of NUMERIC_ORDER) {
+    for (const { key } of payload.columns) {
       let any = false;
       let sum = 0;
       for (const r of visibleRows) {
@@ -360,7 +352,7 @@ export default function DashboardClient({
       if (any) t[key] = sum;
     }
     return t;
-  }, [visibleRows]);
+  }, [visibleRows, payload.columns]);
 
   // ── pool cards ──
   const poolCardEls = useMemo(() => {
@@ -373,7 +365,7 @@ export default function DashboardClient({
             { label: "State bonuses", value: fmt(c.stateBonuses), bold: true },
           ]}
           utilPct={c.utilPct}
-          scaleFactor={c.scale}
+          scaleFactor={c.scale ?? null}
           scaleLabel={c.scaleLabel}
         />
       ));
@@ -425,8 +417,9 @@ export default function DashboardClient({
     };
 
     return [
-      card("VIC pool", vCap, vicTotal, sharedVic, pool.vicScale, "VIC scale factor"),
-      card("NSW pool", nCap, nswTotal, sharedNsw, pool.nswScale, "NSW scale factor"),
+      // scale figure is gated by the 'scale' pseudo-column config
+      card("VIC pool", vCap, vicTotal, sharedVic, payload.showScale ? pool.vicScale : null, "VIC scale factor"),
+      card("NSW pool", nCap, nswTotal, sharedNsw, payload.showScale ? pool.nswScale : null, "NSW scale factor"),
       card("Group total", gCap, groupTotal, null, null, null),
     ];
   }, [isEditor, payload, emps, pool]);
@@ -440,6 +433,11 @@ export default function DashboardClient({
   }
 
   // ── cell rendering ──
+  /** display a value using the column's configured format */
+  function show(c: Column, v: number) {
+    return fmtValue(c.format ?? "currency", c.decimals ?? 0, v);
+  }
+
   function cell(r: DisplayRow, c: Column) {
     // privacy mask: numeric figures hidden until the row (or everything) is
     // revealed; the "—" placeholders reveal nothing and stay as-is
@@ -474,11 +472,13 @@ export default function DashboardClient({
       case "mgr":
         return r.mgr;
       case "pkg":
-        return fmt(r.pkg!);
+        return show(c, r.pkg!);
       case "bp":
       case "ipm": {
         const v = c.key === "bp" ? r.bp! : r.ipm!;
-        if (!c.editable || r.locked) return fmtPctWhole(v);
+        if (!c.editable || r.locked) return show(c, v);
+        // Input parsing stays semantic (percent-style, "90" means 90%)
+        // regardless of the configured display format.
         return (
           <input
             key={`${r.id}-${c.key}-${v}`}
@@ -494,14 +494,14 @@ export default function DashboardClient({
         );
       }
       case "bipm":
-        return fmt(r.bipm!);
+        return show(c, r.bipm!);
       case "calc":
-        return fmt(r.calc!);
+        return show(c, r.calc!);
       case "f25":
-        return <span className="text-neutral-400">{fmt(r.f25!)}</span>;
+        return <span className="text-neutral-400">{show(c, r.f25!)}</span>;
       case "da": {
         if (r.sm || !r.inPool) return <span className="text-neutral-300">—</span>;
-        if (!c.editable || r.locked) return fmt(r.da!);
+        if (!c.editable || r.locked) return show(c, r.da!);
         return (
           <input
             key={`${r.id}-da-${r.da}`}
@@ -517,10 +517,10 @@ export default function DashboardClient({
       case "yoy": {
         const v = r.yoy!;
         const color = v > 0 ? "text-[#191919]" : v < 0 ? "text-[#FC4D0F]" : "";
-        return <span className={color}>{fmt(v)}</span>;
+        return <span className={color}>{show(c, v)}</span>;
       }
       case "final":
-        return <span className="font-bold">{fmt(r.final!)}</span>;
+        return <span className="font-bold">{show(c, r.final!)}</span>;
       case "lock": {
         if (r.sm)
           return (
@@ -772,15 +772,15 @@ export default function DashboardClient({
             <tfoot>
               <tr>
                 {columns.map((c) => {
+                  // percentages don't sum meaningfully — no total for them
                   const v =
                     c.key === "name"
                       ? `TOTALS (${visibleRows.length})`
-                      : c.key === "ipm" || c.key === "bp"
+                      : c.format === "percent"
                         ? ""
-                        : (NUMERIC_ORDER.some((n) => n.key === c.key) &&
-                            typeof totals[c.key as NumericField] === "number"
+                        : (typeof totals[c.key as NumericField] === "number"
                             ? showAll
-                              ? fmt(totals[c.key as NumericField]!)
+                              ? show(c, totals[c.key as NumericField]!)
                               : "••••••"
                             : "");
                   return (

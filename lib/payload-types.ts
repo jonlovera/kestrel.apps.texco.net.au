@@ -4,6 +4,7 @@
  */
 import type { Employee, Overrides } from "./schema";
 import type { NumericField } from "./access-types";
+import type { PayloadColumn } from "./columns";
 
 export interface UserInfo {
   name: string;
@@ -40,8 +41,9 @@ export interface StatePoolCard {
   title: string;
   stateBonuses: number;
   utilPct: number;
-  scale: number;
-  scaleLabel: string;
+  /** omitted server-side when the 'scale' pseudo-column is hidden */
+  scale?: number;
+  scaleLabel?: string;
 }
 
 export interface ReadonlyPayload {
@@ -49,6 +51,9 @@ export interface ReadonlyPayload {
   user: UserInfo;
   rows: ScopedRow[];
   visibleFields: NumericField[];
+  /** display columns: config-visible AND scope-visible, in config order */
+  columns: PayloadColumn[];
+  showScale: boolean;
   showStateColumn: boolean;
   poolCards: StatePoolCard[];
   cats: string[];
@@ -63,6 +68,9 @@ export interface EditorPayload {
   overrides: Overrides;
   /** optimistic-concurrency token; saves carrying a stale value get 409 */
   overridesVersion: number;
+  /** display columns: config-visible (editors are scope-visible on all) */
+  columns: PayloadColumn[];
+  showScale: boolean;
   caps: { vCap: number; nCap: number; gCap: number };
   cats: string[];
   depts: string[];

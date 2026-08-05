@@ -6,11 +6,14 @@ import {
   loadOverridesVersion,
   saveOverridesForce,
   saveStoredDataset,
+  loadColumnConfig,
+  saveColumnConfig,
   loadSnapshots,
   pushSnapshot,
   appendHistory,
 } from "./store";
 import { shouldCoalesce } from "./snapshots-core";
+import { ColumnConfigSchema } from "./columns";
 
 /**
  * Take a full point-in-time snapshot of everything mutable. Called BEFORE
@@ -20,12 +23,14 @@ import { shouldCoalesce } from "./snapshots-core";
  */
 export async function takeSnapshot(actor: string, reason: string): Promise<void> {
   try {
-    const [dataset, overrides, overridesVersion, existing] = await Promise.all([
-      getDataset(),
-      loadOverrides(),
-      loadOverridesVersion(),
-      loadSnapshots(1),
-    ]);
+    const [dataset, overrides, overridesVersion, columns, existing] =
+      await Promise.all([
+        getDataset(),
+        loadOverrides(),
+        loadOverridesVersion(),
+        loadColumnConfig(),
+        loadSnapshots(1),
+      ]);
     const now = new Date().toISOString();
     if (shouldCoalesce(existing[0], actor, reason, now)) return;
 
@@ -38,7 +43,7 @@ export async function takeSnapshot(actor: string, reason: string): Promise<void>
         overrides,
         overridesVersion,
         params: null, // populated once the params doc exists
-        columns: null, // populated once the column-config doc exists
+        columns,
       },
     };
     await pushSnapshot(snapshot);
@@ -65,7 +70,9 @@ export async function restoreSnapshot(ts: string, actor: string): Promise<void> 
   await saveStoredDataset(target.state.dataset);
   // Force-write bumps the version so open editors 409 and reload.
   await saveOverridesForce(target.state.overrides);
-  // params/columns are restored verbatim when present (later steps write them)
+  const cols = ColumnConfigSchema.safeParse(target.state.columns);
+  if (cols.success) await saveColumnConfig(cols.data);
+  // params restored once the params doc exists (later step)
 
   await appendHistory([
     {

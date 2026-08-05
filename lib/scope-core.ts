@@ -10,6 +10,13 @@
  */
 import type { Dataset, Overrides } from "./schema";
 import type { Scope } from "./access";
+import { NUMERIC_FIELDS } from "./access-types";
+import {
+  DEFAULT_COLUMNS,
+  effectiveColumns,
+  scaleVisible,
+  type ColumnConfig,
+} from "./columns";
 import {
   applyOverrides,
   computeScalesAndBonuses,
@@ -28,8 +35,11 @@ export function buildPayloadCore(
   overrides: Overrides,
   scope: Scope,
   user: UserInfo,
-  overridesVersion = 0
+  overridesVersion = 0,
+  columnConfig: ColumnConfig = DEFAULT_COLUMNS
 ): DashboardPayload {
+  const showScale = scaleVisible(columnConfig);
+
   if (scope.rule.type === "full") {
     return {
       mode: "editor",
@@ -37,6 +47,8 @@ export function buildPayloadCore(
       employees: data.emp,
       overrides,
       overridesVersion,
+      columns: effectiveColumns(columnConfig, NUMERIC_FIELDS),
+      showScale,
       caps: { vCap: data.vCap, nCap: data.nCap, gCap: data.gCap },
       cats: data.cats,
       depts: data.depts,
@@ -95,13 +107,16 @@ export function buildPayloadCore(
         0
       );
       const avail = st === "VIC" ? pool.stateVicAvail : pool.stateNswAvail;
-      poolCards.push({
+      const card: StatePoolCard = {
         title: `${st} pool`,
         stateBonuses,
         utilPct: avail > 0 ? stateBonuses / avail : 1,
-        scale: st === "VIC" ? pool.vicScale : pool.nswScale,
-        scaleLabel: `${st} scale factor`,
-      });
+      };
+      if (showScale) {
+        card.scale = st === "VIC" ? pool.vicScale : pool.nswScale;
+        card.scaleLabel = `${st} scale factor`;
+      }
+      poolCards.push(card);
     }
   }
 
@@ -112,6 +127,8 @@ export function buildPayloadCore(
     user,
     rows,
     visibleFields: scope.visibleFields,
+    columns: effectiveColumns(columnConfig, scope.visibleFields),
+    showScale,
     showStateColumn:
       scope.rule.type === "subset" ||
       (scope.rule.type === "state" && scope.rule.states.length > 1),

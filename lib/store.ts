@@ -12,6 +12,12 @@ import {
   type Snapshot,
 } from "./schema";
 import { AccessRuleSchema, type AccessRule } from "./access-rules";
+import {
+  ColumnConfigSchema,
+  DEFAULT_COLUMNS,
+  normalizeConfig,
+  type ColumnConfig,
+} from "./columns";
 
 /**
  * Persistence: Upstash Redis in production (Vercel Marketplace add-on), a
@@ -196,6 +202,24 @@ export function loadAccessOverlay(): Promise<AccessOverlay> {
 
 export function saveAccessOverlay(doc: AccessOverlay): Promise<void> {
   return saveDoc(ACCESS_KEY, ACCESS_FILE, doc);
+}
+
+// ── column presentation config (managed via /admin/columns) ─────────────────
+const COLUMNS_KEY = "kestrel:columns:fy26";
+const COLUMNS_FILE = "columns.json";
+
+export async function loadColumnConfig(): Promise<ColumnConfig> {
+  const cfg = await loadDoc<ColumnConfig>(
+    COLUMNS_KEY,
+    COLUMNS_FILE,
+    ColumnConfigSchema as z.ZodType<ColumnConfig>,
+    DEFAULT_COLUMNS
+  );
+  return normalizeConfig(cfg);
+}
+
+export function saveColumnConfig(cfg: ColumnConfig): Promise<void> {
+  return saveDoc(COLUMNS_KEY, COLUMNS_FILE, cfg);
 }
 
 // ── snapshots (newest first, capped at 50) ───────────────────────────────────
