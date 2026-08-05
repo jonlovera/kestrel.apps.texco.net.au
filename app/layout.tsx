@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
+// Deliberately bland: unauthenticated surfaces (login, no-access, 404) must
+// not reveal what this application is.
 export const metadata: Metadata = {
-  title: "FY26 Employee Bonus Scheme — Texco",
-  description: "Confidential — Texco FY26 employee bonus scheme model",
+  title: "Texco",
   robots: { index: false, follow: false },
 };
 

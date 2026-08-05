@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { auth, signIn } from "@/auth";
 import { TexcoX, TexcoWordmark } from "@/components/TexcoBrand";
 
-export const metadata = { title: "Sign in — FY26 Employee Bonus Scheme" };
+export const metadata = { title: "Sign in — Texco" };
 
 export default async function LoginPage({
   searchParams,
@@ -21,10 +21,7 @@ export default async function LoginPage({
       <div className="w-[380px] overflow-hidden rounded-lg bg-white shadow-2xl">
         <div className="bg-[#191919] px-8 pt-7 pb-5 text-center">
           <TexcoX className="mx-auto mb-4 h-9 w-9" />
-          <TexcoWordmark className="mx-auto mb-2.5 block w-[200px]" />
-          <p className="text-xs font-medium uppercase tracking-[3px] text-[#FC4D0F]">
-            FY26 Employee Bonus Scheme
-          </p>
+          <TexcoWordmark className="mx-auto mb-1 block w-[200px]" />
         </div>
         <div className="p-8">
           <form

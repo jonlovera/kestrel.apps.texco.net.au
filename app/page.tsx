@@ -4,7 +4,8 @@ import { scopeForUser } from "@/lib/access";
 import { buildDashboardPayload } from "@/lib/scope";
 import DashboardClient from "@/components/DashboardClient";
 
-export const metadata = { title: "FY26 Employee Bonus Scheme — Texco" };
+// Bland on purpose — browser tab titles end up in history and window lists.
+export const metadata = { title: "Texco" };
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
