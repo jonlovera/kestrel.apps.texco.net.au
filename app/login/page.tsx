@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { AuthError } from "next-auth";
 import { auth, signIn } from "@/auth";
 import { TexcoX, TexcoWordmark } from "@/components/TexcoBrand";
 
@@ -15,6 +16,7 @@ export default async function LoginPage({
   const { callbackUrl, error } = await searchParams;
   const devLogin =
     process.env.NODE_ENV === "development" && process.env.DEV_LOGIN === "1";
+  const passwordLogin = Boolean(process.env.TEMP_LOGIN_PASSWORD);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#191919]">
@@ -41,8 +43,55 @@ export default async function LoginPage({
           </form>
           {error && (
             <p className="mt-3 text-center text-[13px] text-[#FC4D0F]">
-              Sign-in failed. Please try again or contact IT.
+              {error === "CredentialsSignin"
+                ? "Invalid email or password."
+                : "Sign-in failed. Please try again or contact IT."}
             </p>
+          )}
+          {passwordLogin && (
+            <form
+              className="mt-6 border-t border-neutral-200 pt-5"
+              action={async (formData: FormData) => {
+                "use server";
+                try {
+                  await signIn("password", {
+                    email: String(formData.get("email") ?? ""),
+                    password: String(formData.get("password") ?? ""),
+                    redirectTo: callbackUrl ?? "/",
+                  });
+                } catch (err) {
+                  if (err instanceof AuthError) {
+                    redirect(
+                      `/login?error=CredentialsSignin${
+                        callbackUrl ? `&callbackUrl=${encodeURIComponent(callbackUrl)}` : ""
+                      }`
+                    );
+                  }
+                  throw err; // NEXT_REDIRECT on success
+                }
+              }}
+            >
+              <input
+                name="email"
+                type="email"
+                required
+                placeholder="Email"
+                className="mb-3 w-full rounded-md border-2 border-neutral-200 px-4 py-3 text-[15px] outline-none focus:border-[#FC4D0F]"
+              />
+              <input
+                name="password"
+                type="password"
+                required
+                placeholder="Password"
+                className="mb-4 w-full rounded-md border-2 border-neutral-200 px-4 py-3 text-[15px] outline-none focus:border-[#FC4D0F]"
+              />
+              <button
+                type="submit"
+                className="w-full rounded-md bg-[#191919] px-4 py-3 text-[13px] font-bold uppercase tracking-[3px] text-white transition-colors hover:bg-[#333]"
+              >
+                Sign in
+              </button>
+            </form>
           )}
           {devLogin && (
             <form

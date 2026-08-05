@@ -17,6 +17,28 @@ const providers: Provider[] = [
   }),
 ];
 
+// Temporary shared-password login while Entra sign-in is being set up.
+// Exists ONLY while the TEMP_LOGIN_PASSWORD env var is set — remove the var
+// and redeploy to kill it. Sessions are identical to Entra ones; access
+// control (lib/access.ts) still decides what each email can see.
+if (process.env.TEMP_LOGIN_PASSWORD) {
+  providers.push(
+    Credentials({
+      id: "password",
+      name: "Email and password",
+      credentials: { email: { label: "Email" }, password: { label: "Password" } },
+      authorize: (creds) => {
+        const email =
+          typeof creds?.email === "string" ? creds.email.trim().toLowerCase() : "";
+        const password = typeof creds?.password === "string" ? creds.password : "";
+        if (!email.includes("@")) return null;
+        if (!password || password !== process.env.TEMP_LOGIN_PASSWORD) return null;
+        return { email, name: email.split("@")[0] };
+      },
+    })
+  );
+}
+
 // Local-only dev backdoor, equivalent to tools' env-guarded /dev/login/{email}.
 // Never registered outside `next dev`.
 if (process.env.NODE_ENV === "development" && process.env.DEV_LOGIN === "1") {

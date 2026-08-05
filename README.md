@@ -56,6 +56,18 @@ like the tools app — staff sign in with their normal M365 account (and
 whatever MFA/conditional-access policies IT enforces there). Removing someone
 from the tenant removes their ability to sign in.
 
+### Temporary password login (stop-gap)
+
+While Entra sign-in is being set up, setting the `TEMP_LOGIN_PASSWORD` env var
+adds an email + password form to the login page: any email paired with that
+one shared password gets a session. Access control still applies — the email
+must be granted access (see §3) or they land on the no-access page. **This
+bypasses Entra MFA and is a shared secret: remove the env var and redeploy as
+soon as Microsoft sign-in works** (`vercel env rm TEMP_LOGIN_PASSWORD
+production && vercel deploy --prod`). The custom-domain deployment also pins
+`AUTH_URL=https://kestrel.apps.texco.net.au` so OAuth callbacks are always
+built with the https custom domain.
+
 ## 3. Adding a user
 
 Authentication only proves someone works at Texco; they see **nothing** until
