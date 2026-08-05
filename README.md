@@ -153,13 +153,14 @@ timestamp — visible under the project's **Logs** tab in Vercel.
   when — every Bonus%/IPM%/Disc adj change (old → new value), every
   lock/unlock, and every access grant/change/removal. Stored in Redis
   (newest first, capped at 2,000 entries).
-- **Privacy by default**: all figures load masked (`••••`) — names and
-  positions are visible, numbers aren't. Click a row to reveal just that
-  row; use the **Show everything** button (top right) or press
-  <kbd>Space</kbd> outside an input to toggle everything, and Space again to
-  instantly re-mask when someone walks past. Pool cards, totals, and the
-  history detail stay masked until "Show everything". Every page load starts
-  masked.
+- **Privacy by default**: per-employee figures in the table load masked
+  (`••••`) — names and positions are visible, individual numbers aren't.
+  Pool cards and the summary totals at the top are always visible. Click a
+  row to reveal just that person; use the **Show everything** button (top
+  right) or press <kbd>Space</kbd> outside an input to toggle the whole
+  table, and Space again to instantly re-mask when someone walks past. The
+  table's totals row and the history detail stay masked until
+  "Show everything". Every page load starts masked.
 
 ---
 

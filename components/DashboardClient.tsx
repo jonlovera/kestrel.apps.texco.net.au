@@ -359,7 +359,6 @@ export default function DashboardClient({
           utilPct={c.utilPct}
           scaleFactor={c.scale}
           scaleLabel={c.scaleLabel}
-          masked={!showAll}
         />
       ));
     }
@@ -405,7 +404,6 @@ export default function DashboardClient({
           utilPct={total / cap}
           scaleFactor={scale}
           scaleLabel={scaleLabel ?? undefined}
-          masked={!showAll}
         />
       );
     };
@@ -415,7 +413,7 @@ export default function DashboardClient({
       card("NSW pool", nCap, nswTotal, sharedNsw, pool.nswScale, "NSW scale factor"),
       card("Group total", gCap, groupTotal, null, null, null),
     ];
-  }, [isEditor, payload, emps, pool, showAll]);
+  }, [isEditor, payload, emps, pool]);
 
   function doSort(key: string) {
     if (sortCol === key) setSortDir((d) => -d);
@@ -703,7 +701,7 @@ export default function DashboardClient({
             </span>
             {typeof totFinal === "number" && (
               <span className="rounded bg-neutral-100 px-2.5 py-1">
-                Total bonuses: {showAll ? fmt(totFinal) : "••••••"}
+                Total bonuses: {fmt(totFinal)}
               </span>
             )}
           </div>
