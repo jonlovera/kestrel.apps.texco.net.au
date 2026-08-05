@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useState } from "react";
 import type { Employee } from "@/lib/schema";
 import { fmt } from "@/lib/fmt";
-import { TexcoX, TexcoWordmark } from "./TexcoBrand";
 
 interface Preview {
   rowCount: number;
@@ -77,23 +76,7 @@ export default function ImportPanel() {
     stage.step === "preview" && stage.preview.removedWithData.length > 0;
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <div className="sticky top-0 z-40 flex items-center justify-between bg-[#191919] px-6 py-3">
-        <div className="flex items-center">
-          <TexcoX className="mr-2.5 h-[22px] w-[22px] shrink-0" />
-          <TexcoWordmark className="mr-4 h-[18px] w-auto shrink-0" />
-          <span className="hidden text-xs font-medium uppercase tracking-[2px] text-[#FC4D0F] sm:inline">
-            Import data
-          </span>
-        </div>
-        <Link
-          href="/"
-          className="rounded border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"
-        >
-          Back to dashboard
-        </Link>
-      </div>
-
+    <div>
       <div className="mx-auto w-full max-w-[900px] flex-1 px-5 py-6">
         <h1 className="mb-1 text-lg font-bold">Import employee data</h1>
         <p className="mb-4 text-[13px] text-[#5C5C5C]">

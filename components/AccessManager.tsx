@@ -1,11 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import type { GrantingRule, RuleSource } from "@/lib/access-rules";
 import type { NumericField } from "@/lib/access-types";
 import { NUMERIC_FIELDS } from "@/lib/access-types";
-import { TexcoX, TexcoWordmark } from "./TexcoBrand";
 
 interface RuleRow {
   email: string;
@@ -129,23 +127,7 @@ export default function AccessManager({
     "rounded-md border-2 border-neutral-200 px-3 py-2 text-[13px] outline-none focus:border-[#FC4D0F]";
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <div className="sticky top-0 z-40 flex items-center justify-between bg-[#191919] px-6 py-3">
-        <div className="flex items-center">
-          <TexcoX className="mr-2.5 h-[22px] w-[22px] shrink-0" />
-          <TexcoWordmark className="mr-4 h-[18px] w-auto shrink-0" />
-          <span className="hidden text-xs font-medium uppercase tracking-[2px] text-[#FC4D0F] sm:inline">
-            Manage access
-          </span>
-        </div>
-        <Link
-          href="/"
-          className="rounded border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"
-        >
-          Back to dashboard
-        </Link>
-      </div>
-
+    <div>
       <div className="mx-auto w-full max-w-[1100px] flex-1 px-5 py-6">
         <h1 className="mb-1 text-lg font-bold">Who can sign in</h1>
         <p className="mb-4 text-[13px] text-[#5C5C5C]">

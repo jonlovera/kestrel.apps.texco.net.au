@@ -88,22 +88,40 @@ database entries. Removing a code-seeded person in the UI stores a shadow
 entry; `jlovera@texco.net.au` is protected in code and can never be locked
 out. Every access change is audit-logged (who, whom, what, when).
 
-## 4. Importing data
+## 4. Data, parameters and presentation (self-service, no deploy)
 
-Data lives in `data/bonus.json` (server-only; never sent to the browser except
-to full-access editors). To refresh it from Excel, export CSV or JSON and run:
+Everything a finance lead needs day-to-day lives under **/admin** (full-access
+users only; every page and API authorises independently):
 
-```bash
-# CSV with headers: id,sn,gn,pos,dept,mgr,cat,st,vp,np,pkg,bp,ipm,bipm,da,f25,sm
-npm run import -- fy26.csv --vCap 1580414.50 --nCap 1038408.25
+- **Access** — grant/revoke who can sign in and what they see.
+- **Columns** — show/hide/rename/reorder/reformat the table columns, and hide
+  the pool-card scale factor. Display only: never changes entitlement or
+  calculations (tested).
+- **Params** — the VIC/NSW/group caps and the company-wide modifier, with a
+  live preview of the impact before saving. Defaults match the source data
+  exactly (modifier 1.0 = today's behaviour).
+- **Import** — upload the .xlsx/.csv (headers: ID, Surname, Given name,
+  Position, Department, Manager, Category, State, VIC %, NSW %, Package,
+  Bonus %, IPM %, After IPM, Disc adj, FY25 bonus, Site manager). Preview
+  shows added/removed people and the pool total before/after for
+  reconciliation; removals of people with entered figures need explicit
+  confirmation; manager-entered IPMs/adjustments/locks are never overwritten.
+- **Snapshots** — a full copy of everything is taken before every change;
+  one-click restore (itself undoable) and per-snapshot JSON download. Last
+  50 kept.
 
-# or JSON (full app shape, or a bare employee array + the --vCap/--nCap flags)
-npm run import -- fy26.json
-```
+Concurrent editing is safe: saves carry a version and a stale save gets a
+"someone else saved" reload instead of silently overwriting.
 
-Every row is schema-validated and the script prints the pool totals and
-baseline scale factors — **reconcile `TOTAL BONUS POOL` against the Excel
-before deploying**. Commit the updated `data/bonus.json` and redeploy.
+**Source data is not in git.** `data/bonus.json` (155 salary packages) is
+gitignored; the app reads the dataset from Redis (`kestrel:data:fy26`), then
+the `BONUS_DATA` env var (base64 JSON), then the local file (dev only). Seed
+Redis with `npx tsx scripts/seed-store.ts`; the old `npm run import` script
+still writes the local dev file.
+
+The calc engine (`lib/calc.ts`) is frozen and protected by golden tests
+(`lib/calc-golden.test.ts`, strict bit-for-bit equality on all 155 rows plus
+lock/adjustment scenarios) — any change that moves a figure fails the suite.
 
 ## 5. Local development
 
