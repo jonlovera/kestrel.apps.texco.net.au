@@ -61,6 +61,8 @@ export interface EditorPayload {
   user: UserInfo;
   employees: Employee[];
   overrides: Overrides;
+  /** optimistic-concurrency token; saves carrying a stale value get 409 */
+  overridesVersion: number;
   caps: { vCap: number; nCap: number; gCap: number };
   cats: string[];
   depts: string[];

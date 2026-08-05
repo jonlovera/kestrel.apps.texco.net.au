@@ -100,16 +100,88 @@ export function saveStoredDataset(doc: Dataset): Promise<void> {
   return saveDoc(DATA_KEY, DATA_FILE, doc);
 }
 
-// ── editors' bonus adjustments ───────────────────────────────────────────────
+// ── editors' bonus adjustments (versioned: lost updates return 409) ──────────
 const OVERRIDES_KEY = "kestrel:overrides:fy26";
 const OVERRIDES_FILE = "overrides.json";
+const OVERRIDES_VER_KEY = "kestrel:overrides:ver";
+const OVERRIDES_VER_FILE = "overrides.ver.json";
 
 export function loadOverrides(): Promise<Overrides> {
   return loadDoc(OVERRIDES_KEY, OVERRIDES_FILE, OverridesSchema, {});
 }
 
-export function saveOverrides(doc: Overrides): Promise<void> {
-  return saveDoc(OVERRIDES_KEY, OVERRIDES_FILE, doc);
+export async function loadOverridesVersion(): Promise<number> {
+  try {
+    const client = redis();
+    const raw = client
+      ? await client.get(OVERRIDES_VER_KEY)
+      : await devRead(OVERRIDES_VER_FILE);
+    const n = Number(raw);
+    return Number.isInteger(n) && n >= 0 ? n : 0;
+  } catch (err) {
+    console.error("[store] failed to load overrides version:", err);
+    return 0;
+  }
+}
+
+export type CasResult =
+  | { ok: true; version: number }
+  | { ok: false; current: number };
+
+/**
+ * Compare-and-set save: only writes when the caller's version matches the
+ * stored one, otherwise reports the current version so the caller can 409.
+ * Atomic on Redis via a single Lua script; the dev file fallback does a
+ * plain compare (single-process `next dev`).
+ */
+export async function saveOverridesCas(
+  doc: Overrides,
+  expectedVersion: number
+): Promise<CasResult> {
+  const client = redis();
+  if (client) {
+    const result = await client.eval(
+      `local v = tonumber(redis.call('GET', KEYS[2]) or '0')
+       if v ~= tonumber(ARGV[2]) then return -1 - v end
+       redis.call('SET', KEYS[1], ARGV[1])
+       return redis.call('INCR', KEYS[2])`,
+      [OVERRIDES_KEY, OVERRIDES_VER_KEY],
+      [JSON.stringify(doc), String(expectedVersion)]
+    );
+    const n = Number(result);
+    // script returns new version on success, (-1 - current) on mismatch
+    if (n >= 0) return { ok: true, version: n };
+    return { ok: false, current: -1 - n };
+  }
+  if (process.env.NODE_ENV === "development") {
+    const current = await loadOverridesVersion();
+    if (current !== expectedVersion) return { ok: false, current };
+    await devWrite(OVERRIDES_FILE, doc);
+    await devWrite(OVERRIDES_VER_FILE, current + 1);
+    return { ok: true, version: current + 1 };
+  }
+  throw new Error(
+    "No Redis configured (KV_REST_API_URL / KV_REST_API_TOKEN) — cannot persist in production."
+  );
+}
+
+/**
+ * Unconditional write that still bumps the version (used by snapshot
+ * restore), so any editor holding a stale version gets a 409 next save.
+ */
+export async function saveOverridesForce(doc: Overrides): Promise<void> {
+  const client = redis();
+  if (client) {
+    await client.set(OVERRIDES_KEY, doc);
+    await client.incr(OVERRIDES_VER_KEY);
+  } else if (process.env.NODE_ENV === "development") {
+    await devWrite(OVERRIDES_FILE, doc);
+    await devWrite(OVERRIDES_VER_FILE, (await loadOverridesVersion()) + 1);
+  } else {
+    throw new Error(
+      "No Redis configured (KV_REST_API_URL / KV_REST_API_TOKEN) — cannot persist in production."
+    );
+  }
 }
 
 // ── access-rule overlay (managed from /admin) ────────────────────────────────

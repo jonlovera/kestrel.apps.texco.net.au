@@ -1,6 +1,6 @@
 import "server-only";
 import { getDataset } from "./data";
-import { loadOverrides } from "./store";
+import { loadOverrides, loadOverridesVersion } from "./store";
 import { buildPayloadCore } from "./scope-core";
 import type { Scope } from "./access";
 import type { DashboardPayload, UserInfo } from "./payload-types";
@@ -14,7 +14,10 @@ export async function buildDashboardPayload(
   scope: Scope,
   user: UserInfo
 ): Promise<DashboardPayload> {
-  const data = await getDataset();
-  const overrides = await loadOverrides();
-  return buildPayloadCore(data, overrides, scope, user);
+  const [data, overrides, overridesVersion] = await Promise.all([
+    getDataset(),
+    loadOverrides(),
+    loadOverridesVersion(),
+  ]);
+  return buildPayloadCore(data, overrides, scope, user, overridesVersion);
 }

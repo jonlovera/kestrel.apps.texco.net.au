@@ -3,7 +3,8 @@ import type { Snapshot } from "./schema";
 import { getDataset } from "./data";
 import {
   loadOverrides,
-  saveOverrides,
+  loadOverridesVersion,
+  saveOverridesForce,
   saveStoredDataset,
   loadSnapshots,
   pushSnapshot,
@@ -19,9 +20,10 @@ import { shouldCoalesce } from "./snapshots-core";
  */
 export async function takeSnapshot(actor: string, reason: string): Promise<void> {
   try {
-    const [dataset, overrides, existing] = await Promise.all([
+    const [dataset, overrides, overridesVersion, existing] = await Promise.all([
       getDataset(),
       loadOverrides(),
+      loadOverridesVersion(),
       loadSnapshots(1),
     ]);
     const now = new Date().toISOString();
@@ -34,6 +36,7 @@ export async function takeSnapshot(actor: string, reason: string): Promise<void>
       state: {
         dataset,
         overrides,
+        overridesVersion,
         params: null, // populated once the params doc exists
         columns: null, // populated once the column-config doc exists
       },
@@ -60,7 +63,8 @@ export async function restoreSnapshot(ts: string, actor: string): Promise<void> 
   await takeSnapshot(actor, "pre-restore");
 
   await saveStoredDataset(target.state.dataset);
-  await saveOverrides(target.state.overrides);
+  // Force-write bumps the version so open editors 409 and reload.
+  await saveOverridesForce(target.state.overrides);
   // params/columns are restored verbatim when present (later steps write them)
 
   await appendHistory([

@@ -27,7 +27,8 @@ export function buildPayloadCore(
   data: Dataset,
   overrides: Overrides,
   scope: Scope,
-  user: UserInfo
+  user: UserInfo,
+  overridesVersion = 0
 ): DashboardPayload {
   if (scope.rule.type === "full") {
     return {
@@ -35,6 +36,7 @@ export function buildPayloadCore(
       user,
       employees: data.emp,
       overrides,
+      overridesVersion,
       caps: { vCap: data.vCap, nCap: data.nCap, gCap: data.gCap },
       cats: data.cats,
       depts: data.depts,

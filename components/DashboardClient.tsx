@@ -65,6 +65,9 @@ export default function DashboardClient({
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firstRender = useRef(true);
+  // optimistic-concurrency token; a stale save gets a 409 instead of
+  // silently overwriting a colleague's changes
+  const versionRef = useRef(isEditor ? payload.overridesVersion : 0);
 
   useEffect(() => {
     if (!isEditor) return;
@@ -79,9 +82,22 @@ export default function DashboardClient({
         const res = await fetch("/api/state", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(overrides),
+          body: JSON.stringify({ version: versionRef.current, overrides }),
         });
-        setSaveStatus(res.ok ? "saved" : "error");
+        if (res.status === 409) {
+          alert(
+            "Someone else saved changes since this page loaded. Reloading to pick up the latest figures — your last change was not saved."
+          );
+          window.location.reload();
+          return;
+        }
+        if (res.ok) {
+          const body = await res.json();
+          if (typeof body.version === "number") versionRef.current = body.version;
+          setSaveStatus("saved");
+        } else {
+          setSaveStatus("error");
+        }
       } catch {
         setSaveStatus("error");
       }
@@ -89,7 +105,7 @@ export default function DashboardClient({
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
-  }, [overrides, isEditor]);
+  }, [overrides, isEditor, payload]);
 
   // ── calc (editor mode runs the prototype's engine client-side) ──
   const { emps, pool } = useMemo<{

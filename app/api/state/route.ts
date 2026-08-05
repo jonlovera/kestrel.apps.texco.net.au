@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { scopeForUser } from "@/lib/access";
 import { getDataset } from "@/lib/data";
-import { saveOverrides, loadOverrides, appendHistory } from "@/lib/store";
+import { saveOverridesCas, loadOverrides, appendHistory } from "@/lib/store";
 import { OverridesSchema, type Overrides } from "@/lib/schema";
+import { z } from "zod";
 import { diffOverrides } from "@/lib/history-diff";
 import { takeSnapshot } from "@/lib/snapshots";
 import {
@@ -36,8 +37,16 @@ export async function POST(req: Request) {
   }
 
   let incoming: Overrides;
+  let clientVersion: number;
   try {
-    incoming = OverridesSchema.parse(await req.json());
+    const body = z
+      .object({
+        version: z.number().int().min(0),
+        overrides: OverridesSchema,
+      })
+      .parse(await req.json());
+    incoming = body.overrides;
+    clientVersion = body.version;
   } catch {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
@@ -91,19 +100,35 @@ export async function POST(req: Request) {
     }
   }
 
-  // Snapshot (coalesced for rapid edits), then record who changed what
-  // before overwriting the previous doc.
+  // Snapshot (coalesced for rapid edits), then save with optimistic
+  // concurrency: a stale version means someone else saved since this
+  // client loaded — 409, never silently clobber their changes.
   await takeSnapshot(email, "edit");
   const previous = await loadOverrides();
-  await saveOverrides(sanitised);
+  const cas = await saveOverridesCas(sanitised, clientVersion);
+  if (!cas.ok) {
+    console.log(
+      `[audit] state-write CONFLICT email=${email} sent=${clientVersion} current=${cas.current} ts=${new Date().toISOString()}`
+    );
+    const res = NextResponse.json(
+      { error: "Version conflict — someone else saved changes", current: cas.current },
+      { status: 409 }
+    );
+    res.headers.set("Cache-Control", "no-store, max-age=0");
+    return res;
+  }
   await appendHistory(
     diffOverrides(data.emp, previous, sanitised, email, new Date().toISOString())
   );
   console.log(
-    `[audit] state-write email=${email} entries=${Object.keys(sanitised).length} ts=${new Date().toISOString()}`
+    `[audit] state-write email=${email} entries=${Object.keys(sanitised).length} version=${cas.version} ts=${new Date().toISOString()}`
   );
 
-  const res = NextResponse.json({ ok: true, overrides: sanitised });
+  const res = NextResponse.json({
+    ok: true,
+    overrides: sanitised,
+    version: cas.version,
+  });
   res.headers.set("Cache-Control", "no-store, max-age=0");
   return res;
 }
