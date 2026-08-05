@@ -36,7 +36,10 @@ function applySecurityHeaders(res: NextResponse): NextResponse {
 export default auth((req) => {
   const { pathname } = req.nextUrl;
   const isPublic =
-    PUBLIC_PATHS.includes(pathname) || pathname.startsWith("/api/auth");
+    PUBLIC_PATHS.includes(pathname) ||
+    pathname.startsWith("/api/auth") ||
+    // local-only convenience login; the route 404s outside `next dev`
+    pathname.startsWith("/dev/login");
 
   if (!req.auth?.user?.email && !isPublic) {
     const loginUrl = new URL("/login", req.nextUrl.origin);

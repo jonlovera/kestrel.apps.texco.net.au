@@ -13,7 +13,7 @@ export default async function DashboardPage() {
   const email = session?.user?.email;
   if (!email) redirect("/login"); // proxy already enforces this; belt-and-braces
 
-  const scope = scopeForUser(email);
+  const scope = await scopeForUser(email);
   if (!scope) {
     console.log(
       `[audit] pageview email=${email} scope=NONE ts=${new Date().toISOString()}`

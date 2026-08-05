@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { signOut } from "next-auth/react";
 import type { DashboardPayload, ScopedRow } from "@/lib/payload-types";
 import type { NumericField } from "@/lib/access-types";
@@ -484,6 +485,14 @@ export default function DashboardClient({
             <br />
             <span className="text-[10px] opacity-80">{payload.user.scopeLabel}</span>
           </span>
+          {isEditor && (
+            <Link
+              href="/admin"
+              className="rounded border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"
+            >
+              Manage access
+            </Link>
+          )}
           <button
             type="button"
             onClick={() => signOut({ callbackUrl: "/login" })}

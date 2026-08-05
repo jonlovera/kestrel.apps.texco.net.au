@@ -59,16 +59,22 @@ from the tenant removes their ability to sign in.
 ## 3. Adding a user
 
 Authentication only proves someone works at Texco; they see **nothing** until
-you list them in `lib/access.ts` (see the comment block at the top of that
-file for copy-paste examples of all three access types):
+granted access. Any full-access user can manage this in the app: **Manage
+access** in the dashboard header (or `/admin`) — add an email, pick one of the
+three access types, save. Changes are stored in Redis and apply immediately,
+no deploy:
 
-- `full` — every employee, every field, can edit
+- `full` — every employee, every field, can edit, can manage access
 - `state` — all employees in the listed state(s), read-only, with an explicit
-  `visibleFields` list (omit `pkg`/`bp` to keep salary figures out entirely)
-- `subset` — an explicit list of employee ids, read-only, explicit fields
+  visible-fields list (leave Package/Bonus% unticked to keep salary figures
+  out entirely — they're flagged "salary" in the form)
+- `subset` — an explicit list of employees, read-only, explicit fields
 
-Then redeploy. For a no-deploy change, set the `BONUS_USERS` env var to a JSON
-object of the same shape and redeploy config only — it's merged over the file.
+Precedence per email: `lib/access.ts` (code seed — the owners, always present)
+< `BONUS_USERS` env var (optional JSON of the same shape) < the `/admin`
+database entries. Removing a code-seeded person in the UI stores a shadow
+entry; `jlovera@texco.net.au` is protected in code and can never be locked
+out. Every access change is audit-logged (who, whom, what, when).
 
 ## 4. Importing data
 
@@ -95,8 +101,11 @@ cp .env.example .env.local   # fill in AUTH_SECRET at minimum; set DEV_LOGIN=1
 npm run dev
 ```
 
-With `DEV_LOGIN=1` you can sign in as any configured email without Entra
-(local only). Without Redis credentials, edits persist to `.data/overrides.json`.
+With `DEV_LOGIN=1` you can sign in as anyone without Entra (local only):
+open `http://localhost:3000/dev/login/<email>` — e.g.
+`/dev/login/jlovera@texco.net.au` — or bare `/dev/login` which defaults to
+jlovera (same idea as tools' `/dev/login/{email}`). Without Redis credentials,
+edits persist to `.data/overrides.json` and access rules to `.data/access.json`.
 
 ```bash
 npm test        # Vitest — includes the pro-rata/lock redistribution suite

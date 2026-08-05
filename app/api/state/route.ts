@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   const session = await auth();
   const email = session?.user?.email;
-  const scope = scopeForUser(email);
+  const scope = await scopeForUser(email);
 
   if (!email || !scope) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

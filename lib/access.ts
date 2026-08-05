@@ -1,90 +1,45 @@
 import "server-only";
 import { z } from "zod";
 import { NUMERIC_FIELDS, type NumericField } from "./access-types";
+import {
+  AccessRuleSchema,
+  effectiveRules,
+  type AccessRule,
+  type EffectiveRule,
+  type GrantingRule,
+} from "./access-rules";
+import { loadAccessOverlay } from "./store";
 
 /**
  * ============================================================================
- * ACCESS CONTROL CONFIG — who can see what.
+ * ACCESS CONTROL — who can see what.
  *
- * HOW TO ADD A PERSON
- * -------------------
- * 1. They sign in with their normal Texco Microsoft (M365) account — anyone in
- *    the tenant can *authenticate*, but they see nothing until listed here.
- * 2. Add an entry keyed by their work email (lowercase). Pick one of the three
- *    access types:
+ * Day-to-day management happens in the app: any full-access user can add or
+ * remove people at /admin (stored in Redis, no deploy needed). The entries
+ * below are the SEED/FALLBACK layer — kept in code so the app always has its
+ * owners even if the database is empty, and so jlovera can never be locked
+ * out. Precedence per email: this file < BONUS_USERS env var < /admin (db).
  *
- *    FULL — sees every employee and every field, and can edit:
- *      'dee.gibson@texco.net.au': { type: 'full' },
- *
- *    STATE — sees all employees in the listed state(s), read-only. List the
- *    fields they may see; anything not listed is stripped SERVER-SIDE and
- *    never reaches their browser. 'pkg' (package) and 'bp' (bonus %) are the
- *    salary-sensitive fields — omit them unless the person is cleared:
- *      'clint.cassar@texco.net.au': {
- *        type: 'state',
- *        states: ['VIC'],                       // may list several, or 'SHARED'
- *        visibleFields: ['ipm', 'bipm', 'calc', 'f25', 'da', 'yoy', 'final'],
- *      },
- *
- *    SUBSET — sees only the listed employee IDs (the 5-letter `id` codes in
- *    data/bonus.json), read-only, with the listed fields:
- *      'board.member@texco.net.au': {
- *        type: 'subset',
- *        employeeIds: ['ALBID', 'BRELL'],
- *        visibleFields: ['final'],
- *      },
- *
- *    Identity fields (name, position, department, manager, state) are always
- *    visible for rows a person is allowed to see; `visibleFields` governs the
- *    numeric columns: pkg, bp, ipm, bipm, calc, f25, da, yoy, final.
- *
- * 3. Redeploy (`vercel deploy --prod`). Alternatively set the BONUS_USERS env
- *    var to a JSON object of the same shape — it is merged over this config,
- *    so you can add or override people without a code change.
+ * The three access types (see /admin for the same options with a form):
+ *   full   — every employee, every field, can edit, can manage access
+ *   state  — employees in the listed state(s), read-only, listed fields only
+ *   subset — only the listed employee ids, read-only, listed fields only
+ * `visibleFields` governs the numeric columns (pkg, bp, ipm, bipm, calc, f25,
+ * da, yoy, final); pkg/bp are the salary-sensitive ones. Identity fields
+ * (name, position, department, manager) are always visible on permitted rows.
  * ============================================================================
  */
 const ACCESS: Record<string, AccessRule> = {
   'jlovera@texco.net.au': { type: 'full' },
-  // ── placeholders: replace with real Texco emails ──────────────────────────
-  'full.access@texco.net.au': { type: 'full' },
-  'vic.leader@texco.net.au': {
-    type: 'state',
-    states: ['VIC'],
-    visibleFields: ['ipm', 'bipm', 'calc', 'f25', 'da', 'yoy', 'final'],
-  },
-  'nsw.leader@texco.net.au': {
-    type: 'state',
-    states: ['NSW'],
-    visibleFields: ['ipm', 'bipm', 'calc', 'f25', 'da', 'yoy', 'final'],
-  },
-  'subset.viewer@texco.net.au': {
-    // employee IDs are the 5-letter codes from data/bonus.json (e.g. 'ALBID')
-    type: 'subset',
-    employeeIds: ['ALBID', 'BRELL'],
-    visibleFields: ['final'],
-  },
+  'dgibson@texco.net.au': { type: 'full' },
+  'tbull@texco.net.au': { type: 'full' },
+  'jbull@texco.net.au': { type: 'full' },
 };
-
-
-const AccessRuleSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("full") }),
-  z.object({
-    type: z.literal("state"),
-    states: z.array(z.enum(["VIC", "NSW", "SHARED"])).min(1),
-    visibleFields: z.array(z.enum(NUMERIC_FIELDS)),
-  }),
-  z.object({
-    type: z.literal("subset"),
-    employeeIds: z.array(z.string()).min(1),
-    visibleFields: z.array(z.enum(NUMERIC_FIELDS)),
-  }),
-]);
-export type AccessRule = z.infer<typeof AccessRuleSchema>;
 
 /** Resolved scope handed to the rest of the server code. */
 export interface Scope {
   email: string;
-  rule: AccessRule;
+  rule: GrantingRule;
   canEdit: boolean;
   /** numeric fields this user may receive */
   visibleFields: NumericField[];
@@ -106,11 +61,19 @@ function envOverrides(): Record<string, AccessRule> {
   }
 }
 
-export function scopeForUser(email: string | null | undefined): Scope | null {
+/** All effective rules (seed + env + db overlay), keyed by email. */
+export async function allRules(): Promise<Record<string, EffectiveRule>> {
+  return effectiveRules(ACCESS, envOverrides(), await loadAccessOverlay());
+}
+
+export async function scopeForUser(
+  email: string | null | undefined
+): Promise<Scope | null> {
   if (!email) return null;
   const key = email.toLowerCase();
-  const rule = { ...ACCESS, ...envOverrides() }[key];
-  if (!rule) return null;
+  const eff = (await allRules())[key];
+  if (!eff) return null;
+  const rule = eff.rule;
 
   if (rule.type === "full") {
     return {
@@ -138,3 +101,11 @@ export function scopeForUser(email: string | null | undefined): Scope | null {
     label: "Selected employees — read only",
   };
 }
+
+/** True when this email's granting rule comes from code/env (not the db). */
+export async function isSeeded(email: string): Promise<boolean> {
+  const seedAndEnv = effectiveRules(ACCESS, envOverrides(), {});
+  return email.toLowerCase() in seedAndEnv;
+}
+
+export { AccessRuleSchema, type AccessRule };
