@@ -12,8 +12,10 @@ import {
   pushSnapshot,
   appendHistory,
 } from "./store";
+import { loadParams, saveParams } from "./store";
 import { shouldCoalesce } from "./snapshots-core";
 import { ColumnConfigSchema } from "./columns";
+import { ParamsSchema } from "./params-apply";
 
 /**
  * Take a full point-in-time snapshot of everything mutable. Called BEFORE
@@ -23,12 +25,13 @@ import { ColumnConfigSchema } from "./columns";
  */
 export async function takeSnapshot(actor: string, reason: string): Promise<void> {
   try {
-    const [dataset, overrides, overridesVersion, columns, existing] =
+    const [dataset, overrides, overridesVersion, columns, params, existing] =
       await Promise.all([
         getDataset(),
         loadOverrides(),
         loadOverridesVersion(),
         loadColumnConfig(),
+        loadParams(),
         loadSnapshots(1),
       ]);
     const now = new Date().toISOString();
@@ -42,7 +45,7 @@ export async function takeSnapshot(actor: string, reason: string): Promise<void>
         dataset,
         overrides,
         overridesVersion,
-        params: null, // populated once the params doc exists
+        params,
         columns,
       },
     };
@@ -72,7 +75,8 @@ export async function restoreSnapshot(ts: string, actor: string): Promise<void> 
   await saveOverridesForce(target.state.overrides);
   const cols = ColumnConfigSchema.safeParse(target.state.columns);
   if (cols.success) await saveColumnConfig(cols.data);
-  // params restored once the params doc exists (later step)
+  const params = ParamsSchema.safeParse(target.state.params);
+  if (params.success) await saveParams(params.data);
 
   await appendHistory([
     {

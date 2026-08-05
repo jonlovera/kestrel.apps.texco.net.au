@@ -1,6 +1,7 @@
 import "server-only";
 import { DatasetSchema, type Dataset } from "./schema";
-import { loadStoredDataset } from "./store";
+import { loadStoredDataset, loadParams } from "./store";
+import { applyParams, defaultParams, type Params } from "./params-apply";
 
 /**
  * The source dataset (155 employees + pool caps). The raw file holds real
@@ -41,4 +42,20 @@ export async function getDataset(): Promise<Dataset> {
         "Seed the store (scripts/seed-store.ts) or set BONUS_DATA."
     );
   }
+}
+
+/** The stored params, or defaults derived from the dataset's own caps. */
+export async function getParams(): Promise<Params> {
+  const [stored, data] = await Promise.all([loadParams(), getDataset()]);
+  return stored ?? defaultParams(data);
+}
+
+/**
+ * The dataset as the calc engine should see it: scheme parameters applied
+ * (caps replaced, company modifier folded into the bipm input). This is
+ * what every server-side calculation path consumes.
+ */
+export async function getEffectiveDataset(): Promise<Dataset> {
+  const [data, params] = await Promise.all([getDataset(), loadParams()]);
+  return applyParams(data, params ?? defaultParams(data));
 }

@@ -1,5 +1,5 @@
 import "server-only";
-import { getDataset } from "./data";
+import { getEffectiveDataset } from "./data";
 import { loadOverrides, loadOverridesVersion, loadColumnConfig } from "./store";
 import { buildPayloadCore } from "./scope-core";
 import type { Scope } from "./access";
@@ -15,7 +15,7 @@ export async function buildDashboardPayload(
   user: UserInfo
 ): Promise<DashboardPayload> {
   const [data, overrides, overridesVersion, columnConfig] = await Promise.all([
-    getDataset(),
+    getEffectiveDataset(),
     loadOverrides(),
     loadOverridesVersion(),
     loadColumnConfig(),

@@ -18,6 +18,7 @@ import {
   normalizeConfig,
   type ColumnConfig,
 } from "./columns";
+import { ParamsSchema, type Params } from "./params-apply";
 
 /**
  * Persistence: Upstash Redis in production (Vercel Marketplace add-on), a
@@ -202,6 +203,24 @@ export function loadAccessOverlay(): Promise<AccessOverlay> {
 
 export function saveAccessOverlay(doc: AccessOverlay): Promise<void> {
   return saveDoc(ACCESS_KEY, ACCESS_FILE, doc);
+}
+
+// ── scheme-wide parameters (managed via /admin/params) ──────────────────────
+const PARAMS_KEY = "kestrel:params:fy26";
+const PARAMS_FILE = "params.json";
+
+/** null = no explicit params stored; caller falls back to dataset defaults */
+export async function loadParams(): Promise<Params | null> {
+  return loadDoc<Params | null>(
+    PARAMS_KEY,
+    PARAMS_FILE,
+    ParamsSchema as z.ZodType<Params | null>,
+    null
+  );
+}
+
+export function saveParams(params: Params): Promise<void> {
+  return saveDoc(PARAMS_KEY, PARAMS_FILE, params);
 }
 
 // ── column presentation config (managed via /admin/columns) ─────────────────

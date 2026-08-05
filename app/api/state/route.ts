@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { scopeForUser } from "@/lib/access";
-import { getDataset } from "@/lib/data";
+import { getEffectiveDataset } from "@/lib/data";
 import { saveOverridesCas, loadOverrides, appendHistory } from "@/lib/store";
 import { OverridesSchema, type Overrides } from "@/lib/schema";
 import { z } from "zod";
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  const data = await getDataset();
+  const data = await getEffectiveDataset();
   const known = new Map(data.emp.map((e) => [e.id, e]));
 
   // Sanitise: drop unknown ids and clamp ranges. Prototype rules: Bonus%/IPM%
