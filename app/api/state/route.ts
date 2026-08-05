@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { scopeForUser } from "@/lib/access";
 import { getBonusData } from "@/lib/data";
-import { saveOverrides } from "@/lib/store";
+import { saveOverrides, loadOverrides, appendHistory } from "@/lib/store";
 import { OverridesSchema, type Overrides } from "@/lib/schema";
+import { diffOverrides } from "@/lib/history-diff";
 import {
   applyOverrides,
   computeScalesAndBonuses,
@@ -89,7 +90,12 @@ export async function POST(req: Request) {
     }
   }
 
+  // Record who changed what before overwriting the previous doc.
+  const previous = await loadOverrides();
   await saveOverrides(sanitised);
+  await appendHistory(
+    diffOverrides(data.emp, previous, sanitised, email, new Date().toISOString())
+  );
   console.log(
     `[audit] state-write email=${email} entries=${Object.keys(sanitised).length} ts=${new Date().toISOString()}`
   );

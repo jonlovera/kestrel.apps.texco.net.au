@@ -147,6 +147,17 @@ vercel deploy --prod
 Page views and edit writes are logged to the console with email, scope and
 timestamp — visible under the project's **Logs** tab in Vercel.
 
+## 7. History and privacy lock
+
+- **History tab** (full-access users, in the dashboard): who did what and
+  when — every Bonus%/IPM%/Disc adj change (old → new value), every
+  lock/unlock, and every access grant/change/removal. Stored in Redis
+  (newest first, capped at 2,000 entries).
+- **Privacy lock**: press <kbd>Space</kbd> anywhere outside an input to
+  instantly cover the screen with a blank Texco panel (e.g. when someone
+  walks past). Click Resume to continue — the session stays signed in; it's
+  a privacy screen, not a re-authentication.
+
 ---
 
 ## What is still insecure about this setup

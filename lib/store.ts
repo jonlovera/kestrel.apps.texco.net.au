@@ -1,7 +1,12 @@
 import "server-only";
 import { Redis } from "@upstash/redis";
 import { z } from "zod";
-import { OverridesSchema, type Overrides } from "./schema";
+import {
+  OverridesSchema,
+  HistoryEntrySchema,
+  type Overrides,
+  type HistoryEntry,
+} from "./schema";
 import { AccessRuleSchema, type AccessRule } from "./access-rules";
 
 /**
@@ -88,4 +93,52 @@ export function loadAccessOverlay(): Promise<AccessOverlay> {
 
 export function saveAccessOverlay(doc: AccessOverlay): Promise<void> {
   return saveDoc(ACCESS_KEY, ACCESS_FILE, doc);
+}
+
+// ── change history (append-only, newest first, capped) ───────────────────────
+const HISTORY_KEY = "kestrel:history:fy26";
+const HISTORY_FILE = "history.json";
+const HISTORY_CAP = 2000;
+
+/**
+ * Append history entries. Never throws — a history failure must not fail the
+ * save it describes.
+ */
+export async function appendHistory(entries: HistoryEntry[]): Promise<void> {
+  if (entries.length === 0) return;
+  try {
+    const client = redis();
+    if (client) {
+      // newest first: LPUSH in reverse so entries[0] ends up at the head
+      await client.lpush(
+        HISTORY_KEY,
+        ...[...entries].reverse().map((e) => JSON.stringify(e))
+      );
+      await client.ltrim(HISTORY_KEY, 0, HISTORY_CAP - 1);
+    } else if (process.env.NODE_ENV === "development") {
+      const prev = ((await devRead(HISTORY_FILE)) as HistoryEntry[]) ?? [];
+      await devWrite(HISTORY_FILE, [...entries, ...prev].slice(0, HISTORY_CAP));
+    }
+  } catch (err) {
+    console.error("[store] failed to append history:", err);
+  }
+}
+
+export async function loadHistory(limit = 500): Promise<HistoryEntry[]> {
+  try {
+    const client = redis();
+    const raw = client
+      ? await client.lrange(HISTORY_KEY, 0, limit - 1)
+      : (((await devRead(HISTORY_FILE)) as unknown[]) ?? []).slice(0, limit);
+    return raw
+      .map((item) => {
+        const obj = typeof item === "string" ? JSON.parse(item) : item;
+        const parsed = HistoryEntrySchema.safeParse(obj);
+        return parsed.success ? parsed.data : null;
+      })
+      .filter((e): e is HistoryEntry => e !== null);
+  } catch (err) {
+    console.error("[store] failed to load history:", err);
+    return [];
+  }
 }

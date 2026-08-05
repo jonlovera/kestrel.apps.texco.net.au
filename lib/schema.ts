@@ -51,3 +51,18 @@ export const OverridesSchema = z.record(z.string(), EmployeeOverrideSchema);
 
 export type EmployeeOverride = z.infer<typeof EmployeeOverrideSchema>;
 export type Overrides = z.infer<typeof OverridesSchema>;
+
+/** One "who did what and when" record shown on the History tab. */
+export const HistoryEntrySchema = z.object({
+  ts: z.string(), // ISO timestamp, server-side
+  actor: z.string(), // email of the signed-in user who made the change
+  kind: z.enum(["edit", "lock", "access"]),
+  summary: z.string(), // human-readable sentence
+  empId: z.string().optional(),
+  target: z.string().optional(), // email affected by an access change
+  field: z.string().optional(),
+  from: z.union([z.number(), z.string(), z.null()]).optional(),
+  to: z.union([z.number(), z.string(), z.null()]).optional(),
+});
+
+export type HistoryEntry = z.infer<typeof HistoryEntrySchema>;

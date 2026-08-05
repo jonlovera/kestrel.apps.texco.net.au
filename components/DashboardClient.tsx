@@ -5,7 +5,8 @@ import Link from "next/link";
 import { signOut } from "next-auth/react";
 import type { DashboardPayload, ScopedRow } from "@/lib/payload-types";
 import type { NumericField } from "@/lib/access-types";
-import type { Overrides } from "@/lib/schema";
+import type { Overrides, HistoryEntry } from "@/lib/schema";
+import { PrivacyLock } from "./PrivacyLock";
 import {
   applyOverrides,
   computeScalesAndBonuses,
@@ -22,7 +23,7 @@ import { TexcoX, TexcoWordmark } from "./TexcoBrand";
 import { PoolCard, type PoolMetric } from "./PoolCard";
 import { MultiSelect } from "./MultiSelect";
 
-type Tab = "ALL" | "VIC" | "NSW" | "SHARED";
+type Tab = "ALL" | "VIC" | "NSW" | "SHARED" | "HISTORY";
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 interface Column {
@@ -111,6 +112,28 @@ export default function DashboardClient({
   const [selDepts, setSelDepts] = useState<string[]>(payload.depts);
   const [selMgrs, setSelMgrs] = useState<string[]>(payload.mgrs);
 
+  // ── history tab (editors only, fetched lazily) ──
+  const [history, setHistory] = useState<HistoryEntry[] | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  async function fetchHistory() {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch("/api/history");
+      if (res.ok) setHistory((await res.json()).entries);
+      else setHistory([]);
+    } catch {
+      setHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  function openTab(t: Tab) {
+    setActiveTab(t);
+    if (t === "HISTORY" && history === null) fetchHistory();
+  }
+
   // ── rows in display shape ──
   const allRows: DisplayRow[] = useMemo(() => {
     if (!isEditor) return payload.rows;
@@ -167,7 +190,7 @@ export default function DashboardClient({
   // ── filtering + sorting (prototype getVisibleEmployees) ──
   const visibleRows = useMemo(() => {
     let list = allRows;
-    if (isEditor && activeTab !== "ALL")
+    if (isEditor && activeTab !== "ALL" && activeTab !== "HISTORY")
       list = list.filter((r) => r.st === activeTab);
     const q = search.trim().toLowerCase();
     if (q) {
@@ -512,11 +535,11 @@ export default function DashboardClient({
         {/* Tabs (editors only, like the prototype master view) */}
         {isEditor && (
           <div className="mb-4 flex gap-1">
-            {(["ALL", "VIC", "NSW", "SHARED"] as Tab[]).map((t) => (
+            {(["ALL", "VIC", "NSW", "SHARED", "HISTORY"] as Tab[]).map((t) => (
               <button
                 key={t}
                 type="button"
-                onClick={() => setActiveTab(t)}
+                onClick={() => openTab(t)}
                 className={`rounded-t-md px-5 py-2 text-xs font-bold uppercase tracking-wide transition-colors ${
                   activeTab === t
                     ? "bg-[#FC4D0F] text-white"
@@ -529,6 +552,74 @@ export default function DashboardClient({
           </div>
         )}
 
+        {activeTab === "HISTORY" ? (
+          <div className="mb-5 rounded-lg bg-white shadow-sm">
+            <div className="flex items-center justify-between border-b border-neutral-100 px-4 py-3">
+              <h2 className="text-[13px] font-bold uppercase tracking-[1.5px]">
+                Change history
+              </h2>
+              <button
+                type="button"
+                disabled={historyLoading}
+                onClick={fetchHistory}
+                className="rounded border border-neutral-300 px-3 py-1 text-[11px] font-semibold uppercase text-[#5C5C5C] transition-colors hover:border-[#FC4D0F] hover:text-[#FC4D0F] disabled:opacity-40"
+              >
+                {historyLoading ? "Loading…" : "Refresh"}
+              </button>
+            </div>
+            <div className="max-h-[calc(100vh-240px)] overflow-auto">
+              {history === null || historyLoading ? (
+                <div className="px-4 py-8 text-center text-[13px] text-[#5C5C5C]">
+                  Loading…
+                </div>
+              ) : history.length === 0 ? (
+                <div className="px-4 py-8 text-center text-[13px] text-[#5C5C5C]">
+                  No changes recorded yet.
+                </div>
+              ) : (
+                <table className="w-full border-collapse text-xs">
+                  <thead>
+                    <tr>
+                      {["When", "Who", "What"].map((h) => (
+                        <th
+                          key={h}
+                          className="sticky top-0 whitespace-nowrap bg-[#191919] px-3 py-2.5 text-left text-[11px] uppercase tracking-wide text-white"
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.map((h, i) => (
+                      <tr key={i} className="border-b border-neutral-100 hover:bg-neutral-50">
+                        <td className="whitespace-nowrap px-3 py-2 tabular-nums text-[#5C5C5C]">
+                          {new Date(h.ts).toLocaleString("en-AU", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2">{h.actor}</td>
+                        <td className="px-3 py-2">
+                          {h.kind === "access" && (
+                            <span className="mr-2 inline-block rounded bg-neutral-200 px-1.5 py-px text-[10px] font-bold uppercase text-neutral-600">
+                              access
+                            </span>
+                          )}
+                          {h.summary}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
         {/* Pool cards */}
         <div className="mb-4 flex flex-wrap gap-4">{poolCardEls}</div>
 
@@ -620,12 +711,16 @@ export default function DashboardClient({
             </tfoot>
           </table>
         </div>
+          </>
+        )}
       </div>
 
       <footer className="border-t-2 border-[#FC4D0F] bg-white px-6 py-3.5 text-center text-[11px] tracking-wide text-[#5C5C5C]">
         texco &ensp;|&ensp; FY26 Employee Bonus Scheme &ensp;|&ensp; Confidential
         &ensp;|&ensp; Innovate. Design. Deliver.
       </footer>
+
+      <PrivacyLock />
     </div>
   );
 }

@@ -8,8 +8,18 @@ import {
   AccessRuleSchema,
 } from "@/lib/access";
 import { OWNER_EMAIL } from "@/lib/access-rules";
-import { loadAccessOverlay, saveAccessOverlay } from "@/lib/store";
+import { loadAccessOverlay, saveAccessOverlay, appendHistory } from "@/lib/store";
 import { getBonusData } from "@/lib/data";
+
+function describeRule(rule: z.infer<typeof AccessRuleSchema>): string {
+  if (rule.type === "full") return "full access";
+  if (rule.type === "state") return `${rule.states.join(" + ")} read-only`;
+  if (rule.type === "subset")
+    return `read-only on ${rule.employeeIds.length} selected employee${
+      rule.employeeIds.length === 1 ? "" : "s"
+    }`;
+  return "no access";
+}
 
 export const dynamic = "force-dynamic";
 
@@ -84,10 +94,21 @@ export async function POST(req: Request) {
   }
 
   const overlay = await loadAccessOverlay();
+  const existed = (await allRules())[body.email] !== undefined;
   overlay[body.email] = body.rule;
   await saveAccessOverlay(overlay);
+  const ts = new Date().toISOString();
+  await appendHistory([
+    {
+      ts,
+      actor: admin.email,
+      kind: "access",
+      summary: `${existed ? "Changed" : "Granted"} access for ${body.email}: ${describeRule(body.rule)}`,
+      target: body.email,
+    },
+  ]);
   console.log(
-    `[audit] access-change by=${admin.email} target=${body.email} action=upsert rule=${body.rule.type} ts=${new Date().toISOString()}`
+    `[audit] access-change by=${admin.email} target=${body.email} action=upsert rule=${body.rule.type} ts=${ts}`
   );
   return GET();
 }
@@ -124,8 +145,18 @@ export async function DELETE(req: Request) {
     delete overlay[email];
   }
   await saveAccessOverlay(overlay);
+  const ts = new Date().toISOString();
+  await appendHistory([
+    {
+      ts,
+      actor: admin.email,
+      kind: "access",
+      summary: `Removed access for ${email}`,
+      target: email,
+    },
+  ]);
   console.log(
-    `[audit] access-change by=${admin.email} target=${email} action=remove ts=${new Date().toISOString()}`
+    `[audit] access-change by=${admin.email} target=${email} action=remove ts=${ts}`
   );
   return GET();
 }
