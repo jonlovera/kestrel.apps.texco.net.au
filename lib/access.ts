@@ -44,6 +44,7 @@ import { NUMERIC_FIELDS, type NumericField } from "./access-types";
  * ============================================================================
  */
 const ACCESS: Record<string, AccessRule> = {
+  'jlovera@texco.net.au': { type: 'full' },
   // ── placeholders: replace with real Texco emails ──────────────────────────
   'full.access@texco.net.au': { type: 'full' },
   'vic.leader@texco.net.au': {
