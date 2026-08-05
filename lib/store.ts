@@ -1,5 +1,5 @@
 import "server-only";
-import { Redis } from "@upstash/redis";
+import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { z } from "zod";
 import {
   OverridesSchema,
@@ -21,19 +21,23 @@ import {
 import { ParamsSchema, type Params } from "./params-apply";
 
 /**
- * Persistence: Upstash Redis in production (Vercel Marketplace add-on), a
- * local JSON file per document during `next dev` when no Redis credentials
- * are configured. Two documents are stored:
- *  - editors' bonus adjustments (Overrides)
- *  - the access-rule overlay managed from /admin
+ * Persistence: Neon Postgres in production (Vercel Marketplace add-on), a
+ * local JSON file per document during `next dev` when no database is
+ * configured. Documents are jsonb rows in `kestrel_docs` (whose `version`
+ * column backs the overrides compare-and-set); append-only lists (history,
+ * snapshots) are rows in `kestrel_log`, read newest-first by id. Tables are
+ * created once by `scripts/init-db.ts`.
  */
-function redis(): Redis | null {
-  const url = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
-  const token =
-    process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) return null;
-  return new Redis({ url, token });
+type Sql = NeonQueryFunction<false, false>;
+
+function sql(): Sql | null {
+  const url = process.env.DATABASE_URL;
+  if (!url) return null;
+  return neon(url);
 }
+
+const NO_DB =
+  "No database configured (DATABASE_URL) — cannot persist in production.";
 
 async function devRead(file: string): Promise<unknown> {
   const { readFile } = await import("node:fs/promises");
@@ -58,8 +62,13 @@ async function loadDoc<T>(
 ): Promise<T> {
   let raw: unknown;
   try {
-    const client = redis();
-    raw = client ? await client.get(key) : await devRead(file);
+    const client = sql();
+    if (client) {
+      const rows = await client`SELECT doc FROM kestrel_docs WHERE key = ${key}`;
+      raw = rows[0]?.doc ?? null;
+    } else {
+      raw = await devRead(file);
+    }
   } catch (err) {
     // A storage outage must not take the whole app down: reads degrade to
     // baseline data (no overrides / seed-only access), writes still fail loud.
@@ -75,17 +84,27 @@ async function loadDoc<T>(
   return parsed.data;
 }
 
+// Docs are always written as a JSON string param cast to jsonb: the driver
+// would serialize a JS array as a Postgres array, not jsonb, if passed raw.
 async function saveDoc(key: string, file: string, doc: unknown): Promise<void> {
-  const client = redis();
+  const client = sql();
   if (client) {
-    await client.set(key, doc);
+    await client`INSERT INTO kestrel_docs (key, doc)
+      VALUES (${key}, ${JSON.stringify(doc)}::jsonb)
+      ON CONFLICT (key) DO UPDATE SET doc = EXCLUDED.doc, updated_at = now()`;
   } else if (process.env.NODE_ENV === "development") {
     await devWrite(file, doc);
   } else {
-    throw new Error(
-      "No Redis configured (KV_REST_API_URL / KV_REST_API_TOKEN) — cannot persist in production."
-    );
+    throw new Error(NO_DB);
   }
+}
+
+/** Keep the newest `cap` rows of a list, matching Redis LTRIM semantics. */
+async function trimLog(client: Sql, list: string, cap: number): Promise<void> {
+  await client`DELETE FROM kestrel_log WHERE list = ${list} AND id < (
+    SELECT min(id) FROM (
+      SELECT id FROM kestrel_log WHERE list = ${list} ORDER BY id DESC LIMIT ${cap}
+    ) keep)`;
 }
 
 // ── source dataset (employees + caps), managed via /admin/import ────────────
@@ -110,7 +129,6 @@ export function saveStoredDataset(doc: Dataset): Promise<void> {
 // ── editors' bonus adjustments (versioned: lost updates return 409) ──────────
 const OVERRIDES_KEY = "kestrel:overrides:fy26";
 const OVERRIDES_FILE = "overrides.json";
-const OVERRIDES_VER_KEY = "kestrel:overrides:ver";
 const OVERRIDES_VER_FILE = "overrides.ver.json";
 
 export function loadOverrides(): Promise<Overrides> {
@@ -119,10 +137,15 @@ export function loadOverrides(): Promise<Overrides> {
 
 export async function loadOverridesVersion(): Promise<number> {
   try {
-    const client = redis();
-    const raw = client
-      ? await client.get(OVERRIDES_VER_KEY)
-      : await devRead(OVERRIDES_VER_FILE);
+    const client = sql();
+    let raw: unknown;
+    if (client) {
+      const rows =
+        await client`SELECT version FROM kestrel_docs WHERE key = ${OVERRIDES_KEY}`;
+      raw = rows[0]?.version ?? 0;
+    } else {
+      raw = await devRead(OVERRIDES_VER_FILE);
+    }
     const n = Number(raw);
     return Number.isInteger(n) && n >= 0 ? n : 0;
   } catch (err) {
@@ -138,27 +161,37 @@ export type CasResult =
 /**
  * Compare-and-set save: only writes when the caller's version matches the
  * stored one, otherwise reports the current version so the caller can 409.
- * Atomic on Redis via a single Lua script; the dev file fallback does a
- * plain compare (single-process `next dev`).
+ * Each branch is a single atomic statement. The two branches exist because a
+ * lone guarded upsert would insert unconditionally when no row exists yet —
+ * a stale expectedVersion > 0 must fail against an empty table, not win.
+ * The dev file fallback does a plain compare (single-process `next dev`).
  */
 export async function saveOverridesCas(
   doc: Overrides,
   expectedVersion: number
 ): Promise<CasResult> {
-  const client = redis();
+  const client = sql();
   if (client) {
-    const result = await client.eval(
-      `local v = tonumber(redis.call('GET', KEYS[2]) or '0')
-       if v ~= tonumber(ARGV[2]) then return -1 - v end
-       redis.call('SET', KEYS[1], ARGV[1])
-       return redis.call('INCR', KEYS[2])`,
-      [OVERRIDES_KEY, OVERRIDES_VER_KEY],
-      [JSON.stringify(doc), String(expectedVersion)]
-    );
-    const n = Number(result);
-    // script returns new version on success, (-1 - current) on mismatch
-    if (n >= 0) return { ok: true, version: n };
-    return { ok: false, current: -1 - n };
+    const payload = JSON.stringify(doc);
+    const rows =
+      expectedVersion === 0
+        ? await client`INSERT INTO kestrel_docs (key, doc, version)
+            VALUES (${OVERRIDES_KEY}, ${payload}::jsonb, 1)
+            ON CONFLICT (key) DO UPDATE
+              SET doc = EXCLUDED.doc, version = kestrel_docs.version + 1, updated_at = now()
+              WHERE kestrel_docs.version = 0
+            RETURNING version`
+        : await client`UPDATE kestrel_docs
+            SET doc = ${payload}::jsonb, version = version + 1, updated_at = now()
+            WHERE key = ${OVERRIDES_KEY} AND version = ${expectedVersion}
+            RETURNING version`;
+    if (rows.length > 0) return { ok: true, version: Number(rows[0].version) };
+    // Mismatch. The version reported here is read after the failed write, so
+    // it can be newer than the one that caused the failure — equally valid
+    // for the caller's 409 payload (the client refreshes to it either way).
+    const cur =
+      await client`SELECT version FROM kestrel_docs WHERE key = ${OVERRIDES_KEY}`;
+    return { ok: false, current: Number(cur[0]?.version ?? 0) };
   }
   if (process.env.NODE_ENV === "development") {
     const current = await loadOverridesVersion();
@@ -167,9 +200,7 @@ export async function saveOverridesCas(
     await devWrite(OVERRIDES_VER_FILE, current + 1);
     return { ok: true, version: current + 1 };
   }
-  throw new Error(
-    "No Redis configured (KV_REST_API_URL / KV_REST_API_TOKEN) — cannot persist in production."
-  );
+  throw new Error(NO_DB);
 }
 
 /**
@@ -177,17 +208,17 @@ export async function saveOverridesCas(
  * restore), so any editor holding a stale version gets a 409 next save.
  */
 export async function saveOverridesForce(doc: Overrides): Promise<void> {
-  const client = redis();
+  const client = sql();
   if (client) {
-    await client.set(OVERRIDES_KEY, doc);
-    await client.incr(OVERRIDES_VER_KEY);
+    await client`INSERT INTO kestrel_docs (key, doc, version)
+      VALUES (${OVERRIDES_KEY}, ${JSON.stringify(doc)}::jsonb, 1)
+      ON CONFLICT (key) DO UPDATE
+        SET doc = EXCLUDED.doc, version = kestrel_docs.version + 1, updated_at = now()`;
   } else if (process.env.NODE_ENV === "development") {
     await devWrite(OVERRIDES_FILE, doc);
     await devWrite(OVERRIDES_VER_FILE, (await loadOverridesVersion()) + 1);
   } else {
-    throw new Error(
-      "No Redis configured (KV_REST_API_URL / KV_REST_API_TOKEN) — cannot persist in production."
-    );
+    throw new Error(NO_DB);
   }
 }
 
@@ -247,23 +278,27 @@ const SNAPSHOTS_FILE = "snapshots.json";
 const SNAPSHOTS_CAP = 50;
 
 export async function pushSnapshot(snapshot: Snapshot): Promise<void> {
-  const client = redis();
+  const client = sql();
   if (client) {
-    await client.lpush(SNAPSHOTS_KEY, JSON.stringify(snapshot));
-    await client.ltrim(SNAPSHOTS_KEY, 0, SNAPSHOTS_CAP - 1);
+    await client`INSERT INTO kestrel_log (list, entry)
+      VALUES (${SNAPSHOTS_KEY}, ${JSON.stringify(snapshot)}::jsonb)`;
+    await trimLog(client, SNAPSHOTS_KEY, SNAPSHOTS_CAP);
   } else if (process.env.NODE_ENV === "development") {
     const prev = (((await devRead(SNAPSHOTS_FILE)) as Snapshot[]) ?? []);
     await devWrite(SNAPSHOTS_FILE, [snapshot, ...prev].slice(0, SNAPSHOTS_CAP));
   } else {
-    throw new Error("No Redis configured — cannot snapshot in production.");
+    throw new Error(NO_DB);
   }
 }
 
 export async function loadSnapshots(limit = SNAPSHOTS_CAP): Promise<Snapshot[]> {
   try {
-    const client = redis();
+    const client = sql();
     const raw = client
-      ? await client.lrange(SNAPSHOTS_KEY, 0, limit - 1)
+      ? (
+          await client`SELECT entry FROM kestrel_log
+            WHERE list = ${SNAPSHOTS_KEY} ORDER BY id DESC LIMIT ${limit}`
+        ).map((row) => row.entry)
       : (((await devRead(SNAPSHOTS_FILE)) as unknown[]) ?? []).slice(0, limit);
     return raw
       .map((item) => {
@@ -290,14 +325,13 @@ const HISTORY_CAP = 2000;
 export async function appendHistory(entries: HistoryEntry[]): Promise<void> {
   if (entries.length === 0) return;
   try {
-    const client = redis();
+    const client = sql();
     if (client) {
-      // newest first: LPUSH in reverse so entries[0] ends up at the head
-      await client.lpush(
-        HISTORY_KEY,
-        ...[...entries].reverse().map((e) => JSON.stringify(e))
-      );
-      await client.ltrim(HISTORY_KEY, 0, HISTORY_CAP - 1);
+      // newest first: insert in reverse so entries[0] gets the highest id
+      await client`INSERT INTO kestrel_log (list, entry)
+        SELECT ${HISTORY_KEY}, e
+        FROM jsonb_array_elements(${JSON.stringify([...entries].reverse())}::jsonb) AS e`;
+      await trimLog(client, HISTORY_KEY, HISTORY_CAP);
     } else if (process.env.NODE_ENV === "development") {
       const prev = ((await devRead(HISTORY_FILE)) as HistoryEntry[]) ?? [];
       await devWrite(HISTORY_FILE, [...entries, ...prev].slice(0, HISTORY_CAP));
@@ -309,9 +343,12 @@ export async function appendHistory(entries: HistoryEntry[]): Promise<void> {
 
 export async function loadHistory(limit = 500): Promise<HistoryEntry[]> {
   try {
-    const client = redis();
+    const client = sql();
     const raw = client
-      ? await client.lrange(HISTORY_KEY, 0, limit - 1)
+      ? (
+          await client`SELECT entry FROM kestrel_log
+            WHERE list = ${HISTORY_KEY} ORDER BY id DESC LIMIT ${limit}`
+        ).map((row) => row.entry)
       : (((await devRead(HISTORY_FILE)) as unknown[]) ?? []).slice(0, limit);
     return raw
       .map((item) => {

@@ -7,7 +7,7 @@ fields the signed-in user isn't entitled to. Sign-in is Microsoft Entra ID
 
 - **Full access** users get the whole dataset and edit it in the browser with
   the prototype's instant recalculation; every change is revalidated
-  server-side and persisted to Redis, so results survive across sessions.
+  server-side and persisted to Postgres, so results survive across sessions.
 - **State** and **subset** users get read-only, server-computed views with
   only their permitted rows and fields — verified absent from the network
   payload, not hidden with CSS.
@@ -15,7 +15,7 @@ fields the signed-in user isn't entitled to. Sign-in is Microsoft Entra ID
 ## Stack
 
 Next.js 16 (App Router) · TypeScript · Tailwind 4 · NextAuth v5
-(`microsoft-entra-id`) · zod · Upstash Redis (Vercel Marketplace) · Vitest.
+(`microsoft-entra-id`) · zod · Neon Postgres (Vercel Marketplace) · Vitest.
 
 ---
 
@@ -29,7 +29,7 @@ Copy `.env.example` to `.env.local` and fill it in:
 | `AZURE_CLIENT_ID` | From the Entra app registration (below) |
 | `AZURE_CLIENT_SECRET` | Client secret from the same registration |
 | `AZURE_TENANT_ID` | The Texco directory (tenant) id — restricts sign-in to Texco accounts |
-| `KV_REST_API_URL` / `KV_REST_API_TOKEN` | Upstash Redis (auto-injected when you add the Vercel integration) |
+| `DATABASE_URL` | Neon Postgres (auto-injected when you add the Vercel integration) |
 | `BONUS_USERS` | *(optional)* JSON access rules merged over `lib/access.ts` |
 | `DEV_LOGIN` | *(local only)* `1` shows an email-only dev login during `next dev`. Never set on Vercel |
 
@@ -73,8 +73,8 @@ built with the https custom domain.
 Authentication only proves someone works at Texco; they see **nothing** until
 granted access. Any full-access user can manage this in the app: **Manage
 access** in the dashboard header (or `/admin`) — add an email, pick one of the
-three access types, save. Changes are stored in Redis and apply immediately,
-no deploy:
+three access types, save. Changes are stored in the database and apply
+immediately, no deploy:
 
 - `full` — every employee, every field, can edit, can manage access
 - `state` — all employees in the listed state(s), read-only, with an explicit
@@ -116,7 +116,7 @@ npm run dev
 With `DEV_LOGIN=1` you can sign in as anyone without Entra (local only):
 open `http://localhost:3000/dev/login/<email>` — e.g.
 `/dev/login/jlovera@texco.net.au` — or bare `/dev/login` which defaults to
-jlovera (same idea as tools' `/dev/login/{email}`). Without Redis credentials,
+jlovera (same idea as tools' `/dev/login/{email}`). Without a `DATABASE_URL`,
 edits persist to `.data/overrides.json` and access rules to `.data/access.json`.
 
 ```bash
@@ -132,16 +132,20 @@ vercel link            # create/link the project
 ```
 
 1. In the Vercel dashboard → project → **Storage** (Marketplace) → add
-   **Upstash for Redis** (this injects `KV_REST_API_URL`/`KV_REST_API_TOKEN`).
-2. Project → **Settings → Environment Variables** → add `AUTH_SECRET`,
+   **Neon Postgres** (this injects `DATABASE_URL`; pick region Sydney —
+   functions are pinned to `syd1` in `vercel.json` to match).
+2. Create the tables (once): `vercel env pull .env.local` then
+   `npx tsx scripts/init-db.ts` (remove `DATABASE_URL` from `.env.local`
+   afterwards, or local dev will write to production).
+3. Project → **Settings → Environment Variables** → add `AUTH_SECRET`,
    `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID`.
-3. Deploy:
+4. Deploy:
 
 ```bash
 vercel deploy --prod
 ```
 
-4. Add the production URL to the Entra app registration's redirect URIs
+5. Add the production URL to the Entra app registration's redirect URIs
    (step 1.2) if you didn't know it beforehand.
 
 Page views and edit writes are logged to the console with email, scope and
@@ -151,7 +155,7 @@ timestamp — visible under the project's **Logs** tab in Vercel.
 
 - **History tab** (full-access users, in the dashboard): who did what and
   when — every Bonus%/IPM%/Disc adj change (old → new value), every
-  lock/unlock, and every access grant/change/removal. Stored in Redis
+  lock/unlock, and every access grant/change/removal. Stored in the database
   (newest first, capped at 2,000 entries).
 - **Privacy by default**: per-employee figures in the table load masked
   (`••••`) — names and positions are visible, individual numbers aren't.
@@ -190,10 +194,11 @@ draft tool, not a system of record.
    only that a write happened.
 7. **CSP allows `unsafe-inline` scripts** (Next.js without nonce plumbing), so
    XSS isn't fully mitigated by policy.
-8. **Data at rest in Upstash is not application-encrypted** — the edit state
-   (which includes adjusted bonus figures) relies on Upstash's own encryption
-   and staff-access controls, plus Vercel's env-var handling for the token.
-9. **Trust in third parties**: Vercel and Upstash staff/infrastructure could
+8. **Data at rest in Neon is not application-encrypted** — the edit state
+   (which includes adjusted bonus figures) relies on Neon's own encryption
+   and staff-access controls, plus Vercel's env-var handling for the
+   connection string.
+9. **Trust in third parties**: Vercel and Neon staff/infrastructure could
    technically access the deployment bundle and stored state.
 
 ### To make it production-grade
