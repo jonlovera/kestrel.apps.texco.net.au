@@ -5,6 +5,7 @@ import { getDataset } from "@/lib/data";
 import { saveOverrides, loadOverrides, appendHistory } from "@/lib/store";
 import { OverridesSchema, type Overrides } from "@/lib/schema";
 import { diffOverrides } from "@/lib/history-diff";
+import { takeSnapshot } from "@/lib/snapshots";
 import {
   applyOverrides,
   computeScalesAndBonuses,
@@ -90,7 +91,9 @@ export async function POST(req: Request) {
     }
   }
 
-  // Record who changed what before overwriting the previous doc.
+  // Snapshot (coalesced for rapid edits), then record who changed what
+  // before overwriting the previous doc.
+  await takeSnapshot(email, "edit");
   const previous = await loadOverrides();
   await saveOverrides(sanitised);
   await appendHistory(

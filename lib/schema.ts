@@ -60,7 +60,15 @@ export type Overrides = z.infer<typeof OverridesSchema>;
 export const HistoryEntrySchema = z.object({
   ts: z.string(), // ISO timestamp, server-side
   actor: z.string(), // email of the signed-in user who made the change
-  kind: z.enum(["edit", "lock", "access"]),
+  kind: z.enum([
+    "edit",
+    "lock",
+    "access",
+    "restore",
+    "params",
+    "columns",
+    "import",
+  ]),
   summary: z.string(), // human-readable sentence
   empId: z.string().optional(),
   target: z.string().optional(), // email affected by an access change
@@ -70,3 +78,24 @@ export const HistoryEntrySchema = z.object({
 });
 
 export type HistoryEntry = z.infer<typeof HistoryEntrySchema>;
+
+/**
+ * A full point-in-time copy of everything mutable, taken before every
+ * mutating action so any mistake can be reverted. `params`/`columns` are
+ * loosely typed here because their schemas land in later steps; restore
+ * writes them back verbatim.
+ */
+export const SnapshotSchema = z.object({
+  ts: z.string(),
+  actor: z.string(),
+  reason: z.string(),
+  state: z.object({
+    dataset: DatasetSchema,
+    overrides: OverridesSchema,
+    overridesVersion: z.number().int().optional(),
+    params: z.unknown().nullable(),
+    columns: z.unknown().nullable(),
+  }),
+});
+
+export type Snapshot = z.infer<typeof SnapshotSchema>;

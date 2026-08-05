@@ -10,6 +10,7 @@ import {
 import { OWNER_EMAIL } from "@/lib/access-rules";
 import { loadAccessOverlay, saveAccessOverlay, appendHistory } from "@/lib/store";
 import { getDataset } from "@/lib/data";
+import { takeSnapshot } from "@/lib/snapshots";
 
 function describeRule(rule: z.infer<typeof AccessRuleSchema>): string {
   if (rule.type === "full") return "full access";
@@ -93,6 +94,7 @@ export async function POST(req: Request) {
     }
   }
 
+  await takeSnapshot(admin.email, "access-change");
   const overlay = await loadAccessOverlay();
   const existed = (await allRules())[body.email] !== undefined;
   overlay[body.email] = body.rule;
@@ -138,6 +140,7 @@ export async function DELETE(req: Request) {
     );
   }
 
+  await takeSnapshot(admin.email, "access-change");
   const overlay = await loadAccessOverlay();
   if (await isSeeded(email)) {
     overlay[email] = { type: "none" }; // shadow the code/env-seeded entry

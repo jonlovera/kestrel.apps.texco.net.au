@@ -5,9 +5,11 @@ import {
   OverridesSchema,
   HistoryEntrySchema,
   DatasetSchema,
+  SnapshotSchema,
   type Overrides,
   type HistoryEntry,
   type Dataset,
+  type Snapshot,
 } from "./schema";
 import { AccessRuleSchema, type AccessRule } from "./access-rules";
 
@@ -122,6 +124,43 @@ export function loadAccessOverlay(): Promise<AccessOverlay> {
 
 export function saveAccessOverlay(doc: AccessOverlay): Promise<void> {
   return saveDoc(ACCESS_KEY, ACCESS_FILE, doc);
+}
+
+// ── snapshots (newest first, capped at 50) ───────────────────────────────────
+const SNAPSHOTS_KEY = "kestrel:snapshots:fy26";
+const SNAPSHOTS_FILE = "snapshots.json";
+const SNAPSHOTS_CAP = 50;
+
+export async function pushSnapshot(snapshot: Snapshot): Promise<void> {
+  const client = redis();
+  if (client) {
+    await client.lpush(SNAPSHOTS_KEY, JSON.stringify(snapshot));
+    await client.ltrim(SNAPSHOTS_KEY, 0, SNAPSHOTS_CAP - 1);
+  } else if (process.env.NODE_ENV === "development") {
+    const prev = (((await devRead(SNAPSHOTS_FILE)) as Snapshot[]) ?? []);
+    await devWrite(SNAPSHOTS_FILE, [snapshot, ...prev].slice(0, SNAPSHOTS_CAP));
+  } else {
+    throw new Error("No Redis configured — cannot snapshot in production.");
+  }
+}
+
+export async function loadSnapshots(limit = SNAPSHOTS_CAP): Promise<Snapshot[]> {
+  try {
+    const client = redis();
+    const raw = client
+      ? await client.lrange(SNAPSHOTS_KEY, 0, limit - 1)
+      : (((await devRead(SNAPSHOTS_FILE)) as unknown[]) ?? []).slice(0, limit);
+    return raw
+      .map((item) => {
+        const obj = typeof item === "string" ? JSON.parse(item) : item;
+        const parsed = SnapshotSchema.safeParse(obj);
+        return parsed.success ? parsed.data : null;
+      })
+      .filter((s): s is Snapshot => s !== null);
+  } catch (err) {
+    console.error("[store] failed to load snapshots:", err);
+    return [];
+  }
 }
 
 // ── change history (append-only, newest first, capped) ───────────────────────
