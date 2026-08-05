@@ -1,15 +1,44 @@
 import "server-only";
-import rawData from "@/data/bonus.json";
-import { BonusDataSchema, type BonusData } from "./schema";
+import { DatasetSchema, type Dataset } from "./schema";
+import { loadStoredDataset } from "./store";
 
 /**
- * The bonus dataset. Imported as a module (bundled server-side only — the
- * 'server-only' marker makes any client import a build error) and validated
- * once at startup.
+ * The source dataset (155 employees + pool caps). The raw file holds real
+ * salary packages, so it is NOT in git and NOT bundled. Resolution order:
+ *
+ *  1. Redis doc `kestrel:data:fy26` (written by /admin/import and the seed
+ *     script; dev fallback `.data/dataset.json`)
+ *  2. `BONUS_DATA` env var — base64-encoded JSON of the same shape (lets
+ *     production serve data even if Redis is unavailable)
+ *  3. local `data/bonus.json` (developer machines only; gitignored)
+ *
+ * No module-level cache: admin imports must be visible on the next request.
  */
-let cached: BonusData | null = null;
+export async function getDataset(): Promise<Dataset> {
+  const stored = await loadStoredDataset();
+  if (stored) return stored;
 
-export function getBonusData(): BonusData {
-  if (!cached) cached = BonusDataSchema.parse(rawData);
-  return cached;
+  const envBlob = process.env.BONUS_DATA;
+  if (envBlob) {
+    try {
+      return DatasetSchema.parse(
+        JSON.parse(Buffer.from(envBlob, "base64").toString("utf-8"))
+      );
+    } catch (err) {
+      console.error("[data] BONUS_DATA env var invalid, trying next source:", err);
+    }
+  }
+
+  try {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    return DatasetSchema.parse(
+      JSON.parse(readFileSync(join(process.cwd(), "data", "bonus.json"), "utf-8"))
+    );
+  } catch {
+    throw new Error(
+      "No source data available: Redis empty, BONUS_DATA unset, and no local data/bonus.json. " +
+        "Seed the store (scripts/seed-store.ts) or set BONUS_DATA."
+    );
+  }
 }

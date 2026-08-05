@@ -9,7 +9,7 @@ import {
 } from "@/lib/access";
 import { OWNER_EMAIL } from "@/lib/access-rules";
 import { loadAccessOverlay, saveAccessOverlay, appendHistory } from "@/lib/store";
-import { getBonusData } from "@/lib/data";
+import { getDataset } from "@/lib/data";
 
 function describeRule(rule: z.infer<typeof AccessRuleSchema>): string {
   if (rule.type === "full") return "full access";
@@ -84,7 +84,7 @@ export async function POST(req: Request) {
   }
   // Subset rules must reference real employee ids.
   if (body.rule.type === "subset") {
-    const known = new Set(getBonusData().emp.map((e) => e.id));
+    const known = new Set((await getDataset()).emp.map((e) => e.id));
     const bad = body.rule.employeeIds.filter((id) => !known.has(id));
     if (bad.length) {
       return noStore(

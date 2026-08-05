@@ -37,6 +37,10 @@ export const BonusDataSchema = z.object({
 export type Employee = z.infer<typeof EmployeeSchema>;
 export type BonusData = z.infer<typeof BonusDataSchema>;
 
+// Preferred names going forward ("dataset" = employees + caps + filter lists).
+export const DatasetSchema = BonusDataSchema;
+export type Dataset = BonusData;
+
 /** Per-employee edit state persisted by full-access users. */
 export const EmployeeOverrideSchema = z.object({
   bpEdit: z.number().min(0).optional(),

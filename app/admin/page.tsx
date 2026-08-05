@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { scopeForUser, allRules } from "@/lib/access";
-import { getBonusData } from "@/lib/data";
+import { getDataset } from "@/lib/data";
 import AccessManager from "@/components/AccessManager";
 
 export const metadata = { title: "Texco" };
@@ -22,7 +22,7 @@ export default async function AdminPage() {
     .sort((a, b) => a.email.localeCompare(b.email));
 
   // id + name only — needed for the subset picker (admins are full-access).
-  const employees = getBonusData().emp.map((e) => ({
+  const employees = (await getDataset()).emp.map((e) => ({
     id: e.id,
     name: `${e.gn} ${e.sn}`,
     st: e.st,

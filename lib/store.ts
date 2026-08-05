@@ -4,8 +4,10 @@ import { z } from "zod";
 import {
   OverridesSchema,
   HistoryEntrySchema,
+  DatasetSchema,
   type Overrides,
   type HistoryEntry,
+  type Dataset,
 } from "./schema";
 import { AccessRuleSchema, type AccessRule } from "./access-rules";
 
@@ -75,6 +77,25 @@ async function saveDoc(key: string, file: string, doc: unknown): Promise<void> {
       "No Redis configured (KV_REST_API_URL / KV_REST_API_TOKEN) — cannot persist in production."
     );
   }
+}
+
+// ── source dataset (employees + caps), managed via /admin/import ────────────
+const DATA_KEY = "kestrel:data:fy26";
+const DATA_FILE = "dataset.json";
+
+/** Returns null when no dataset has been stored (callers fall back). */
+export async function loadStoredDataset(): Promise<Dataset | null> {
+  const doc = await loadDoc<Dataset | null>(
+    DATA_KEY,
+    DATA_FILE,
+    DatasetSchema as z.ZodType<Dataset | null>,
+    null
+  );
+  return doc;
+}
+
+export function saveStoredDataset(doc: Dataset): Promise<void> {
+  return saveDoc(DATA_KEY, DATA_FILE, doc);
 }
 
 // ── editors' bonus adjustments ───────────────────────────────────────────────

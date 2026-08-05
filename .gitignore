@@ -43,3 +43,9 @@ next-env.d.ts
 # local dev persistence fallback
 .data/
 !.env.example
+
+# real salary data — never in git (seeded to Redis / BONUS_DATA env)
+data/bonus.json
+
+# local Claude worktrees/config
+.claude/
