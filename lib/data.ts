@@ -22,9 +22,14 @@ export async function getDataset(): Promise<Dataset> {
   const envBlob = process.env.BONUS_DATA;
   if (envBlob) {
     try {
-      return DatasetSchema.parse(
-        JSON.parse(Buffer.from(envBlob, "base64").toString("utf-8"))
-      );
+      let bytes = Buffer.from(envBlob, "base64");
+      // gzip magic bytes: the blob may be base64(gzip(json)) to fit within
+      // Vercel's 64 KB env-var budget
+      if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
+        const { gunzipSync } = await import("node:zlib");
+        bytes = gunzipSync(bytes);
+      }
+      return DatasetSchema.parse(JSON.parse(bytes.toString("utf-8")));
     } catch (err) {
       console.error("[data] BONUS_DATA env var invalid, trying next source:", err);
     }
