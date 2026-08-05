@@ -1,26 +1,30 @@
 @import "tailwindcss";
 
+/* Prototype look: Power Grotesk if installed locally, Arial fallback. */
+@font-face {
+  font-family: "Power Grotesk";
+  src: local("Power Grotesk"), local("PowerGrotesk-Regular");
+  font-weight: 400;
+}
+@font-face {
+  font-family: "Power Grotesk";
+  src: local("Power Grotesk Med"), local("PowerGrotesk-Medium");
+  font-weight: 500;
+}
+@font-face {
+  font-family: "Power Grotesk";
+  src: local("Power Grotesk Bold"), local("PowerGrotesk-Bold");
+  font-weight: 700;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  color-scheme: light;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Power Grotesk", Arial, sans-serif;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }

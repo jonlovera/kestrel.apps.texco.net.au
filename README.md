@@ -1,36 +1,177 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# FY26 Employee Bonus Scheme — Texco
 
-## Getting Started
+Next.js port of the single-file EBS dashboard prototype. Row- and field-level
+access control is enforced **server-side**: the browser never receives rows or
+fields the signed-in user isn't entitled to. Sign-in is Microsoft Entra ID
+(the same method as the tools app) — no passwords in this app at all.
 
-First, run the development server:
+- **Full access** users get the whole dataset and edit it in the browser with
+  the prototype's instant recalculation; every change is revalidated
+  server-side and persisted to Redis, so results survive across sessions.
+- **State** and **subset** users get read-only, server-computed views with
+  only their permitted rows and fields — verified absent from the network
+  payload, not hidden with CSS.
+
+## Stack
+
+Next.js 16 (App Router) · TypeScript · Tailwind 4 · NextAuth v5
+(`microsoft-entra-id`) · zod · Upstash Redis (Vercel Marketplace) · Vitest.
+
+---
+
+## 1. Environment variables
+
+Copy `.env.example` to `.env.local` and fill it in:
+
+| Variable | What it is |
+|---|---|
+| `AUTH_SECRET` | Session-cookie signing secret. Generate: `openssl rand -base64 32` |
+| `AZURE_CLIENT_ID` | From the Entra app registration (below) |
+| `AZURE_CLIENT_SECRET` | Client secret from the same registration |
+| `AZURE_TENANT_ID` | The Texco directory (tenant) id — restricts sign-in to Texco accounts |
+| `KV_REST_API_URL` / `KV_REST_API_TOKEN` | Upstash Redis (auto-injected when you add the Vercel integration) |
+| `BONUS_USERS` | *(optional)* JSON access rules merged over `lib/access.ts` |
+| `DEV_LOGIN` | *(local only)* `1` shows an email-only dev login during `next dev`. Never set on Vercel |
+
+### Entra app registration (one-off)
+
+Azure portal → **App registrations** → *New registration* (same tenant as the
+tools app):
+
+1. Name: e.g. `Texco EBS Dashboard`. Supported account types: **this
+   organizational directory only** (single tenant — this is the gatekeeper).
+2. Redirect URI (type **Web**):
+   `https://<your-app>.vercel.app/api/auth/callback/microsoft-entra-id`
+   and for local dev add
+   `http://localhost:3000/api/auth/callback/microsoft-entra-id`.
+3. *Certificates & secrets* → new client secret → copy the **value** into
+   `AZURE_CLIENT_SECRET` (it's shown once).
+4. Overview page → copy **Application (client) ID** and **Directory (tenant)
+   ID** into `AZURE_CLIENT_ID` / `AZURE_TENANT_ID`.
+
+## 2. Passwords
+
+There are none. Authentication is delegated to Microsoft Entra ID, exactly
+like the tools app — staff sign in with their normal M365 account (and
+whatever MFA/conditional-access policies IT enforces there). Removing someone
+from the tenant removes their ability to sign in.
+
+## 3. Adding a user
+
+Authentication only proves someone works at Texco; they see **nothing** until
+you list them in `lib/access.ts` (see the comment block at the top of that
+file for copy-paste examples of all three access types):
+
+- `full` — every employee, every field, can edit
+- `state` — all employees in the listed state(s), read-only, with an explicit
+  `visibleFields` list (omit `pkg`/`bp` to keep salary figures out entirely)
+- `subset` — an explicit list of employee ids, read-only, explicit fields
+
+Then redeploy. For a no-deploy change, set the `BONUS_USERS` env var to a JSON
+object of the same shape and redeploy config only — it's merged over the file.
+
+## 4. Importing data
+
+Data lives in `data/bonus.json` (server-only; never sent to the browser except
+to full-access editors). To refresh it from Excel, export CSV or JSON and run:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# CSV with headers: id,sn,gn,pos,dept,mgr,cat,st,vp,np,pkg,bp,ipm,bipm,da,f25,sm
+npm run import -- fy26.csv --vCap 1580414.50 --nCap 1038408.25
+
+# or JSON (full app shape, or a bare employee array + the --vCap/--nCap flags)
+npm run import -- fy26.json
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Every row is schema-validated and the script prints the pool totals and
+baseline scale factors — **reconcile `TOTAL BONUS POOL` against the Excel
+before deploying**. Commit the updated `data/bonus.json` and redeploy.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 5. Local development
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm install
+cp .env.example .env.local   # fill in AUTH_SECRET at minimum; set DEV_LOGIN=1
+npm run dev
+```
 
-## Learn More
+With `DEV_LOGIN=1` you can sign in as any configured email without Entra
+(local only). Without Redis credentials, edits persist to `.data/overrides.json`.
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm test        # Vitest — includes the pro-rata/lock redistribution suite
+npm run build   # production build
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 6. Deploying to Vercel
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm i -g vercel
+vercel link            # create/link the project
+```
 
-## Deploy on Vercel
+1. In the Vercel dashboard → project → **Storage** (Marketplace) → add
+   **Upstash for Redis** (this injects `KV_REST_API_URL`/`KV_REST_API_TOKEN`).
+2. Project → **Settings → Environment Variables** → add `AUTH_SECRET`,
+   `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID`.
+3. Deploy:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+vercel deploy --prod
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+4. Add the production URL to the Entra app registration's redirect URIs
+   (step 1.2) if you didn't know it beforehand.
+
+Page views and edit writes are logged to the console with email, scope and
+timestamp — visible under the project's **Logs** tab in Vercel.
+
+---
+
+## What is still insecure about this setup
+
+Be clear-eyed about what this is: appropriate for a short-lived, low-user-count
+draft tool, not a system of record.
+
+1. **Salary data is committed to the repo and baked into every deployment.**
+   Anyone with repo read access or a Vercel project member sees everything.
+   The repo must stay private; collaborator lists ARE the access control for
+   the raw data.
+2. **Authorisation is a hardcoded allowlist.** Anyone in the Entra tenant can
+   *authenticate*; only `lib/access.ts` stands between them and a 403. A typo
+   there (or a stale entry for someone who changed roles) is a data breach.
+   There's no approval workflow and no periodic review.
+3. **Full-access editors download the entire dataset to their browser** (by
+   design, for instant recalculation). A compromised editor account or
+   machine leaks all 155 salary packages at once.
+4. **Sessions can't be revoked.** JWT sessions live up to 8 hours with no
+   server-side revocation — removing someone's access doesn't kick out an
+   active session until it expires.
+5. **No rate limiting or anomaly detection** on the data or state endpoints.
+6. **The audit trail is console logs** — mutable, retention-limited (Vercel
+   log retention is short on lower tiers), and not tamper-evident. Edits
+   overwrite each other with no history; there's no record of *what* changed,
+   only that a write happened.
+7. **CSP allows `unsafe-inline` scripts** (Next.js without nonce plumbing), so
+   XSS isn't fully mitigated by policy.
+8. **Data at rest in Upstash is not application-encrypted** — the edit state
+   (which includes adjusted bonus figures) relies on Upstash's own encryption
+   and staff-access controls, plus Vercel's env-var handling for the token.
+9. **Trust in third parties**: Vercel and Upstash staff/infrastructure could
+   technically access the deployment bundle and stored state.
+
+### To make it production-grade
+
+- Move the dataset out of the repo into a real database (Postgres + row-level
+  security, or at minimum encrypted-at-rest storage keyed per deployment),
+  with the import script writing there instead of a JSON file.
+- Replace the allowlist with Entra **group-based** authorisation (app roles or
+  security groups on the token), so IT joiner/leaver processes govern access.
+- Add an append-only audit log (who changed which employee's figure, old →
+  new value, when) in durable storage, not console output.
+- Shorten sessions and/or use database sessions so access removal is
+  immediate; rely on Entra Conditional Access + MFA policies.
+- Add rate limiting (e.g. Upstash Ratelimit) on `/api/state` and sign-in.
+- Move to a nonce-based CSP without `unsafe-inline`.
+- Turn on Vercel's deployment protection (password/SSO gate) as a second
+  layer in front of the app.
