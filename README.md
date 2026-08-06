@@ -51,6 +51,27 @@ tools app):
 4. Overview page → copy **Application (client) ID** and **Directory (tenant)
    ID** into `AZURE_CLIENT_ID` / `AZURE_TENANT_ID`.
 
+### Directory lookup on the access page (optional, needs a directory admin)
+
+So that granting access means picking a name rather than remembering how
+someone's address is spelled, `/admin/access` types ahead against the company
+directory. Turning it on is one permission:
+
+*App registrations → (this app) → **API permissions** → Add a permission →
+**Microsoft Graph** → **Application permissions** → `User.Read.All` → Add →
+then **Grant admin consent** for the tenant.*
+
+No new secrets: it reuses `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` /
+`AZURE_TENANT_ID` via the client-credentials flow, so nothing is added to the
+sign-in path and no per-user Graph token is stored.
+
+**Until it is granted, the page still works** — the email field falls back to a
+plain text box and explains why. Suggestions are a convenience, never a gate:
+any address can always be typed in full, which matters because access is often
+granted to people outside the bonus scheme (payroll, IT). Only full-access
+users can search, and the lookup returns names, addresses and job titles only —
+it never touches the bonus data.
+
 ## 2. Passwords
 
 There are none. Authentication is delegated to Microsoft Entra ID, exactly

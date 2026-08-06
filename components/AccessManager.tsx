@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { GrantingRule, RuleSource } from "@/lib/access-rules";
 import type { NumericField } from "@/lib/access-types";
 import { NUMERIC_FIELDS } from "@/lib/access-types";
+import EmailCombobox from "./EmailCombobox";
 
 interface RuleRow {
   email: string;
@@ -132,9 +133,12 @@ export default function AccessManager({
         <h1 className="mb-1 text-lg font-bold">Who can sign in</h1>
         <p className="mb-4 text-[13px] text-[#5C5C5C]">
           People sign in with their Texco Microsoft account; they see nothing
-          unless listed here. Changes apply immediately — no deploy needed.
-          Entries marked <span className="font-semibold">code</span> are
-          seeded in the repo and reappear unless removed here.
+          unless listed here. Start typing a name below and pick them from the
+          directory, or type any address in full — access can be granted to
+          people outside the bonus scheme too. Changes apply immediately — no
+          deploy needed. Entries marked{" "}
+          <span className="font-semibold">code</span> are seeded in the repo and
+          reappear unless removed here.
         </p>
 
         {error && (
@@ -201,11 +205,10 @@ export default function AccessManager({
             Add or update a person
           </h2>
           <div className="mb-3 flex flex-wrap items-center gap-3">
-            <input
-              type="email"
-              placeholder="name@texco.net.au"
+            <EmailCombobox
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={setEmail}
+              placeholder="Type a name or email…"
               className={`${inputCls} w-[280px]`}
             />
             <select
