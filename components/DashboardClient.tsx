@@ -3,8 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
-import type { DashboardPayload, ScopedRow } from "@/lib/payload-types";
+import type { DashboardPayload, DisplayRow } from "@/lib/payload-types";
 import { NUMERIC_FIELDS, type NumericField } from "@/lib/access-types";
+import { effectiveColumns, type ColumnConfig } from "@/lib/columns";
+import type { Copy } from "@/lib/copy";
+import type { Params } from "@/lib/params-apply";
 import type { Employee, Overrides, HistoryEntry } from "@/lib/schema";
 import type { DatasetPatch } from "@/lib/dataset-edit";
 import {
@@ -18,12 +21,14 @@ import {
   type CalcEmployee,
   type PoolState,
 } from "@/lib/calc";
-import { fmt, fmtValue } from "@/lib/fmt";
-import type { ColumnFormat } from "@/lib/columns";
+import { fmt } from "@/lib/fmt";
 import { TexcoX, TexcoWordmark } from "./TexcoBrand";
 import { PoolCard, type PoolMetric } from "./PoolCard";
 import { MultiSelect } from "./MultiSelect";
 import EmployeeEditor from "./EmployeeEditor";
+import EmployeeTable, { type TableColumn } from "./EmployeeTable";
+import ColumnMenu from "./ColumnMenu";
+import EditableText from "./EditableText";
 import Dropzone from "./Dropzone";
 import {
   useImportFlow,
@@ -38,25 +43,7 @@ type SaveStatus = "idle" | "saving" | "saved" | "error";
 /** Which columns an editor can type into, and down which write path. */
 const OVERRIDE_EDITABLE = ["bp", "ipm", "da"];
 const DATASET_EDITABLE = ["pkg", "bipm", "f25"];
-
-interface Column {
-  key: string;
-  label: string;
-  num?: boolean;
-  /** editable via the overrides doc (manager judgement, survives imports) */
-  editable?: boolean;
-  /** editable via the dataset doc (payroll fact, replaced by an import) */
-  dsEditable?: boolean;
-  noSort?: boolean;
-  format?: ColumnFormat;
-  decimals?: number;
-}
-
-/** Unified row shape the table renders, for both modes. */
-interface DisplayRow extends ScopedRow {
-  vp?: number;
-  np?: number;
-}
+const TEXT_EDITABLE = ["name", "pos", "dept", "mgr", "cat", "state"];
 
 export default function DashboardClient({
   payload,
@@ -82,6 +69,18 @@ export default function DashboardClient({
   const [drawer, setDrawer] = useState<
     { kind: "add" } | { kind: "edit"; id: string } | null
   >(null);
+
+  // ── edit mode ─────────────────────────────────────────────────────────────
+  // One switch. Off, the dashboard is plain text and presentable; on, every
+  // cell, heading, pool cap and column is typeable.
+  const [editing, setEditing] = useState(false);
+  const [columnConfig, setColumnConfig] = useState<ColumnConfig>(
+    isEditor ? payload.columnConfig : []
+  );
+  const [copy, setCopy] = useState<Copy>(payload.copy);
+  const [params, setParams] = useState<Params>(
+    isEditor ? payload.params : { vCap: 0, nCap: 0, gCap: 0, companyModifier: 1 }
+  );
 
   // ── drop a spreadsheet anywhere to replace the roster ─────────────────────
   // An import replaces the dataset wholesale and re-versions the overrides, so
@@ -162,9 +161,11 @@ export default function DashboardClient({
   }>(() => {
     if (!isEditor) return { emps: [], pool: null };
     const e = applyOverrides(employees, overrides);
-    const p = computeScalesAndBonuses(e, payload.caps);
+    // caps come from live params state, so typing a new cap moves the pool
+    // cards as you type — the impact preview /admin/params used to show
+    const p = computeScalesAndBonuses(e, params);
     return { emps: e, pool: p };
-  }, [isEditor, payload, employees, overrides]);
+  }, [isEditor, employees, overrides, params]);
 
   // ── shared UI state ──
   const [activeTab, setActiveTab] = useState<Tab>("ALL");
@@ -225,6 +226,77 @@ export default function DashboardClient({
     }
   }
 
+  /**
+   * The presentation and parameter documents. Unlike the dataset these are
+   * last-write-wins: they're tiny, rarely edited by two people at once, and
+   * every write snapshots first.
+   */
+  async function saveConfig(
+    path: "columns" | "copy" | "params",
+    body: unknown
+  ): Promise<boolean> {
+    setDsBusy(true);
+    setDsError(null);
+    try {
+      const res = await fetch(`/api/${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setDsError(data.error ?? "That change could not be saved.");
+        return false;
+      }
+      setSaveStatus("saved");
+      return true;
+    } catch {
+      setDsError("That change could not be saved — check your connection.");
+      return false;
+    } finally {
+      setDsBusy(false);
+    }
+  }
+
+  function applyColumnConfig(next: ColumnConfig) {
+    setColumnConfig(next); // optimistic: the menu should feel instant
+    void saveConfig("columns", next);
+  }
+
+  function renameColumn(key: string, label: string) {
+    applyColumnConfig(
+      columnConfig.map((c) => (c.field === key ? { ...c, label } : c))
+    );
+  }
+
+  function updateCopy(patch: Partial<Copy>) {
+    const next = { ...copy, ...patch };
+    setCopy(next);
+    void saveConfig("copy", next);
+  }
+
+  function updateCap(field: "vCap" | "nCap" | "gCap", raw: string) {
+    const value = parseDaInput(raw);
+    if (!value || value === params[field]) return;
+    const next = { ...params, [field]: value };
+    setParams(next);
+    void saveConfig("params", next);
+  }
+
+  /**
+   * The company modifier rescales every employee's After-IPM figure
+   * (lib/params-apply.ts), and `employees` here is already params-applied —
+   * re-deriving that in the browser invites drift, so this one saves and then
+   * reloads. It's a rare, scheme-wide change.
+   */
+  async function updateCompanyModifier(raw: string) {
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value === params.companyModifier) return;
+    if (await saveConfig("params", { ...params, companyModifier: value })) {
+      window.location.reload();
+    }
+  }
+
   // ── privacy: figures are masked by default; reveal per row, or all at once
   //    via the header button / Space ──
   const [showAll, setShowAll] = useState(false);
@@ -235,6 +307,24 @@ export default function DashboardClient({
     setShowAll((prev) => {
       if (prev) setRevealedIds(new Set()); // hiding again clears row reveals
       return !prev;
+    });
+  }
+
+  /**
+   * Edit mode forces the figures visible — you cannot type into `••••` — and
+   * puts the mask back exactly as it was on the way out.
+   */
+  const maskBeforeEditing = useRef(false);
+  function toggleEditing() {
+    setEditing((wasEditing) => {
+      if (!wasEditing) {
+        maskBeforeEditing.current = showAll;
+        setShowAll(true);
+      } else {
+        setShowAll(maskBeforeEditing.current);
+        if (!maskBeforeEditing.current) setRevealedIds(new Set());
+      }
+      return !wasEditing;
     });
   }
 
@@ -250,6 +340,8 @@ export default function DashboardClient({
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== " " || e.metaKey || e.ctrlKey || e.altKey) return;
+      // edit mode keeps everything revealed; a stray Space must not re-mask
+      if (editing) return;
       const t = e.target as HTMLElement | null;
       if (
         t &&
@@ -266,7 +358,7 @@ export default function DashboardClient({
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [editing]);
 
   // ── history tab (editors only, fetched lazily) ──
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
@@ -296,6 +388,8 @@ export default function DashboardClient({
     return emps.map((e) => ({
       id: e.id,
       name: `${e.gn} ${e.sn}`,
+      gn: e.gn,
+      sn: e.sn,
       st: e.st,
       pos: e.pos,
       dept: e.dept,
@@ -319,34 +413,36 @@ export default function DashboardClient({
   }, [isEditor, payload, emps]);
 
   // ── columns ──
-  const columns: Column[] = useMemo(() => {
-    const identity: Column[] = [{ key: "name", label: "Name" }];
-    if (isEditor || payload.showStateColumn)
-      identity.push({ key: "state", label: "State" });
-    identity.push(
-      { key: "pos", label: "Position" },
-      { key: "dept", label: "Department" },
-      { key: "mgr", label: "Manager" }
-    );
-    // Display columns come from the server payload: presentation-config
-    // visible AND scope-visible, in the configured order.
-    const numeric: Column[] = payload.columns.map((c) => ({
+  // Every column now comes from the server payload: presentation-config
+  // visible, and for the figure columns also scope-visible, in configured
+  // order. Identity columns carry `identity: true` and are never scope-gated.
+  const columns: TableColumn[] = useMemo(() => {
+    // Editors resolve their own columns from local config so the column menu
+    // applies instantly; the server recomputes the identical list on reload.
+    // Read-only users get the already-scoped list and nothing else.
+    const source = isEditor
+      ? effectiveColumns(columnConfig, NUMERIC_FIELDS)
+      : payload.columns;
+    const configured: TableColumn[] = source.map((c) => ({
       key: c.key,
       label: c.label,
-      num: true,
+      num: !c.identity,
       editable: isEditor && OVERRIDE_EDITABLE.includes(c.key),
       dsEditable: isEditor && DATASET_EDITABLE.includes(c.key),
+      textEditable: isEditor && TEXT_EDITABLE.includes(c.key),
       format: c.format,
       decimals: c.decimals,
     }));
-    const tools: Column[] = isEditor
+    const tools: TableColumn[] = isEditor
       ? [
+        // the lock stays visible outside edit mode so you can still see who is
+        // settled; only the pencil is an edit-mode affordance
         { key: "lock", label: "Lock", noSort: true },
-        { key: "edit", label: "", noSort: true },
+        ...(editing ? [{ key: "edit", label: "", noSort: true }] : []),
       ]
       : [];
-    return [...identity, ...numeric, ...tools];
-  }, [isEditor, payload]);
+    return [...configured, ...tools];
+  }, [isEditor, editing, columnConfig, payload]);
 
   // ── filtering + sorting (prototype getVisibleEmployees) ──
   const visibleRows = useMemo(() => {
@@ -379,6 +475,7 @@ export default function DashboardClient({
           case "pos": return r.pos;
           case "dept": return r.dept;
           case "mgr": return r.mgr;
+          case "cat": return r.cat;
           default:
             return (r[sortCol as NumericField] as number | undefined) ?? 0;
         }
@@ -441,6 +538,25 @@ export default function DashboardClient({
     void patchDataset({ op: "field", id, field, value: next });
   }
 
+  /** One identity field. Empty or unchanged input is ignored. */
+  function updateText(
+    id: string,
+    field: "gn" | "sn" | "pos" | "dept" | "mgr" | "cat",
+    current: string,
+    raw: string
+  ) {
+    const next = raw.trim();
+    if (!next || next === current) return;
+    void patchDataset({ op: "text", id, field, value: next });
+  }
+
+  /** State moves the pool split with it — see splitForState in dataset-edit. */
+  function updateState(id: string, st: "VIC" | "NSW" | "SHARED") {
+    const emp = empById.get(id);
+    if (!emp || emp.st === st) return;
+    void patchDataset({ op: "state", id, st });
+  }
+
   function toggleLock(id: string) {
     const emp = empById.get(id);
     if (!emp || emp.sm) return;
@@ -460,9 +576,13 @@ export default function DashboardClient({
   }
 
   // ── totals row ──
+  // Identity columns are in the payload too now; they hold strings and are
+  // skipped by the `typeof v === "number"` guard.
   const totals = useMemo(() => {
     const t: Partial<Record<NumericField, number>> = {};
-    for (const { key } of payload.columns) {
+    for (const col of payload.columns) {
+      if (col.identity) continue;
+      const key = col.key as NumericField;
       let any = false;
       let sum = 0;
       for (const r of visibleRows) {
@@ -494,7 +614,7 @@ export default function DashboardClient({
       ));
     }
     if (!pool) return null;
-    const { vCap, nCap, gCap } = payload.caps;
+    const { vCap, nCap, gCap } = params;
     const vicTotal = emps.reduce((s, e) => s + getVicAlloc(e, pool.vicScale), 0);
     const nswTotal = emps.reduce((s, e) => s + getNswAlloc(e, pool.nswScale), 0);
     const groupTotal = emps.reduce((s, e) => s + e.finalBonus, 0);
@@ -506,6 +626,8 @@ export default function DashboardClient({
       .reduce((s, e) => s + getNswAlloc(e, pool.nswScale), 0);
 
     const card = (
+      which: "vic" | "nsw" | "group",
+      capField: "vCap" | "nCap" | "gCap",
       title: string,
       cap: number,
       total: number,
@@ -515,7 +637,14 @@ export default function DashboardClient({
     ) => {
       const remain = cap - total;
       const metrics: PoolMetric[] = [
-        { label: "Pool cap", value: fmt(cap) },
+        // in edit mode the cap is typed here and everything above recalculates
+        {
+          label: "Pool cap",
+          value: fmt(cap),
+          ...(editing
+            ? { onEdit: (raw: string) => updateCap(capField, raw), editValue: cap }
+            : {}),
+        },
         ...(sharedDeduction !== null
           ? [
             { label: `${title.split(" ")[0]} bonuses`, value: fmt(total - sharedDeduction) },
@@ -529,24 +658,39 @@ export default function DashboardClient({
       ];
       return (
         <PoolCard
-          key={title}
+          key={which}
           title={title}
+          titleNode={
+            <EditableText
+              value={title}
+              editing={editing}
+              disabled={dsBusy}
+              label={`${which} pool card title`}
+              maxLength={40}
+              onCommit={(next) =>
+                updateCopy({ poolTitles: { ...copy.poolTitles, [which]: next } })
+              }
+              inputClassName="w-[190px] uppercase"
+            />
+          }
           metrics={metrics}
           utilPct={total / cap}
           scaleFactor={scale}
           scaleLabel={scaleLabel ?? undefined}
+          busy={dsBusy}
         />
       );
     };
 
-    const t = payload.copy.poolTitles;
+    const t = copy.poolTitles;
     return [
       // scale figure is gated by the 'scale' pseudo-column config
-      card(t.vic, vCap, vicTotal, sharedVic, payload.showScale ? pool.vicScale : null, "VIC scale factor"),
-      card(t.nsw, nCap, nswTotal, sharedNsw, payload.showScale ? pool.nswScale : null, "NSW scale factor"),
-      card(t.group, gCap, groupTotal, null, null, null),
+      card("vic", "vCap", t.vic, vCap, vicTotal, sharedVic, payload.showScale ? pool.vicScale : null, "VIC scale factor"),
+      card("nsw", "nCap", t.nsw, nCap, nswTotal, sharedNsw, payload.showScale ? pool.nswScale : null, "NSW scale factor"),
+      card("group", "gCap", t.group, gCap, groupTotal, null, null, null),
     ];
-  }, [isEditor, payload, emps, pool]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditor, payload, emps, pool, params, copy, editing, dsBusy]);
 
   function doSort(key: string) {
     if (sortCol === key) setSortDir((d) => -d);
@@ -554,170 +698,6 @@ export default function DashboardClient({
       setSortCol(key);
       setSortDir(1);
     }
-  }
-
-  // ── cell rendering ──
-  /** display a value using the column's configured format */
-  function show(c: Column, v: number) {
-    return fmtValue(c.format ?? "currency", c.decimals ?? 0, v);
-  }
-
-  function cell(r: DisplayRow, c: Column) {
-    // privacy mask: numeric figures hidden until the row (or everything) is
-    // revealed; the "—" placeholders reveal nothing and stay as-is
-    if (
-      (NUMERIC_FIELDS as readonly string[]).includes(c.key) &&
-      !isRevealed(r.id)
-    ) {
-      if (c.key === "da" && (r.sm || !r.inPool))
-        return <span className="text-neutral-300">—</span>;
-      return <span className="select-none text-neutral-300">••••</span>;
-    }
-    switch (c.key) {
-      case "name":
-        return r.name;
-      case "state": {
-        const cls =
-          r.st === "VIC"
-            ? "bg-[#FED9CC] text-[#FC4D0F]"
-            : r.st === "NSW"
-              ? "bg-[#3D3D3D] text-white"
-              : "bg-[#FDA478] text-white";
-        return (
-          <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-bold ${cls}`}>
-            {r.st}
-          </span>
-        );
-      }
-      case "pos":
-        return r.pos;
-      case "dept":
-        return r.dept;
-      case "mgr":
-        return r.mgr;
-      case "pkg":
-        // a package edit carries After IPM with it, pro rata — see
-        // scaledBipm() in lib/dataset-edit.ts for why
-        if (!c.dsEditable || r.locked) return show(c, r.pkg!);
-        return moneyInput(r, "pkg", r.pkg!, 90);
-      case "bp":
-      case "ipm": {
-        const v = c.key === "bp" ? r.bp! : r.ipm!;
-        if (!c.editable || r.locked) return show(c, v);
-        // Input parsing stays semantic (percent-style, "90" means 90%)
-        // regardless of the configured display format.
-        return (
-          <input
-            key={`${r.id}-${c.key}-${v}`}
-            type="text"
-            defaultValue={`${Math.round(v * 100)}%`}
-            onFocus={(e) => e.target.select()}
-            onBlur={(e) =>
-              updatePercent(r.id, c.key === "bp" ? "bpEdit" : "ipmEdit", e.target.value)
-            }
-            onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-            className="w-[55px] rounded border border-neutral-300 px-1.5 py-1 text-right text-xs tabular-nums outline-none focus:border-[#FC4D0F]"
-          />
-        );
-      }
-      case "bipm":
-        if (!c.dsEditable || r.locked) return show(c, r.bipm!);
-        return moneyInput(r, "bipm", r.bipm!, 85);
-      case "calc":
-        return show(c, r.calc!);
-      case "f25":
-        // last year's figure: a fact, unaffected by this year's lock
-        if (!c.dsEditable) return <span className="text-neutral-400">{show(c, r.f25!)}</span>;
-        return moneyInput(r, "f25", r.f25!, 85);
-      case "da": {
-        if (r.sm || !r.inPool) return <span className="text-neutral-300">—</span>;
-        if (!c.editable || r.locked) return show(c, r.da!);
-        return (
-          <input
-            key={`${r.id}-da-${r.da}`}
-            type="text"
-            defaultValue={Math.round(r.da!)}
-            onFocus={(e) => e.target.select()}
-            onBlur={(e) => updateDA(r.id, e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-            className="w-[80px] rounded border border-neutral-300 px-1.5 py-1 text-right text-xs tabular-nums outline-none focus:border-[#FC4D0F]"
-          />
-        );
-      }
-      case "yoy": {
-        const v = r.yoy!;
-        const color = v > 0 ? "text-[#191919]" : v < 0 ? "text-[#FC4D0F]" : "";
-        return <span className={color}>{show(c, v)}</span>;
-      }
-      case "final":
-        return <span className="font-bold">{show(c, r.final!)}</span>;
-      case "lock": {
-        if (r.sm)
-          return (
-            <span
-              title="Site Manager — fixed bonus, not subject to redistribution"
-              className="cursor-help text-sm"
-            >
-              —
-            </span>
-          );
-        return (
-          <button
-            type="button"
-            onClick={() => toggleLock(r.id)}
-            className={`h-7 w-7 rounded border-[1.5px] text-sm transition-colors ${r.locked
-                ? "border-[#FC4D0F] bg-[#FC4D0F]"
-                : "border-neutral-300 bg-transparent hover:border-[#FC4D0F]"
-              }`}
-          >
-            {r.locked ? "🔒" : "🔓"}
-          </button>
-        );
-      }
-      case "edit":
-        return (
-          <button
-            type="button"
-            title={`Edit ${r.name}'s pool split, site-manager flag, or remove them`}
-            disabled={dsBusy}
-            onClick={() => {
-              setDsError(null);
-              setDrawer({ kind: "edit", id: r.id });
-            }}
-            className="h-7 w-7 rounded border-[1.5px] border-neutral-300 text-sm transition-colors hover:border-[#FC4D0F] disabled:opacity-40"
-          >
-            ✎
-          </button>
-        );
-      default:
-        return null;
-    }
-  }
-
-  /**
-   * A dollar figure that writes straight to the source dataset on blur. Keyed
-   * on the value so a server-side correction (or a rejected edit) snaps the
-   * box back to the truth.
-   */
-  function moneyInput(
-    r: DisplayRow,
-    field: "pkg" | "bipm" | "f25",
-    value: number,
-    width: number
-  ) {
-    return (
-      <input
-        key={`${r.id}-${field}-${value}`}
-        type="text"
-        defaultValue={Math.round(value)}
-        disabled={dsBusy}
-        onFocus={(e) => e.target.select()}
-        onBlur={(e) => updateDatasetFigure(r.id, field, value, e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-        style={{ width }}
-        className="rounded border border-neutral-300 px-1.5 py-1 text-right text-xs tabular-nums outline-none focus:border-[#FC4D0F] disabled:opacity-50"
-      />
-    );
   }
 
   const totFinal = totals.final;
@@ -729,9 +709,15 @@ export default function DashboardClient({
         <div className="flex items-center">
           <TexcoX className="mr-2.5 h-[22px] w-[22px] shrink-0" />
           <TexcoWordmark className="mr-4 h-[18px] w-auto shrink-0" />
-          <span className="hidden text-xs font-medium uppercase tracking-[2px] text-[#FC4D0F] sm:inline">
-            {payload.copy.schemeName}
-          </span>
+          <EditableText
+            value={copy.schemeName}
+            editing={editing}
+            disabled={dsBusy}
+            label="Scheme name"
+            onCommit={(schemeName) => updateCopy({ schemeName })}
+            className="hidden text-xs font-medium uppercase tracking-[2px] text-[#FC4D0F] sm:inline"
+            inputClassName="w-[280px]"
+          />
         </div>
         <div className="flex items-center gap-3">
           {isEditor && (
@@ -746,15 +732,35 @@ export default function DashboardClient({
             <br />
             <span className="text-[10px] opacity-80">{payload.user.scopeLabel}</span>
           </span>
-          <button
-            type="button"
-            onClick={toggleShowAll}
-            className="rounded border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"
-            title="Or press Space"
-          >
-            {showAll ? "Hide everything" : "Show everything"}
-          </button>
+          {!editing && (
+            <button
+              type="button"
+              onClick={toggleShowAll}
+              className="rounded border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"
+              title="Or press Space"
+            >
+              {showAll ? "Hide everything" : "Show everything"}
+            </button>
+          )}
           {isEditor && (
+            <button
+              type="button"
+              onClick={toggleEditing}
+              className={`rounded px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-wide transition-colors ${
+                editing
+                  ? "bg-[#FC4D0F] text-white hover:bg-[#e0440d]"
+                  : "border border-[#FC4D0F]/50 text-[#F79470] hover:bg-[#FC4D0F] hover:text-white"
+              }`}
+              title={
+                editing
+                  ? "Finish editing and go back to the clean view"
+                  : "Edit figures, names, columns and headings in place"
+              }
+            >
+              {editing ? "Done editing" : "Edit mode"}
+            </button>
+          )}
+          {isEditor && !editing && (
             <Link
               href="/admin"
               className="rounded border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"
@@ -772,10 +778,33 @@ export default function DashboardClient({
         </div>
       </div>
 
-      {/* Status banner */}
-      {payload.copy.bannerVisible && (
-        <div className="bg-[#FC4D0F] px-6 py-1.5 text-center text-xs font-bold uppercase tracking-[2px] text-white">
-          {payload.copy.bannerText}
+      {/* Status banner — editable in place, and switchable off once final */}
+      {(copy.bannerVisible || editing) && (
+        <div
+          className={`px-6 py-1.5 text-center text-xs font-bold uppercase tracking-[2px] text-white ${
+            copy.bannerVisible ? "bg-[#FC4D0F]" : "bg-neutral-400"
+          }`}
+        >
+          <EditableText
+            value={copy.bannerText}
+            editing={editing}
+            disabled={dsBusy}
+            label="Status banner"
+            onCommit={(bannerText) => updateCopy({ bannerText })}
+            inputClassName="w-[320px] text-center"
+          />
+          {editing && (
+            <label className="ml-4 inline-flex items-center gap-1.5 text-[11px] normal-case">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 accent-white"
+                checked={copy.bannerVisible}
+                disabled={dsBusy}
+                onChange={(e) => updateCopy({ bannerVisible: e.target.checked })}
+              />
+              Show this banner
+            </label>
+          )}
         </div>
       )}
 
@@ -897,18 +926,44 @@ export default function DashboardClient({
               <MultiSelect label="Roles" items={facets.cats} selected={selCats} onChange={setSelCats} />
               <MultiSelect label="Departments" items={facets.depts} selected={selDepts} onChange={setSelDepts} />
               <MultiSelect label="Managers" items={facets.mgrs} selected={selMgrs} onChange={setSelMgrs} />
-              {isEditor && (
-                <button
-                  type="button"
-                  disabled={dsBusy}
-                  onClick={() => {
-                    setDsError(null);
-                    setDrawer({ kind: "add" });
-                  }}
-                  className="rounded-md border-2 border-[#FC4D0F] px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-wide text-[#FC4D0F] transition-colors hover:bg-[#FC4D0F] hover:text-white disabled:opacity-40"
-                >
-                  + Add person
-                </button>
+              {editing && (
+                <>
+                  <button
+                    type="button"
+                    disabled={dsBusy}
+                    onClick={() => {
+                      setDsError(null);
+                      setDrawer({ kind: "add" });
+                    }}
+                    className="rounded-md border-2 border-[#FC4D0F] px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-wide text-[#FC4D0F] transition-colors hover:bg-[#FC4D0F] hover:text-white disabled:opacity-40"
+                  >
+                    + Add person
+                  </button>
+                  <ColumnMenu
+                    config={columnConfig}
+                    onChange={applyColumnConfig}
+                    busy={dsBusy}
+                  />
+                  {/* The one scheme-wide figure with no card of its own. It
+                      rescales every After-IPM value, so it reloads on save. */}
+                  <label className="flex items-center gap-1.5 rounded-md border-2 border-neutral-200 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#5C5C5C]">
+                    Company modifier
+                    <input
+                      type="number"
+                      step="0.01"
+                      min={0.1}
+                      max={2}
+                      defaultValue={params.companyModifier}
+                      disabled={dsBusy}
+                      title="Scales every After-IPM figure. 1 = no change; saving reloads the page."
+                      onBlur={(e) => void updateCompanyModifier(e.target.value)}
+                      onKeyDown={(e) =>
+                        e.key === "Enter" && (e.target as HTMLInputElement).blur()
+                      }
+                      className="w-[64px] rounded border border-neutral-300 px-1.5 py-1 text-right tabular-nums outline-none focus:border-[#FC4D0F] disabled:opacity-50"
+                    />
+                  </label>
+                </>
               )}
               <div className="ml-auto flex items-center gap-3 text-xs text-[#5C5C5C]">
                 <span className="rounded bg-neutral-100 px-2.5 py-1">
@@ -922,84 +977,47 @@ export default function DashboardClient({
               </div>
             </div>
 
-            {/* Table */}
-            <div className="mb-5 max-h-[calc(100vh-260px)] overflow-auto rounded-lg shadow-sm">
-              <table className="w-full border-collapse bg-white text-xs">
-                <thead>
-                  <tr>
-                    {columns.map((c) => (
-                      <th
-                        key={c.key}
-                        onClick={c.noSort ? undefined : () => doSort(c.key)}
-                        className={`sticky top-0 z-10 whitespace-nowrap bg-[#191919] px-2 py-2.5 text-left text-[11px] uppercase tracking-wide text-white select-none ${c.noSort ? "" : "cursor-pointer hover:bg-[#333]"
-                          } ${c.num ? "text-right" : ""}`}
-                      >
-                        {c.label}
-                        {sortCol === c.key && (
-                          <span className="ml-1 text-[10px]">{sortDir === 1 ? "▲" : "▼"}</span>
-                        )}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleRows.map((r) => (
-                    <tr
-                      key={r.id}
-                      className="group cursor-pointer"
-                      title="Click to show/hide this row's figures"
-                      onClick={(e) => {
-                        if ((e.target as HTMLElement).closest("input,button,a,select,label"))
-                          return;
-                        toggleRow(r.id);
-                      }}
-                    >
-                      {columns.map((c) => (
-                        <td
-                          key={c.key}
-                          className={`whitespace-nowrap border-b border-neutral-100 px-2 py-2 group-hover:bg-neutral-50 ${c.num ? "text-right tabular-nums" : ""
-                            } ${c.key === "final" ? "bg-[#E7D8FC]" : c.key === "f25" ? "bg-[#f7f7f7]" : ""}`}
-                        >
-                          {cell(r, c)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    {columns.map((c) => {
-                      // percentages don't sum meaningfully — no total for them
-                      const v =
-                        c.key === "name"
-                          ? `TOTALS (${visibleRows.length})`
-                          : c.format === "percent"
-                            ? ""
-                            : (typeof totals[c.key as NumericField] === "number"
-                              ? showAll
-                                ? show(c, totals[c.key as NumericField]!)
-                                : "••••••"
-                              : "");
-                      return (
-                        <td
-                          key={c.key}
-                          className={`whitespace-nowrap px-2 py-2 text-[13px] font-bold text-white ${c.num ? "text-right tabular-nums" : ""
-                            } ${c.key === "final" ? "bg-[#7c3aed]" : "bg-[#FC4D0F]"}`}
-                        >
-                          {v}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+            <EmployeeTable
+              columns={columns}
+              rows={visibleRows}
+              totals={totals}
+              editing={editing}
+              busy={dsBusy}
+              showAll={showAll}
+              isRevealed={isRevealed}
+              toggleRow={toggleRow}
+              sortCol={sortCol}
+              sortDir={sortDir}
+              onSort={doSort}
+              facets={facets}
+              handlers={{
+                updatePercent,
+                updateDA,
+                updateDatasetFigure,
+                updateText,
+                updateState,
+                toggleLock,
+                openRowEditor: (id) => {
+                  setDsError(null);
+                  setDrawer({ kind: "edit", id });
+                },
+                renameColumn,
+              }}
+            />
           </>
         )}
       </div>
 
       <footer className="border-t-2 border-[#FC4D0F] bg-white px-6 py-3.5 text-center text-[11px] tracking-wide text-[#5C5C5C]">
-        {payload.copy.footerText}
+        <EditableText
+          value={copy.footerText}
+          editing={editing}
+          disabled={dsBusy}
+          label="Footer"
+          maxLength={160}
+          onCommit={(footerText) => updateCopy({ footerText })}
+          inputClassName="w-[520px] max-w-full text-center"
+        />
       </footer>
 
       {/* Editors can drop a spreadsheet anywhere on the dashboard. The preview

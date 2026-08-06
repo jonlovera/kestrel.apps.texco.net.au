@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { auth } from "@/auth";
-import { scopeForUser } from "@/lib/access";
 import { getDataset, getParams } from "@/lib/data";
+import { requireEditor, noStore } from "@/lib/api-guard";
 import {
   loadOverrides,
   saveStoredDatasetCas,
@@ -36,19 +35,9 @@ const BodySchema = z.object({
  * while the modifier is 1, which is today's default.)
  */
 export async function POST(req: Request) {
-  const session = await auth();
-  const email = session?.user?.email;
-  const scope = await scopeForUser(email);
-
-  if (!email || !scope) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  if (!scope.canEdit) {
-    console.log(
-      `[audit] DENIED dataset-write email=${email} scope=${scope.rule.type} ts=${new Date().toISOString()}`
-    );
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const guard = await requireEditor("dataset-write");
+  if ("response" in guard) return guard.response;
+  const { email } = guard;
 
   let body: z.infer<typeof BodySchema>;
   try {
@@ -148,7 +137,3 @@ function unscale(
   return patch;
 }
 
-function noStore(res: NextResponse): NextResponse {
-  res.headers.set("Cache-Control", "no-store, max-age=0");
-  return res;
-}

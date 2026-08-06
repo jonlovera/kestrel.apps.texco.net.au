@@ -1,23 +1,43 @@
 /**
- * Presentation configuration for the dashboard's numeric columns — pure
+ * Presentation configuration for the dashboard's table columns — pure
  * module (schema, defaults, merge logic), no I/O.
  *
  * Presentation and entitlement are deliberately separate concerns:
  *  - this config decides what is DISPLAYED (pixels),
  *  - lib/scope-core.ts decides what is SENT (bytes).
- * `effectiveColumns` composes them: a column appears only when it is both
- * config-visible and scope-visible; but hiding a column here never grants
+ * `effectiveColumns` composes them: a figure column appears only when it is
+ * both config-visible and scope-visible; but hiding a column here never grants
  * or removes data — stripping stays authoritative in scope-core.
+ *
+ * Two groups, gated differently:
+ *  - IDENTITY_FIELDS are on every row a user is entitled to see at all
+ *    (lib/scope-core.ts builds them unconditionally), so they were never
+ *    governed by `visibleFields`. Config visibility is the only gate, and
+ *    hiding one removes pixels, not bytes.
+ *  - NUMERIC_FIELDS are the entitlement vocabulary. Config can only ever
+ *    narrow what the scope already granted, never widen it.
  */
 import { z } from "zod";
 import { NUMERIC_FIELDS, type NumericField } from "./access-types";
 
-export const COLUMN_FORMATS = ["currency", "percent", "number"] as const;
+export const COLUMN_FORMATS = ["currency", "percent", "number", "text"] as const;
 export type ColumnFormat = (typeof COLUMN_FORMATS)[number];
 
+/** Non-sensitive columns, present on every entitled row. */
+export const IDENTITY_FIELDS = ["name", "state", "pos", "dept", "mgr", "cat"] as const;
+export type IdentityField = (typeof IDENTITY_FIELDS)[number];
+
 /** 'scale' is a pseudo-column gating the scale-factor figure on pool cards. */
-export const CONFIGURABLE_FIELDS = [...NUMERIC_FIELDS, "scale"] as const;
+export const CONFIGURABLE_FIELDS = [
+  ...IDENTITY_FIELDS,
+  ...NUMERIC_FIELDS,
+  "scale",
+] as const;
 export type ConfigurableField = (typeof CONFIGURABLE_FIELDS)[number];
+
+const IDENTITY_SET = new Set<string>(IDENTITY_FIELDS);
+export const isIdentityField = (f: string): f is IdentityField =>
+  IDENTITY_SET.has(f);
 
 export const ColumnConfigEntrySchema = z.object({
   field: z.enum(CONFIGURABLE_FIELDS),
@@ -37,8 +57,16 @@ export const ColumnConfigSchema = z
   );
 export type ColumnConfig = z.infer<typeof ColumnConfigSchema>;
 
-/** Today's exact labels and formats — first load must look identical. */
+/** Today's exact labels, order and formats — first load must look identical. */
 export const DEFAULT_COLUMNS: ColumnConfig = [
+  { field: "name", visible: true, label: "Name", format: "text", decimals: 0 },
+  { field: "state", visible: true, label: "State", format: "text", decimals: 0 },
+  { field: "pos", visible: true, label: "Position", format: "text", decimals: 0 },
+  { field: "dept", visible: true, label: "Department", format: "text", decimals: 0 },
+  { field: "mgr", visible: true, label: "Manager", format: "text", decimals: 0 },
+  // present in the source data and editable, but not shown by default — the
+  // prototype's table never had a Category column
+  { field: "cat", visible: false, label: "Category", format: "text", decimals: 0 },
   { field: "pkg", visible: true, label: "Package", format: "currency", decimals: 0 },
   { field: "bp", visible: true, label: "Bonus%", format: "percent", decimals: 0 },
   { field: "ipm", visible: true, label: "IPM%", format: "percent", decimals: 0 },
@@ -69,32 +97,45 @@ export function normalizeConfig(config: ColumnConfig): ColumnConfig {
 
 /** What one payload column looks like on the wire. */
 export interface PayloadColumn {
-  key: NumericField;
+  key: NumericField | IdentityField;
   label: string;
   format: ColumnFormat;
   decimals: number;
+  /** identity columns are text, always sent, and never scope-gated */
+  identity?: true;
 }
 
 /**
- * Columns a user's table shows: config order, config-visible AND
- * scope-visible. Never introduces a field the scope didn't grant.
+ * Columns a user's table shows: config order, config-visible, and — for the
+ * figure columns only — scope-visible. Never introduces a figure the scope
+ * didn't grant.
  */
 export function effectiveColumns(
   config: ColumnConfig,
   scopeVisibleFields: readonly NumericField[]
 ): PayloadColumn[] {
-  const scoped = new Set(scopeVisibleFields);
-  return normalizeConfig(config)
-    .filter(
-      (c): c is ColumnConfigEntry & { field: NumericField } =>
-        c.field !== "scale" && c.visible && scoped.has(c.field as NumericField)
-    )
-    .map((c) => ({
-      key: c.field,
-      label: c.label,
-      format: c.format,
-      decimals: c.decimals,
-    }));
+  const scoped = new Set<string>(scopeVisibleFields);
+  const out: PayloadColumn[] = [];
+  for (const c of normalizeConfig(config)) {
+    if (!c.visible || c.field === "scale") continue;
+    if (isIdentityField(c.field)) {
+      out.push({
+        key: c.field,
+        label: c.label,
+        format: c.format,
+        decimals: c.decimals,
+        identity: true,
+      });
+    } else if (scoped.has(c.field)) {
+      out.push({
+        key: c.field as NumericField,
+        label: c.label,
+        format: c.format,
+        decimals: c.decimals,
+      });
+    }
+  }
+  return out;
 }
 
 /** Whether pool cards show the scale-factor figure. */

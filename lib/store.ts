@@ -296,7 +296,7 @@ export function saveAccessOverlay(doc: AccessOverlay): Promise<void> {
   return saveDoc(ACCESS_KEY, ACCESS_FILE, doc);
 }
 
-// ── scheme-wide parameters (managed via /admin/params) ──────────────────────
+// ── scheme-wide parameters (edited on the dashboard's pool cards) ───────────
 const PARAMS_KEY = "kestrel:params:fy26";
 const PARAMS_FILE = "params.json";
 
@@ -314,7 +314,7 @@ export function saveParams(params: Params): Promise<void> {
   return saveDoc(PARAMS_KEY, PARAMS_FILE, params);
 }
 
-// ── column presentation config (managed via /admin/columns) ─────────────────
+// ── column presentation config (edited from the dashboard column menu) ──────
 const COLUMNS_KEY = "kestrel:columns:fy26";
 const COLUMNS_FILE = "columns.json";
 
@@ -332,7 +332,7 @@ export function saveColumnConfig(cfg: ColumnConfig): Promise<void> {
   return saveDoc(COLUMNS_KEY, COLUMNS_FILE, cfg);
 }
 
-// ── dashboard wording (managed via /admin/text) ─────────────────────────────
+// ── dashboard wording (edited in place on the dashboard) ────────────────────
 const COPY_KEY = "kestrel:copy:fy26";
 const COPY_FILE = "copy.json";
 

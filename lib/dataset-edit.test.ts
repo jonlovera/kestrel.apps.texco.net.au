@@ -125,6 +125,141 @@ describe("field edits", () => {
   });
 });
 
+describe("identity text edits", () => {
+  const base = dataset([emp()]);
+
+  it("renames and records the before/after in history", () => {
+    const res = apply(base, { op: "text", id: "TEST1", field: "pos", value: "Senior Engineer" });
+    if (!res.ok) throw new Error(res.errors.join("; "));
+    expect(res.dataset.emp[0].pos).toBe("Senior Engineer");
+    expect(res.history[0].summary).toBe(
+      'Set Position for Jane Smith: "Engineer" → "Senior Engineer"'
+    );
+  });
+
+  it("trims surrounding whitespace", () => {
+    const res = apply(base, { op: "text", id: "TEST1", field: "sn", value: "  Smyth  " });
+    if (!res.ok) throw new Error();
+    expect(res.dataset.emp[0].sn).toBe("Smyth");
+  });
+
+  it("rejects an empty or whitespace-only value", () => {
+    for (const value of ["", "   "]) {
+      const res = apply(base, { op: "text", id: "TEST1", field: "dept", value });
+      expect(res.ok).toBe(false);
+      if (res.ok) throw new Error();
+      expect(res.errors[0]).toBe("'Department' can't be empty.");
+    }
+  });
+
+  it("rejects an over-length value", () => {
+    const res = apply(base, { op: "text", id: "TEST1", field: "pos", value: "x".repeat(61) });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error();
+    expect(res.errors[0]).toContain("too long");
+  });
+
+  it("a no-op rename records no history and leaves the dataset alone", () => {
+    const res = apply(base, { op: "text", id: "TEST1", field: "pos", value: "Engineer" });
+    if (!res.ok) throw new Error();
+    expect(res.history).toHaveLength(0);
+    expect(res.dataset).toBe(base);
+  });
+
+  it("renaming a department re-derives the filter lists", () => {
+    const two = dataset([emp(), emp({ id: "TEST2", gn: "Bob", dept: "Legal" })]);
+    const res = apply(two, { op: "text", id: "TEST2", field: "dept", value: "Legal & Risk" });
+    if (!res.ok) throw new Error();
+    expect(res.dataset.depts).toEqual(["Construction Delivery", "Legal & Risk"]);
+  });
+
+  it("the old group disappears once its last member leaves", () => {
+    const two = dataset([emp(), emp({ id: "TEST2", gn: "Bob", dept: "Legal" })]);
+    const res = apply(two, {
+      op: "text",
+      id: "TEST2",
+      field: "dept",
+      value: "Construction Delivery",
+    });
+    if (!res.ok) throw new Error();
+    expect(res.dataset.depts).toEqual(["Construction Delivery"]);
+  });
+
+  it("changing a manager and a category re-derives those lists too", () => {
+    const mgr = apply(base, { op: "text", id: "TEST1", field: "mgr", value: "Ada Manager" });
+    if (!mgr.ok) throw new Error();
+    expect(mgr.dataset.mgrs).toEqual(["Ada Manager"]);
+
+    const cat = apply(base, { op: "text", id: "TEST1", field: "cat", value: "Texco Management" });
+    if (!cat.ok) throw new Error();
+    expect(cat.dataset.cats).toEqual(["Texco Management"]);
+  });
+
+  it("a name change does not touch the filter lists", () => {
+    const res = apply(base, { op: "text", id: "TEST1", field: "gn", value: "Janet" });
+    if (!res.ok) throw new Error();
+    expect(res.dataset.depts).toEqual(base.depts);
+    expect(res.dataset.emp[0].gn).toBe("Janet");
+  });
+
+  it("the schema refuses a field outside the editable text list", () => {
+    expect(
+      DatasetPatchSchema.safeParse({ op: "text", id: "TEST1", field: "id", value: "X" }).success
+    ).toBe(false);
+    expect(
+      DatasetPatchSchema.safeParse({ op: "text", id: "TEST1", field: "st", value: "VIC" }).success
+    ).toBe(false);
+  });
+});
+
+describe("state changes carry the pool split", () => {
+  const cases: [Employee["st"], number, number, Employee["st"], number, number][] = [
+    ["VIC", 1, 0, "NSW", 0, 1],
+    ["VIC", 1, 0, "SHARED", 0.5, 0.5],
+    ["NSW", 0, 1, "VIC", 1, 0],
+    ["NSW", 0, 1, "SHARED", 0.5, 0.5],
+    ["SHARED", 0.6, 0.4, "VIC", 1, 0],
+    ["SHARED", 0.6, 0.4, "NSW", 0, 1],
+  ];
+
+  for (const [from, vp, np, to, wantVp, wantNp] of cases) {
+    it(`${from} → ${to} lands on a valid split`, () => {
+      const base = dataset([emp({ st: from, vp, np })]);
+      const res = apply(base, { op: "state", id: "TEST1", st: to });
+      if (!res.ok) throw new Error(res.errors.join("; "));
+      expect(res.dataset.emp[0].st).toBe(to);
+      expect(res.dataset.emp[0].vp).toBe(wantVp);
+      expect(res.dataset.emp[0].np).toBe(wantNp);
+      expect(res.history[0].summary).toContain(`${from} → ${to}`);
+    });
+  }
+
+  it("a shared row keeps its own proportions when it stays shared", () => {
+    const base = dataset([emp({ st: "SHARED", vp: 0.7, np: 0.3 })]);
+    const res = apply(base, { op: "state", id: "TEST1", st: "SHARED" });
+    if (!res.ok) throw new Error();
+    expect(res.dataset.emp[0].vp).toBe(0.7);
+    expect(res.history).toHaveLength(0); // no change at all
+  });
+
+  it("someone outside both pools stays outside them", () => {
+    const base = dataset([emp({ st: "SHARED", vp: 0, np: 0 })]);
+    const res = apply(base, { op: "state", id: "TEST1", st: "VIC" });
+    if (!res.ok) throw new Error(res.errors.join("; "));
+    expect(res.dataset.emp[0].vp).toBe(0);
+    expect(res.dataset.emp[0].np).toBe(0);
+  });
+
+  it("every real employee can be moved to every state", () => {
+    for (const e of real.emp.slice(0, 20)) {
+      for (const st of ["VIC", "NSW", "SHARED"] as const) {
+        const res = applyDatasetPatch(real, { op: "state", id: e.id, st }, {}, ACTOR, TS);
+        expect(res.ok, `${e.gn} ${e.sn} ${e.st} → ${st}`).toBe(true);
+      }
+    }
+  });
+});
+
 describe("pool split", () => {
   it("moves both weights together on a shared row", () => {
     const base = dataset([emp({ st: "SHARED", vp: 0.6, np: 0.4 })]);

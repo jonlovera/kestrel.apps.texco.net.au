@@ -4,8 +4,9 @@
  */
 import type { Employee, Overrides } from "./schema";
 import type { NumericField } from "./access-types";
-import type { PayloadColumn } from "./columns";
+import type { ColumnConfig, PayloadColumn } from "./columns";
 import type { Copy } from "./copy";
+import type { Params } from "./params-apply";
 
 export interface UserInfo {
   name: string;
@@ -36,6 +37,18 @@ export interface ScopedRow {
   da?: number;
   yoy?: number;
   final?: number;
+}
+
+/**
+ * The unified row the table renders in both modes. Editors get the extra pool
+ * weights; read-only users get exactly their `ScopedRow`.
+ */
+export interface DisplayRow extends ScopedRow {
+  vp?: number;
+  np?: number;
+  /** the source name halves, so edit mode can write them back separately */
+  gn?: string;
+  sn?: string;
 }
 
 export interface StatePoolCard {
@@ -81,9 +94,17 @@ export interface EditorPayload {
   companyModifier: number;
   /** display columns: config-visible (editors are scope-visible on all) */
   columns: PayloadColumn[];
+  /**
+   * The whole stored config, hidden columns included — the column menu needs
+   * to offer what isn't currently shown. Editors only; a read-only user gets
+   * the resolved `columns` list and nothing more.
+   */
+  columnConfig: ColumnConfig;
   showScale: boolean;
   /** editable wording (presentation only — never gates data) */
   copy: Copy;
+  /** editable on the pool cards; `caps` mirrors the first three */
+  params: Params;
   caps: { vCap: number; nCap: number; gCap: number };
   cats: string[];
   depts: string[];

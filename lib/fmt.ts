@@ -20,10 +20,13 @@ export function fmtPctWhole(v: number): string {
  * Currency keeps the prototype's `($1,234)` negative style.
  */
 export function fmtValue(
-  format: "currency" | "percent" | "number",
+  format: "currency" | "percent" | "number" | "text",
   decimals: number,
   v: number | null | undefined
 ): string {
+  // 'text' belongs to the identity columns, which render their own strings and
+  // never reach here; treat it as a plain passthrough rather than throwing.
+  if (format === "text") return v == null || isNaN(v) ? "" : String(v);
   if (v == null || isNaN(v)) return format === "percent" ? "0%" : "0";
   const opts = { minimumFractionDigits: decimals, maximumFractionDigits: decimals };
   if (format === "currency") {

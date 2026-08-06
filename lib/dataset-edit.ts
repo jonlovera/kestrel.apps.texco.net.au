@@ -39,6 +39,33 @@ const FIELD_LABELS: Record<EditableDatasetField, string> = {
 const showField = (field: EditableDatasetField, v: number): string =>
   field === "sm" ? (v ? "yes" : "no") : fmt(v);
 
+const EPS = 1e-9;
+
+/** Identity text editable straight from a table cell. */
+export const EDITABLE_TEXT_FIELDS = [
+  "gn",
+  "sn",
+  "pos",
+  "dept",
+  "mgr",
+  "cat",
+] as const;
+export type EditableTextField = (typeof EDITABLE_TEXT_FIELDS)[number];
+
+const TEXT_LABELS: Record<EditableTextField, string> = {
+  gn: "Given name",
+  sn: "Surname",
+  pos: "Position",
+  dept: "Department",
+  mgr: "Manager",
+  cat: "Category",
+};
+
+/** Changing one of these moves a row between filter groups. */
+const FACET_FIELDS: readonly string[] = ["dept", "mgr", "cat"];
+
+export const MAX_TEXT_LENGTH = 60;
+
 export const DatasetPatchSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("field"),
@@ -46,8 +73,20 @@ export const DatasetPatchSchema = z.discriminatedUnion("op", [
     field: z.enum(EDITABLE_DATASET_FIELDS),
     value: z.number().finite(),
   }),
-  // vp and np move together: either alone would transiently break the
-  // "weights sum to 1" invariant and be rejected.
+  z.object({
+    op: z.literal("text"),
+    id: z.string().min(1),
+    field: z.enum(EDITABLE_TEXT_FIELDS),
+    value: z.string(),
+  }),
+  // State and the pool split move together: switching VIC→NSW while vp is
+  // still 1 would fail checkSplit, so the op derives the new split itself.
+  z.object({
+    op: z.literal("state"),
+    id: z.string().min(1),
+    st: z.enum(["VIC", "NSW", "SHARED"]),
+  }),
+  // vp and np move together for the same reason.
   z.object({
     op: z.literal("split"),
     id: z.string().min(1),
@@ -58,6 +97,23 @@ export const DatasetPatchSchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("remove"), id: z.string().min(1) }),
 ]);
 export type DatasetPatch = z.infer<typeof DatasetPatchSchema>;
+
+/**
+ * The split a state implies. A row already split across both pools keeps its
+ * proportions when it stays SHARED; anything else lands on the only split its
+ * state permits.
+ */
+export function splitForState(
+  st: Employee["st"],
+  current: { vp: number; np: number }
+): { vp: number; np: number } {
+  const inPool = current.vp + current.np > EPS;
+  if (!inPool) return { vp: 0, np: 0 }; // outside the pools, and staying there
+  if (st === "VIC") return { vp: 1, np: 0 };
+  if (st === "NSW") return { vp: 0, np: 1 };
+  const alreadyMixed = current.vp > EPS && current.np > EPS;
+  return alreadyMixed ? { vp: current.vp, np: current.np } : { vp: 0.5, np: 0.5 };
+}
 
 export type DatasetPatchResult =
   | {
@@ -81,8 +137,6 @@ export function deriveFacets(
     mgrs: uniq(employees.map((e) => e.mgr)),
   };
 }
-
-const EPS = 1e-9;
 
 /**
  * Pool weights must sum to exactly 1 (in the pool) or exactly 0 (not in it),
@@ -219,12 +273,58 @@ export function applyDatasetPatch(
     };
   }
 
+  if (patch.op === "text") {
+    const value = patch.value.trim();
+    const label = TEXT_LABELS[patch.field];
+    if (!value) {
+      return { ok: false, errors: [`'${label}' can't be empty.`] };
+    }
+    if (value.length > MAX_TEXT_LENGTH) {
+      return {
+        ok: false,
+        errors: [`'${label}' is too long — keep it to ${MAX_TEXT_LENGTH} characters.`],
+      };
+    }
+    if (existing[patch.field] === value) {
+      return { ok: true, dataset: data, overrides, overridesChanged: false, history: [] };
+    }
+
+    const updatedRow: Employee = { ...existing, [patch.field]: value };
+    const emp = [...data.emp];
+    emp[index] = updatedRow;
+    // department/manager/category drive the filter lists: a rename adds the new
+    // group, and drops the old one once its last member has left
+    const facets = FACET_FIELDS.includes(patch.field) ? deriveFacets(emp) : null;
+
+    return {
+      ok: true,
+      dataset: facets ? { ...data, emp, ...facets } : { ...data, emp },
+      overrides,
+      overridesChanged: false,
+      history: [
+        entry(
+          actor,
+          ts,
+          `Set ${label} for ${name(existing)}: "${existing[patch.field]}" → "${value}"`,
+          {
+            empId: existing.id,
+            field: patch.field,
+            from: existing[patch.field],
+            to: value,
+          }
+        ),
+      ],
+    };
+  }
+
   const updated: Employee =
     patch.op === "split"
       ? { ...existing, vp: patch.vp, np: patch.np }
-      : patch.op === "field" && patch.field === "pkg"
-        ? { ...existing, pkg: patch.value, bipm: scaledBipm(existing, patch.value) }
-        : { ...existing, [patch.field]: patch.value };
+      : patch.op === "state"
+        ? { ...existing, st: patch.st, ...splitForState(patch.st, existing) }
+        : patch.op === "field" && patch.field === "pkg"
+          ? { ...existing, pkg: patch.value, bipm: scaledBipm(existing, patch.value) }
+          : { ...existing, [patch.field]: patch.value };
 
   const errors = validateEmployee(updated);
   if (errors.length > 0) return { ok: false, errors };
@@ -257,6 +357,26 @@ export function applyDatasetPatch(
         )
       );
     }
+  } else if (patch.op === "state") {
+    if (existing.st !== patch.st) {
+      const moved =
+        existing.vp !== updated.vp || existing.np !== updated.np
+          ? ` (pool split follows: VIC ${fmtPctWhole(updated.vp)} / NSW ${fmtPctWhole(updated.np)})`
+          : "";
+      history.push(
+        entry(
+          actor,
+          ts,
+          `Set State for ${name(existing)}: ${existing.st} → ${patch.st}${moved}`,
+          {
+            empId: existing.id,
+            field: "st",
+            from: existing.st,
+            to: patch.st,
+          }
+        )
+      );
+    }
   } else if (existing[patch.field] !== patch.value) {
     history.push(
       entry(
@@ -277,7 +397,8 @@ export function applyDatasetPatch(
   emp[index] = updated;
   return {
     ok: true,
-    // identity fields can't change here, so the facets can't move
+    // none of these ops touch dept/mgr/cat, so the filter lists can't move —
+    // the `text` op above is the one that re-derives them
     dataset: { ...data, emp },
     overrides,
     overridesChanged: false,

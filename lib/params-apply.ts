@@ -1,6 +1,6 @@
 /**
  * Scheme-wide parameters and how they feed the (frozen) calc engine — pure
- * module shared by the server pipeline and the /admin/params live preview,
+ * module shared by the server pipeline and the dashboard's live recalc,
  * so there is exactly one code path for the maths.
  *
  * lib/calc.ts derives each employee's cpm from the source `bipm` figure and

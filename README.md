@@ -92,21 +92,35 @@ out. Every access change is audit-logged (who, whom, what, when).
 
 ## 4. Data, parameters and presentation (self-service, no deploy)
 
-Everything a finance lead needs day-to-day lives under **/admin** (full-access
+Almost everything is edited **in place on the dashboard**: press **Edit mode**
+(top right, full-access users only) and the table becomes a spreadsheet. Press
+**Done editing** and it goes back to plain text with no input boxes — the view
+to share on a screen.
+
+In edit mode:
+
+- **Any cell** — Package, After IPM, FY25 bonus, Bonus %, IPM %, Disc adj, and
+  the identity text (name, position, department, manager, category, state).
+  Tab across, Enter down, Escape to abandon a cell. Each cell saves as you
+  leave it.
+- **The pool caps** — typed straight onto the pool cards; the utilisation bars,
+  scale factors and Remaining figures move as you type, so the live dashboard
+  is the impact preview. The company modifier sits beside the filters and
+  reloads the page on save (it rescales every After-IPM figure).
+- **The columns** — a Columns button to show/hide, reorder, reformat and
+  rename, or double-click any heading to rename it there. Display only: never
+  changes entitlement or calculations (tested).
+- **The wording** — scheme name, status banner (switchable off once figures are
+  final), pool card titles and footer. Same display-only guarantee. The browser
+  tab title and the sign-in / no-access pages stay hardcoded so the scheme is
+  never named on a pre-auth surface.
+- **People** — "+ Add person", and a pencil per row for the VIC/NSW split, the
+  site-manager flag and removal.
+
+What's left under **/admin** is what doesn't belong in a cell (full-access
 users only; every page and API authorises independently):
 
 - **Access** — grant/revoke who can sign in and what they see.
-- **Columns** — show/hide/rename/reorder/reformat the table columns, and hide
-  the pool-card scale factor. Display only: never changes entitlement or
-  calculations (tested).
-- **Text** — the wording on the dashboard: scheme name, the status banner
-  (editable, and can be switched off once figures are final), the three pool
-  card titles and the footer. Display only, same guarantee as Columns. The
-  browser tab title and the sign-in / no-access pages stay hardcoded so the
-  scheme is never named on a pre-auth surface.
-- **Params** — the VIC/NSW/group caps and the company-wide modifier, with a
-  live preview of the impact before saving. Defaults match the source data
-  exactly (modifier 1.0 = today's behaviour).
 - **Import** — drop the .xlsx/.csv onto the dashboard or this page, or pick a
   file (headers: ID, Surname, Given name, Position, Department, Manager,
   Category, State, VIC %, NSW %, Package, Bonus %, IPM %, After IPM, Disc adj,
@@ -123,9 +137,9 @@ Concurrent editing is safe: saves carry a version and a stale save gets a
 the overrides doc are versioned separately, so an import (or someone else's
 inline edit) also forces open editors to reload before their next change.
 
-### Editing from the dashboard
+### The two write paths
 
-Two write paths, deliberately kept apart:
+Deliberately kept apart:
 
 | | Fields | Stored in | Survives an import? |
 |---|---|---|---|

@@ -97,6 +97,26 @@ describe("CopySchema bounds", () => {
   });
 });
 
+describe("snapshot round trip", () => {
+  // lib/snapshots.ts stores the resolved copy and, on restore, feeds
+  // `state.copy` back through CopySchema.safeParse before saving it. These
+  // cover that path's two branches without needing the server-only wrapper.
+  it("a captured copy doc survives the schema on the way back out", () => {
+    const captured = JSON.parse(JSON.stringify(rewritten)); // as jsonb would
+    const parsed = CopySchema.safeParse(captured);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data).toEqual(rewritten);
+  });
+
+  it("a snapshot predating editable wording is skipped, not applied as empty", () => {
+    // older snapshots have no `copy` key at all — restore must leave the
+    // current wording alone rather than wiping it
+    for (const older of [undefined, null]) {
+      expect(CopySchema.safeParse(older).success).toBe(false);
+    }
+  });
+});
+
 describe("wording has zero effect on calculation", () => {
   it("every numeric output is strictly identical under default vs rewritten copy", () => {
     const a = buildPayloadCore(data, {}, vicScope, user, { copy: DEFAULT_COPY });

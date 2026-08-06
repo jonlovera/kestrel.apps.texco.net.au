@@ -14,6 +14,7 @@ import { NUMERIC_FIELDS } from "./access-types";
 import {
   DEFAULT_COLUMNS,
   effectiveColumns,
+  normalizeConfig,
   scaleVisible,
   type ColumnConfig,
 } from "./columns";
@@ -59,6 +60,7 @@ export function buildPayloadCore(
     companyModifier = 1,
   } = opts;
   const showScale = scaleVisible(columnConfig);
+  const normalizedConfig = normalizeConfig(columnConfig);
 
   if (scope.rule.type === "full") {
     return {
@@ -70,8 +72,15 @@ export function buildPayloadCore(
       datasetVersion,
       companyModifier,
       columns: effectiveColumns(columnConfig, NUMERIC_FIELDS),
+      columnConfig: normalizedConfig,
       showScale,
       copy,
+      params: {
+        vCap: data.vCap,
+        nCap: data.nCap,
+        gCap: data.gCap,
+        companyModifier,
+      },
       caps: { vCap: data.vCap, nCap: data.nCap, gCap: data.gCap },
       cats: data.cats,
       depts: data.depts,
@@ -145,17 +154,24 @@ export function buildPayloadCore(
 
   // Filter option lists derived from the user's own rows only.
   const uniq = (xs: string[]) => [...new Set(xs)].sort();
+  // A single-state read-only user's State column would be the same value on
+  // every row, so it is dropped regardless of the presentation config — the
+  // behaviour this view has always had.
+  const showStateColumn =
+    scope.rule.type === "subset" ||
+    (scope.rule.type === "state" && scope.rule.states.length > 1);
+  const columns = effectiveColumns(columnConfig, scope.visibleFields).filter(
+    (c) => c.key !== "state" || showStateColumn
+  );
   const payload: ReadonlyPayload = {
     mode: "readonly",
     user,
     rows,
     visibleFields: scope.visibleFields,
-    columns: effectiveColumns(columnConfig, scope.visibleFields),
+    columns,
     showScale,
     copy,
-    showStateColumn:
-      scope.rule.type === "subset" ||
-      (scope.rule.type === "state" && scope.rule.states.length > 1),
+    showStateColumn,
     poolCards,
     cats: uniq(allowed.map((e) => e.cat)),
     depts: uniq(allowed.map((e) => e.dept)),

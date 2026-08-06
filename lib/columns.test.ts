@@ -12,6 +12,7 @@ import type { Scope } from "./access";
 import { NUMERIC_FIELDS } from "./access-types";
 import {
   DEFAULT_COLUMNS,
+  IDENTITY_FIELDS,
   effectiveColumns,
   normalizeConfig,
   scaleVisible,
@@ -48,22 +49,27 @@ const vicScope: Scope = {
 };
 const user = { name: "t", email: "vic@x.com", scopeLabel: "VIC — read only" };
 
+/** The figure columns of a result, ignoring the identity ones. */
+const figures = (cols: { key: string; identity?: true }[]) =>
+  cols.filter((c) => !c.identity).map((c) => c.key);
+/** The identity columns of a result. */
+const identities = (cols: { key: string; identity?: true }[]) =>
+  cols.filter((c) => c.identity).map((c) => c.key);
+
 describe("effectiveColumns = config-visible AND scope-visible", () => {
   it("hiding via config removes columns without touching scope", () => {
     const cols = effectiveColumns(allHidden, NUMERIC_FIELDS);
     expect(cols).toEqual([]);
   });
 
-  it("scope caps what config can show", () => {
+  it("scope caps what figure columns config can show", () => {
     const cols = effectiveColumns(DEFAULT_COLUMNS, ["final"]);
-    expect(cols.map((c) => c.key)).toEqual(["final"]);
+    expect(figures(cols)).toEqual(["final"]);
   });
 
   it("order, labels and formats come from config", () => {
     const cols = effectiveColumns(scrambled, NUMERIC_FIELDS);
-    expect(cols.map((c) => c.key)).toEqual(
-      [...NUMERIC_FIELDS].reverse()
-    );
+    expect(figures(cols)).toEqual([...NUMERIC_FIELDS].reverse());
     expect(cols[0].label).toBe("X-final");
     expect(cols[0].format).toBe("number");
   });
@@ -78,6 +84,50 @@ describe("effectiveColumns = config-visible AND scope-visible", () => {
   it("normalizeConfig restores missing fields from defaults", () => {
     const partial: ColumnConfig = [DEFAULT_COLUMNS[0]];
     expect(normalizeConfig(partial).length).toBe(DEFAULT_COLUMNS.length);
+  });
+});
+
+describe("identity columns are config-gated but never scope-gated", () => {
+  it("they appear even for a scope with no visible figure fields at all", () => {
+    const cols = effectiveColumns(DEFAULT_COLUMNS, []);
+    expect(figures(cols)).toEqual([]);
+    // Category is hidden by default; the rest show
+    expect(identities(cols)).toEqual(["name", "state", "pos", "dept", "mgr"]);
+  });
+
+  it("hiding one via config removes it", () => {
+    const noDept = DEFAULT_COLUMNS.map((c) =>
+      c.field === "dept" ? { ...c, visible: false } : c
+    );
+    expect(identities(effectiveColumns(noDept, NUMERIC_FIELDS))).not.toContain("dept");
+  });
+
+  it("they are marked identity and carry the text format", () => {
+    const cols = effectiveColumns(DEFAULT_COLUMNS, NUMERIC_FIELDS);
+    for (const c of cols.filter((x) => x.identity)) {
+      expect(c.format).toBe("text");
+      expect((IDENTITY_FIELDS as readonly string[])).toContain(c.key);
+    }
+  });
+
+  it("default order puts the identity columns first, as the table always had", () => {
+    const cols = effectiveColumns(DEFAULT_COLUMNS, NUMERIC_FIELDS);
+    expect(cols.slice(0, 5).map((c) => c.key)).toEqual([
+      "name",
+      "state",
+      "pos",
+      "dept",
+      "mgr",
+    ]);
+  });
+
+  it("config can reorder an identity column among the figures", () => {
+    const nameLast: ColumnConfig = [
+      ...DEFAULT_COLUMNS.filter((c) => c.field !== "name"),
+      DEFAULT_COLUMNS.find((c) => c.field === "name")!,
+    ];
+    const cols = effectiveColumns(nameLast, NUMERIC_FIELDS);
+    expect(cols[cols.length - 1].key).toBe("name");
   });
 });
 
@@ -122,5 +172,45 @@ describe("entitlement is unaffected by column config (non-negotiable #2)", () =>
     // and the column list itself never advertises the unentitled field
     if (payload.mode !== "readonly") throw new Error();
     expect(payload.columns.some((c) => c.key === "pkg")).toBe(false);
+  });
+
+  it("every identity column visible still sends no pkg bytes", () => {
+    // Identity columns bypass the scope gate by design — this proves that
+    // widening the config to cover them did not widen entitlement with it.
+    const allVisible: ColumnConfig = DEFAULT_COLUMNS.map((c) => ({
+      ...c,
+      visible: true,
+    }));
+    const payload = buildPayloadCore(data, {}, vicScope, user, {
+      columnConfig: allVisible,
+    });
+    const json = JSON.stringify(payload);
+    expect(json).not.toContain('"pkg"');
+    expect(json).not.toContain('"bp"');
+    if (payload.mode !== "readonly") throw new Error();
+    expect(identities(payload.columns)).toContain("cat");
+    expect(figures(payload.columns)).toEqual(vicScope.visibleFields);
+  });
+
+  it("a single-state read-only user never gets the State column, config regardless", () => {
+    // it would be the same value on every row; this view has always dropped it
+    const payload = buildPayloadCore(data, {}, vicScope, user, {
+      columnConfig: DEFAULT_COLUMNS,
+    });
+    if (payload.mode !== "readonly") throw new Error();
+    expect(payload.columns.some((c) => c.key === "state")).toBe(false);
+  });
+
+  it("a two-state read-only user does get it", () => {
+    const bothScope: Scope = {
+      ...vicScope,
+      rule: { type: "state", states: ["VIC", "NSW"], visibleFields: ["final"] },
+      visibleFields: ["final"],
+    };
+    const payload = buildPayloadCore(data, {}, bothScope, user, {
+      columnConfig: DEFAULT_COLUMNS,
+    });
+    if (payload.mode !== "readonly") throw new Error();
+    expect(payload.columns.some((c) => c.key === "state")).toBe(true);
   });
 });

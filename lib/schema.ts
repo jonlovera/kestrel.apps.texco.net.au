@@ -97,7 +97,7 @@ export const SnapshotSchema = z.object({
     overridesVersion: z.number().int().optional(),
     params: z.unknown().nullable(),
     columns: z.unknown().nullable(),
-    /** absent in snapshots taken before /admin/text existed */
+    /** absent in snapshots taken before the wording became editable */
     copy: z.unknown().nullable().optional(),
   }),
 });

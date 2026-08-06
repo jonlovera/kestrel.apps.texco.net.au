@@ -82,7 +82,7 @@ export async function restoreSnapshot(ts: string, actor: string): Promise<void> 
   if (cols.success) await saveColumnConfig(cols.data);
   const params = ParamsSchema.safeParse(target.state.params);
   if (params.success) await saveParams(params.data);
-  // absent in snapshots taken before /admin/text existed — leave copy alone
+  // absent in older snapshots than the editable wording — leave copy alone
   const copy = CopySchema.safeParse(target.state.copy);
   if (copy.success) await saveCopy(copy.data);
 

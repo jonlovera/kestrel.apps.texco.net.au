@@ -3,11 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+// Columns, wording and the scheme parameters are edited in place on the
+// dashboard now (Edit mode) — what's left here is what doesn't belong in a cell.
 const TABS = [
   { href: "/admin/access", label: "Access" },
-  { href: "/admin/columns", label: "Columns" },
-  { href: "/admin/text", label: "Text" },
-  { href: "/admin/params", label: "Params" },
   { href: "/admin/import", label: "Import" },
   { href: "/admin/snapshots", label: "Snapshots" },
 ];
