@@ -15,7 +15,7 @@ import { loadAccessOverlay } from "./store";
  * ACCESS CONTROL — who can see what.
  *
  * Day-to-day management happens in the app: any full-access user can add or
- * remove people at /admin (stored in Redis, no deploy needed). The entries
+ * remove people at /admin (stored in the database, no deploy needed). The entries
  * below are the SEED/FALLBACK layer — kept in code so the app always has its
  * owners even if the database is empty, and so jlovera can never be locked
  * out. Precedence per email: this file < BONUS_USERS env var < /admin (db).

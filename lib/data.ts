@@ -7,10 +7,10 @@ import { applyParams, defaultParams, type Params } from "./params-apply";
  * The source dataset (155 employees + pool caps). The raw file holds real
  * salary packages, so it is NOT in git and NOT bundled. Resolution order:
  *
- *  1. Redis doc `kestrel:data:fy26` (written by /admin/import and the seed
+ *  1. database doc `kestrel:data:fy26` (written by /admin/import and the seed
  *     script; dev fallback `.data/dataset.json`)
  *  2. `BONUS_DATA` env var — base64-encoded JSON of the same shape (lets
- *     production serve data even if Redis is unavailable)
+ *     production serve data even if the database is unavailable)
  *  3. local `data/bonus.json` (developer machines only; gitignored)
  *
  * No module-level cache: admin imports must be visible on the next request.
@@ -43,7 +43,7 @@ export async function getDataset(): Promise<Dataset> {
     );
   } catch {
     throw new Error(
-      "No source data available: Redis empty, BONUS_DATA unset, and no local data/bonus.json. " +
+      "No source data available: database empty, BONUS_DATA unset, and no local data/bonus.json. " +
         "Seed the store (scripts/seed-store.ts) or set BONUS_DATA."
     );
   }
