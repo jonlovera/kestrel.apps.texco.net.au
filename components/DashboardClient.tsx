@@ -341,9 +341,9 @@ export default function DashboardClient({
     }));
     const tools: Column[] = isEditor
       ? [
-          { key: "lock", label: "Lock", noSort: true },
-          { key: "edit", label: "", noSort: true },
-        ]
+        { key: "lock", label: "Lock", noSort: true },
+        { key: "edit", label: "", noSort: true },
+      ]
       : [];
     return [...identity, ...numeric, ...tools];
   }, [isEditor, payload]);
@@ -518,9 +518,9 @@ export default function DashboardClient({
         { label: "Pool cap", value: fmt(cap) },
         ...(sharedDeduction !== null
           ? [
-              { label: `${title.split(" ")[0]} bonuses`, value: fmt(total - sharedDeduction) },
-              { label: "Shared svc deduction", value: fmt(sharedDeduction) },
-            ]
+            { label: `${title.split(" ")[0]} bonuses`, value: fmt(total - sharedDeduction) },
+            { label: "Shared svc deduction", value: fmt(sharedDeduction) },
+          ]
           : [{ label: "Total bonuses", value: fmt(total), bold: true }]),
         ...(sharedDeduction !== null
           ? [{ label: "Total allocated", value: fmt(total), bold: true }]
@@ -665,11 +665,10 @@ export default function DashboardClient({
           <button
             type="button"
             onClick={() => toggleLock(r.id)}
-            className={`h-7 w-7 rounded border-[1.5px] text-sm transition-colors ${
-              r.locked
+            className={`h-7 w-7 rounded border-[1.5px] text-sm transition-colors ${r.locked
                 ? "border-[#FC4D0F] bg-[#FC4D0F]"
                 : "border-neutral-300 bg-transparent hover:border-[#FC4D0F]"
-            }`}
+              }`}
           >
             {r.locked ? "🔒" : "🔓"}
           </button>
@@ -760,7 +759,7 @@ export default function DashboardClient({
               href="/admin"
               className="rounded border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"
             >
-              Manage access
+              Admin
             </Link>
           )}
           <button
@@ -789,11 +788,10 @@ export default function DashboardClient({
                 key={t}
                 type="button"
                 onClick={() => openTab(t)}
-                className={`rounded-t-md px-5 py-2 text-xs font-bold uppercase tracking-wide transition-colors ${
-                  activeTab === t
+                className={`rounded-t-md px-5 py-2 text-xs font-bold uppercase tracking-wide transition-colors ${activeTab === t
                     ? "bg-[#FC4D0F] text-white"
                     : "bg-neutral-200 text-[#5C5C5C] hover:bg-neutral-300"
-                }`}
+                  }`}
               >
                 {t}
               </button>
@@ -869,136 +867,133 @@ export default function DashboardClient({
           </div>
         ) : (
           <>
-        {/* A rejected inline edit explains itself here; the cell has already
+            {/* A rejected inline edit explains itself here; the cell has already
             snapped back to the stored figure. */}
-        {isEditor && dsError && !drawer && (
-          <div className="mb-4 flex items-start justify-between gap-4 rounded-md border-2 border-[#FC4D0F] bg-[#FED9CC] px-4 py-2 text-[13px] font-semibold">
-            <span>{dsError}</span>
-            <button
-              type="button"
-              onClick={() => setDsError(null)}
-              className="shrink-0 text-[11px] uppercase tracking-wide underline"
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        {/* Pool cards */}
-        <div className="mb-4 flex flex-wrap gap-4">{poolCardEls}</div>
-
-        {/* Controls */}
-        <div className="mb-3 flex flex-wrap items-center gap-3">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search employees..."
-            className="w-full rounded-md border-2 border-neutral-200 px-3.5 py-2 text-[13px] outline-none focus:border-[#FC4D0F] sm:w-[220px]"
-          />
-          <MultiSelect label="Roles" items={facets.cats} selected={selCats} onChange={setSelCats} />
-          <MultiSelect label="Departments" items={facets.depts} selected={selDepts} onChange={setSelDepts} />
-          <MultiSelect label="Managers" items={facets.mgrs} selected={selMgrs} onChange={setSelMgrs} />
-          {isEditor && (
-            <button
-              type="button"
-              disabled={dsBusy}
-              onClick={() => {
-                setDsError(null);
-                setDrawer({ kind: "add" });
-              }}
-              className="rounded-md border-2 border-[#FC4D0F] px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-wide text-[#FC4D0F] transition-colors hover:bg-[#FC4D0F] hover:text-white disabled:opacity-40"
-            >
-              + Add person
-            </button>
-          )}
-          <div className="ml-auto flex items-center gap-3 text-xs text-[#5C5C5C]">
-            <span className="rounded bg-neutral-100 px-2.5 py-1">
-              Showing: {visibleRows.length} / {allRows.length}
-            </span>
-            {typeof totFinal === "number" && (
-              <span className="rounded bg-neutral-100 px-2.5 py-1">
-                Total bonuses: {fmt(totFinal)}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Table */}
-        <div className="mb-5 max-h-[calc(100vh-260px)] overflow-auto rounded-lg shadow-sm">
-          <table className="w-full border-collapse bg-white text-xs">
-            <thead>
-              <tr>
-                {columns.map((c) => (
-                  <th
-                    key={c.key}
-                    onClick={c.noSort ? undefined : () => doSort(c.key)}
-                    className={`sticky top-0 z-10 whitespace-nowrap bg-[#191919] px-2 py-2.5 text-left text-[11px] uppercase tracking-wide text-white select-none ${
-                      c.noSort ? "" : "cursor-pointer hover:bg-[#333]"
-                    } ${c.num ? "text-right" : ""}`}
-                  >
-                    {c.label}
-                    {sortCol === c.key && (
-                      <span className="ml-1 text-[10px]">{sortDir === 1 ? "▲" : "▼"}</span>
-                    )}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {visibleRows.map((r) => (
-                <tr
-                  key={r.id}
-                  className="group cursor-pointer"
-                  title="Click to show/hide this row's figures"
-                  onClick={(e) => {
-                    if ((e.target as HTMLElement).closest("input,button,a,select,label"))
-                      return;
-                    toggleRow(r.id);
-                  }}
+            {isEditor && dsError && !drawer && (
+              <div className="mb-4 flex items-start justify-between gap-4 rounded-md border-2 border-[#FC4D0F] bg-[#FED9CC] px-4 py-2 text-[13px] font-semibold">
+                <span>{dsError}</span>
+                <button
+                  type="button"
+                  onClick={() => setDsError(null)}
+                  className="shrink-0 text-[11px] uppercase tracking-wide underline"
                 >
-                  {columns.map((c) => (
-                    <td
-                      key={c.key}
-                      className={`whitespace-nowrap border-b border-neutral-100 px-2 py-2 group-hover:bg-neutral-50 ${
-                        c.num ? "text-right tabular-nums" : ""
-                      } ${c.key === "final" ? "bg-[#E7D8FC]" : c.key === "f25" ? "bg-[#f7f7f7]" : ""}`}
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {/* Pool cards */}
+            <div className="mb-4 flex flex-wrap gap-4">{poolCardEls}</div>
+
+            {/* Controls */}
+            <div className="mb-3 flex flex-wrap items-center gap-3">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search employees..."
+                className="w-full rounded-md border-2 border-neutral-200 px-3.5 py-2 text-[13px] outline-none focus:border-[#FC4D0F] sm:w-[220px]"
+              />
+              <MultiSelect label="Roles" items={facets.cats} selected={selCats} onChange={setSelCats} />
+              <MultiSelect label="Departments" items={facets.depts} selected={selDepts} onChange={setSelDepts} />
+              <MultiSelect label="Managers" items={facets.mgrs} selected={selMgrs} onChange={setSelMgrs} />
+              {isEditor && (
+                <button
+                  type="button"
+                  disabled={dsBusy}
+                  onClick={() => {
+                    setDsError(null);
+                    setDrawer({ kind: "add" });
+                  }}
+                  className="rounded-md border-2 border-[#FC4D0F] px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-wide text-[#FC4D0F] transition-colors hover:bg-[#FC4D0F] hover:text-white disabled:opacity-40"
+                >
+                  + Add person
+                </button>
+              )}
+              <div className="ml-auto flex items-center gap-3 text-xs text-[#5C5C5C]">
+                <span className="rounded bg-neutral-100 px-2.5 py-1">
+                  Showing: {visibleRows.length} / {allRows.length}
+                </span>
+                {typeof totFinal === "number" && (
+                  <span className="rounded bg-neutral-100 px-2.5 py-1">
+                    Total bonuses: {fmt(totFinal)}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="mb-5 max-h-[calc(100vh-260px)] overflow-auto rounded-lg shadow-sm">
+              <table className="w-full border-collapse bg-white text-xs">
+                <thead>
+                  <tr>
+                    {columns.map((c) => (
+                      <th
+                        key={c.key}
+                        onClick={c.noSort ? undefined : () => doSort(c.key)}
+                        className={`sticky top-0 z-10 whitespace-nowrap bg-[#191919] px-2 py-2.5 text-left text-[11px] uppercase tracking-wide text-white select-none ${c.noSort ? "" : "cursor-pointer hover:bg-[#333]"
+                          } ${c.num ? "text-right" : ""}`}
+                      >
+                        {c.label}
+                        {sortCol === c.key && (
+                          <span className="ml-1 text-[10px]">{sortDir === 1 ? "▲" : "▼"}</span>
+                        )}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleRows.map((r) => (
+                    <tr
+                      key={r.id}
+                      className="group cursor-pointer"
+                      title="Click to show/hide this row's figures"
+                      onClick={(e) => {
+                        if ((e.target as HTMLElement).closest("input,button,a,select,label"))
+                          return;
+                        toggleRow(r.id);
+                      }}
                     >
-                      {cell(r, c)}
-                    </td>
+                      {columns.map((c) => (
+                        <td
+                          key={c.key}
+                          className={`whitespace-nowrap border-b border-neutral-100 px-2 py-2 group-hover:bg-neutral-50 ${c.num ? "text-right tabular-nums" : ""
+                            } ${c.key === "final" ? "bg-[#E7D8FC]" : c.key === "f25" ? "bg-[#f7f7f7]" : ""}`}
+                        >
+                          {cell(r, c)}
+                        </td>
+                      ))}
+                    </tr>
                   ))}
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                {columns.map((c) => {
-                  // percentages don't sum meaningfully — no total for them
-                  const v =
-                    c.key === "name"
-                      ? `TOTALS (${visibleRows.length})`
-                      : c.format === "percent"
-                        ? ""
-                        : (typeof totals[c.key as NumericField] === "number"
-                            ? showAll
-                              ? show(c, totals[c.key as NumericField]!)
-                              : "••••••"
-                            : "");
-                  return (
-                    <td
-                      key={c.key}
-                      className={`whitespace-nowrap px-2 py-2 text-[13px] font-bold text-white ${
-                        c.num ? "text-right tabular-nums" : ""
-                      } ${c.key === "final" ? "bg-[#7c3aed]" : "bg-[#FC4D0F]"}`}
-                    >
-                      {v}
-                    </td>
-                  );
-                })}
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+                </tbody>
+                <tfoot>
+                  <tr>
+                    {columns.map((c) => {
+                      // percentages don't sum meaningfully — no total for them
+                      const v =
+                        c.key === "name"
+                          ? `TOTALS (${visibleRows.length})`
+                          : c.format === "percent"
+                            ? ""
+                            : (typeof totals[c.key as NumericField] === "number"
+                              ? showAll
+                                ? show(c, totals[c.key as NumericField]!)
+                                : "••••••"
+                              : "");
+                      return (
+                        <td
+                          key={c.key}
+                          className={`whitespace-nowrap px-2 py-2 text-[13px] font-bold text-white ${c.num ? "text-right tabular-nums" : ""
+                            } ${c.key === "final" ? "bg-[#7c3aed]" : "bg-[#FC4D0F]"}`}
+                        >
+                          {v}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           </>
         )}
       </div>
