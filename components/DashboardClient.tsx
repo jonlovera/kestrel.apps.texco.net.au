@@ -5,7 +5,8 @@ import Link from "next/link";
 import { signOut } from "next-auth/react";
 import type { DashboardPayload, ScopedRow } from "@/lib/payload-types";
 import { NUMERIC_FIELDS, type NumericField } from "@/lib/access-types";
-import type { Overrides, HistoryEntry } from "@/lib/schema";
+import type { Employee, Overrides, HistoryEntry } from "@/lib/schema";
+import type { DatasetPatch } from "@/lib/dataset-edit";
 import {
   applyOverrides,
   computeScalesAndBonuses,
@@ -22,15 +23,30 @@ import type { ColumnFormat } from "@/lib/columns";
 import { TexcoX, TexcoWordmark } from "./TexcoBrand";
 import { PoolCard, type PoolMetric } from "./PoolCard";
 import { MultiSelect } from "./MultiSelect";
+import EmployeeEditor from "./EmployeeEditor";
+import Dropzone from "./Dropzone";
+import {
+  useImportFlow,
+  ImportErrors,
+  ImportPreview,
+  ImportModal,
+} from "./ImportFlow";
 
 type Tab = "ALL" | "VIC" | "NSW" | "SHARED" | "HISTORY";
 type SaveStatus = "idle" | "saving" | "saved" | "error";
+
+/** Which columns an editor can type into, and down which write path. */
+const OVERRIDE_EDITABLE = ["bp", "ipm", "da"];
+const DATASET_EDITABLE = ["pkg", "bipm", "f25"];
 
 interface Column {
   key: string;
   label: string;
   num?: boolean;
+  /** editable via the overrides doc (manager judgement, survives imports) */
   editable?: boolean;
+  /** editable via the dataset doc (payroll fact, replaced by an import) */
+  dsEditable?: boolean;
   noSort?: boolean;
   format?: ColumnFormat;
   decimals?: number;
@@ -49,6 +65,40 @@ export default function DashboardClient({
 }) {
   const isEditor = payload.mode === "editor";
 
+  // ── editor state: the SOURCE dataset, persisted per-change to /api/dataset ─
+  // Held in state (not read straight off the payload) so an inline edit
+  // recalculates instantly, the way the prototype did.
+  const [employees, setEmployees] = useState<Employee[]>(
+    isEditor ? payload.employees : []
+  );
+  const [facets, setFacets] = useState({
+    cats: payload.cats,
+    depts: payload.depts,
+    mgrs: payload.mgrs,
+  });
+  const datasetVersionRef = useRef(isEditor ? payload.datasetVersion : 0);
+  const [dsBusy, setDsBusy] = useState(false);
+  const [dsError, setDsError] = useState<string | null>(null);
+  const [drawer, setDrawer] = useState<
+    { kind: "add" } | { kind: "edit"; id: string } | null
+  >(null);
+
+  // ── drop a spreadsheet anywhere to replace the roster ─────────────────────
+  // An import replaces the dataset wholesale and re-versions the overrides, so
+  // once it has applied this page is reloaded rather than patched: caps,
+  // versions, facets and figures then all come from one consistent payload.
+  const [importOpen, setImportOpen] = useState(false);
+  const importFlow = useImportFlow();
+
+  function closeImport() {
+    if (importFlow.stage.step === "done") {
+      window.location.reload();
+      return;
+    }
+    setImportOpen(false);
+    importFlow.reset();
+  }
+
   // ── editor state: the overrides doc, persisted (debounced) to /api/state ──
   const [overrides, setOverrides] = useState<Overrides>(
     isEditor ? payload.overrides : {}
@@ -56,6 +106,9 @@ export default function DashboardClient({
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firstRender = useRef(true);
+  // set when the server hands us an overrides doc it has already persisted,
+  // so the autosave effect doesn't POST it straight back
+  const skipNextSave = useRef(false);
   // optimistic-concurrency token; a stale save gets a 409 instead of
   // silently overwriting a colleague's changes
   const versionRef = useRef(isEditor ? payload.overridesVersion : 0);
@@ -64,6 +117,10 @@ export default function DashboardClient({
     if (!isEditor) return;
     if (firstRender.current) {
       firstRender.current = false;
+      return;
+    }
+    if (skipNextSave.current) {
+      skipNextSave.current = false;
       return;
     }
     setSaveStatus("saving");
@@ -104,10 +161,10 @@ export default function DashboardClient({
     pool: PoolState | null;
   }>(() => {
     if (!isEditor) return { emps: [], pool: null };
-    const e = applyOverrides(payload.employees, overrides);
+    const e = applyOverrides(employees, overrides);
     const p = computeScalesAndBonuses(e, payload.caps);
     return { emps: e, pool: p };
-  }, [isEditor, payload, overrides]);
+  }, [isEditor, payload, employees, overrides]);
 
   // ── shared UI state ──
   const [activeTab, setActiveTab] = useState<Tab>("ALL");
@@ -117,6 +174,56 @@ export default function DashboardClient({
   const [selCats, setSelCats] = useState<string[]>(payload.cats);
   const [selDepts, setSelDepts] = useState<string[]>(payload.depts);
   const [selMgrs, setSelMgrs] = useState<string[]>(payload.mgrs);
+
+  /**
+   * Send one change to the source dataset. Returns whether it stuck, so the
+   * drawer knows whether to close. Errors surface next to the control that
+   * caused them rather than in an alert.
+   */
+  async function patchDataset(patch: DatasetPatch): Promise<boolean> {
+    setDsBusy(true);
+    setDsError(null);
+    try {
+      const res = await fetch("/api/dataset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: datasetVersionRef.current, patch }),
+      });
+      if (res.status === 409) {
+        alert(
+          "Someone else changed the employee data since this page loaded. Reloading to pick up the latest — your last change was not saved."
+        );
+        window.location.reload();
+        return false;
+      }
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDsError(body.error ?? "That change could not be saved.");
+        return false;
+      }
+      datasetVersionRef.current = body.version;
+      setEmployees(body.employees);
+      setFacets({ cats: body.cats, depts: body.depts, mgrs: body.mgrs });
+      // adding or removing someone reshuffles the filter lists; reset the
+      // pickers to "everything" so nobody silently vanishes from the table
+      setSelCats(body.cats);
+      setSelDepts(body.depts);
+      setSelMgrs(body.mgrs);
+      if (body.overrides) {
+        // the server pruned a removed person's entries and already saved
+        // them — adopt its result without echoing it straight back
+        skipNextSave.current = true;
+        versionRef.current = body.overridesVersion ?? versionRef.current;
+        setOverrides(body.overrides);
+      }
+      return true;
+    } catch {
+      setDsError("That change could not be saved — check your connection.");
+      return false;
+    } finally {
+      setDsBusy(false);
+    }
+  }
 
   // ── privacy: figures are masked by default; reveal per row, or all at once
   //    via the header button / Space ──
@@ -227,14 +334,18 @@ export default function DashboardClient({
       key: c.key,
       label: c.label,
       num: true,
-      editable: isEditor && ["bp", "ipm", "da"].includes(c.key),
+      editable: isEditor && OVERRIDE_EDITABLE.includes(c.key),
+      dsEditable: isEditor && DATASET_EDITABLE.includes(c.key),
       format: c.format,
       decimals: c.decimals,
     }));
-    const lock: Column[] = isEditor
-      ? [{ key: "lock", label: "Lock", noSort: true }]
+    const tools: Column[] = isEditor
+      ? [
+          { key: "lock", label: "Lock", noSort: true },
+          { key: "edit", label: "", noSort: true },
+        ]
       : [];
-    return [...identity, ...numeric, ...lock];
+    return [...identity, ...numeric, ...tools];
   }, [isEditor, payload]);
 
   // ── filtering + sorting (prototype getVisibleEmployees) ──
@@ -253,11 +364,11 @@ export default function DashboardClient({
           r.st.toLowerCase().includes(q)
       );
     }
-    const catAll = selCats.length === payload.cats.length;
+    const catAll = selCats.length === facets.cats.length;
     if (!catAll) list = list.filter((r) => selCats.includes(r.cat));
-    const deptAll = selDepts.length === payload.depts.length;
+    const deptAll = selDepts.length === facets.depts.length;
     if (!deptAll) list = list.filter((r) => selDepts.includes(r.dept));
-    const mgrAll = selMgrs.length === payload.mgrs.length;
+    const mgrAll = selMgrs.length === facets.mgrs.length;
     if (!mgrAll) list = list.filter((r) => selMgrs.includes(r.mgr));
 
     if (sortCol !== null) {
@@ -284,7 +395,7 @@ export default function DashboardClient({
       });
     }
     return list;
-  }, [allRows, isEditor, activeTab, search, selCats, selDepts, selMgrs, sortCol, sortDir, payload]);
+  }, [allRows, isEditor, activeTab, search, selCats, selDepts, selMgrs, sortCol, sortDir, facets]);
 
   // ── edit handlers (prototype updateBP/updateIPM/updateDA/toggleLock) ──
   const empById = useMemo(
@@ -316,6 +427,18 @@ export default function DashboardClient({
       );
     }
     setOverride(id, { daEdit: num });
+  }
+
+  /** One source-dataset figure, edited in the table. No-ops if unchanged. */
+  function updateDatasetFigure(
+    id: string,
+    field: "pkg" | "bipm" | "f25",
+    current: number,
+    raw: string
+  ) {
+    const next = parseDaInput(raw); // same lenient "$1,234" parsing
+    if (Math.round(next) === Math.round(current)) return;
+    void patchDataset({ op: "field", id, field, value: next });
   }
 
   function toggleLock(id: string) {
@@ -416,11 +539,12 @@ export default function DashboardClient({
       );
     };
 
+    const t = payload.copy.poolTitles;
     return [
       // scale figure is gated by the 'scale' pseudo-column config
-      card("VIC pool", vCap, vicTotal, sharedVic, payload.showScale ? pool.vicScale : null, "VIC scale factor"),
-      card("NSW pool", nCap, nswTotal, sharedNsw, payload.showScale ? pool.nswScale : null, "NSW scale factor"),
-      card("Group total", gCap, groupTotal, null, null, null),
+      card(t.vic, vCap, vicTotal, sharedVic, payload.showScale ? pool.vicScale : null, "VIC scale factor"),
+      card(t.nsw, nCap, nswTotal, sharedNsw, payload.showScale ? pool.nswScale : null, "NSW scale factor"),
+      card(t.group, gCap, groupTotal, null, null, null),
     ];
   }, [isEditor, payload, emps, pool]);
 
@@ -472,7 +596,10 @@ export default function DashboardClient({
       case "mgr":
         return r.mgr;
       case "pkg":
-        return show(c, r.pkg!);
+        // a package edit carries After IPM with it, pro rata — see
+        // scaledBipm() in lib/dataset-edit.ts for why
+        if (!c.dsEditable || r.locked) return show(c, r.pkg!);
+        return moneyInput(r, "pkg", r.pkg!, 90);
       case "bp":
       case "ipm": {
         const v = c.key === "bp" ? r.bp! : r.ipm!;
@@ -494,11 +621,14 @@ export default function DashboardClient({
         );
       }
       case "bipm":
-        return show(c, r.bipm!);
+        if (!c.dsEditable || r.locked) return show(c, r.bipm!);
+        return moneyInput(r, "bipm", r.bipm!, 85);
       case "calc":
         return show(c, r.calc!);
       case "f25":
-        return <span className="text-neutral-400">{show(c, r.f25!)}</span>;
+        // last year's figure: a fact, unaffected by this year's lock
+        if (!c.dsEditable) return <span className="text-neutral-400">{show(c, r.f25!)}</span>;
+        return moneyInput(r, "f25", r.f25!, 85);
       case "da": {
         if (r.sm || !r.inPool) return <span className="text-neutral-300">—</span>;
         if (!c.editable || r.locked) return show(c, r.da!);
@@ -545,9 +675,50 @@ export default function DashboardClient({
           </button>
         );
       }
+      case "edit":
+        return (
+          <button
+            type="button"
+            title={`Edit ${r.name}'s pool split, site-manager flag, or remove them`}
+            disabled={dsBusy}
+            onClick={() => {
+              setDsError(null);
+              setDrawer({ kind: "edit", id: r.id });
+            }}
+            className="h-7 w-7 rounded border-[1.5px] border-neutral-300 text-sm transition-colors hover:border-[#FC4D0F] disabled:opacity-40"
+          >
+            ✎
+          </button>
+        );
       default:
         return null;
     }
+  }
+
+  /**
+   * A dollar figure that writes straight to the source dataset on blur. Keyed
+   * on the value so a server-side correction (or a rejected edit) snaps the
+   * box back to the truth.
+   */
+  function moneyInput(
+    r: DisplayRow,
+    field: "pkg" | "bipm" | "f25",
+    value: number,
+    width: number
+  ) {
+    return (
+      <input
+        key={`${r.id}-${field}-${value}`}
+        type="text"
+        defaultValue={Math.round(value)}
+        disabled={dsBusy}
+        onFocus={(e) => e.target.select()}
+        onBlur={(e) => updateDatasetFigure(r.id, field, value, e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+        style={{ width }}
+        className="rounded border border-neutral-300 px-1.5 py-1 text-right text-xs tabular-nums outline-none focus:border-[#FC4D0F] disabled:opacity-50"
+      />
+    );
   }
 
   const totFinal = totals.final;
@@ -560,7 +731,7 @@ export default function DashboardClient({
           <TexcoX className="mr-2.5 h-[22px] w-[22px] shrink-0" />
           <TexcoWordmark className="mr-4 h-[18px] w-auto shrink-0" />
           <span className="hidden text-xs font-medium uppercase tracking-[2px] text-[#FC4D0F] sm:inline">
-            FY26 Employee Bonus Scheme
+            {payload.copy.schemeName}
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -602,10 +773,12 @@ export default function DashboardClient({
         </div>
       </div>
 
-      {/* Draft banner */}
-      <div className="bg-[#FC4D0F] px-6 py-1.5 text-center text-xs font-bold uppercase tracking-[2px] text-white">
-        Draft — not final
-      </div>
+      {/* Status banner */}
+      {payload.copy.bannerVisible && (
+        <div className="bg-[#FC4D0F] px-6 py-1.5 text-center text-xs font-bold uppercase tracking-[2px] text-white">
+          {payload.copy.bannerText}
+        </div>
+      )}
 
       <div className="mx-auto w-full max-w-[1600px] flex-1 px-5 py-4">
         {/* Tabs (editors only, like the prototype master view) */}
@@ -696,6 +869,21 @@ export default function DashboardClient({
           </div>
         ) : (
           <>
+        {/* A rejected inline edit explains itself here; the cell has already
+            snapped back to the stored figure. */}
+        {isEditor && dsError && !drawer && (
+          <div className="mb-4 flex items-start justify-between gap-4 rounded-md border-2 border-[#FC4D0F] bg-[#FED9CC] px-4 py-2 text-[13px] font-semibold">
+            <span>{dsError}</span>
+            <button
+              type="button"
+              onClick={() => setDsError(null)}
+              className="shrink-0 text-[11px] uppercase tracking-wide underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {/* Pool cards */}
         <div className="mb-4 flex flex-wrap gap-4">{poolCardEls}</div>
 
@@ -708,9 +896,22 @@ export default function DashboardClient({
             placeholder="Search employees..."
             className="w-full rounded-md border-2 border-neutral-200 px-3.5 py-2 text-[13px] outline-none focus:border-[#FC4D0F] sm:w-[220px]"
           />
-          <MultiSelect label="Roles" items={payload.cats} selected={selCats} onChange={setSelCats} />
-          <MultiSelect label="Departments" items={payload.depts} selected={selDepts} onChange={setSelDepts} />
-          <MultiSelect label="Managers" items={payload.mgrs} selected={selMgrs} onChange={setSelMgrs} />
+          <MultiSelect label="Roles" items={facets.cats} selected={selCats} onChange={setSelCats} />
+          <MultiSelect label="Departments" items={facets.depts} selected={selDepts} onChange={setSelDepts} />
+          <MultiSelect label="Managers" items={facets.mgrs} selected={selMgrs} onChange={setSelMgrs} />
+          {isEditor && (
+            <button
+              type="button"
+              disabled={dsBusy}
+              onClick={() => {
+                setDsError(null);
+                setDrawer({ kind: "add" });
+              }}
+              className="rounded-md border-2 border-[#FC4D0F] px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-wide text-[#FC4D0F] transition-colors hover:bg-[#FC4D0F] hover:text-white disabled:opacity-40"
+            >
+              + Add person
+            </button>
+          )}
           <div className="ml-auto flex items-center gap-3 text-xs text-[#5C5C5C]">
             <span className="rounded bg-neutral-100 px-2.5 py-1">
               Showing: {visibleRows.length} / {allRows.length}
@@ -803,9 +1004,111 @@ export default function DashboardClient({
       </div>
 
       <footer className="border-t-2 border-[#FC4D0F] bg-white px-6 py-3.5 text-center text-[11px] tracking-wide text-[#5C5C5C]">
-        texco &ensp;|&ensp; FY26 Employee Bonus Scheme &ensp;|&ensp; Confidential
-        &ensp;|&ensp; Innovate. Design. Deliver.
+        {payload.copy.footerText}
       </footer>
+
+      {/* Editors can drop a spreadsheet anywhere on the dashboard. The preview
+          still stands between the file and the data. */}
+      {isEditor && (
+        <Dropzone
+          onFile={(file) => {
+            setImportOpen(true);
+            void importFlow.check(file);
+          }}
+          disabled={importOpen || dsBusy || drawer !== null}
+          label="Drop the spreadsheet to update the figures"
+        />
+      )}
+
+      {isEditor && importOpen && (
+        <ImportModal
+          closable={!importFlow.busy}
+          onClose={closeImport}
+        >
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-[13px] font-bold uppercase tracking-[1.5px] text-white">
+              Import employee data
+            </h2>
+            <button
+              type="button"
+              disabled={importFlow.busy}
+              onClick={closeImport}
+              className="rounded border border-white/40 px-3 py-1 text-[11px] font-semibold uppercase text-white hover:bg-white/10 disabled:opacity-40"
+            >
+              Close
+            </button>
+          </div>
+
+          {importFlow.fatal && (
+            <div className="mb-3 rounded-md border-2 border-[#FC4D0F] bg-[#FED9CC] px-4 py-2 text-[13px] font-semibold">
+              {importFlow.fatal}
+            </div>
+          )}
+
+          {importFlow.stage.step === "checking" && (
+            <div className="rounded-lg bg-white px-5 py-8 text-center text-[13px] text-[#5C5C5C] shadow-sm">
+              Checking the file…
+            </div>
+          )}
+          {importFlow.stage.step === "errors" && (
+            <ImportErrors errors={importFlow.stage.errors} />
+          )}
+          {importFlow.stage.step === "preview" && (
+            <ImportPreview
+              preview={importFlow.stage.preview}
+              confirm={importFlow.stage.confirm}
+              setConfirm={importFlow.setConfirm}
+              busy={importFlow.busy}
+              onApply={importFlow.apply}
+              onCancel={closeImport}
+            />
+          )}
+          {importFlow.stage.step === "done" && (
+            <div className="rounded-lg border-t-4 border-[#FC4D0F] bg-white p-5 shadow-sm">
+              <h3 className="mb-2 text-[13px] font-bold uppercase tracking-[1.5px]">
+                Import applied
+              </h3>
+              <p className="mb-4 text-[13px]">
+                {importFlow.stage.preview.rowCount} employees imported (
+                {importFlow.stage.preview.added.length} added,{" "}
+                {importFlow.stage.preview.removed.length} removed). Total pool:{" "}
+                {fmt(importFlow.stage.preview.totalAfter)}. It can be undone from{" "}
+                <Link href="/admin/snapshots" className="font-semibold text-[#FC4D0F] underline">
+                  Snapshots
+                </Link>
+                .
+              </p>
+              <button
+                type="button"
+                onClick={closeImport}
+                className="rounded-md bg-[#FC4D0F] px-6 py-2.5 text-[12px] font-bold uppercase tracking-[2px] text-white hover:bg-[#e0440d]"
+              >
+                Show updated figures
+              </button>
+            </div>
+          )}
+        </ImportModal>
+      )}
+
+      {isEditor && drawer && (
+        <EmployeeEditor
+          mode={
+            drawer.kind === "add"
+              ? { kind: "add" }
+              : { kind: "edit", employee: empById.get(drawer.id)! }
+          }
+          cats={facets.cats}
+          depts={facets.depts}
+          mgrs={facets.mgrs}
+          busy={dsBusy}
+          error={dsError}
+          onSubmit={patchDataset}
+          onClose={() => {
+            setDrawer(null);
+            setDsError(null);
+          }}
+        />
+      )}
     </div>
   );
 }

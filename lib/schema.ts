@@ -67,7 +67,9 @@ export const HistoryEntrySchema = z.object({
     "restore",
     "params",
     "columns",
+    "copy",
     "import",
+    "dataset",
   ]),
   summary: z.string(), // human-readable sentence
   empId: z.string().optional(),
@@ -81,9 +83,9 @@ export type HistoryEntry = z.infer<typeof HistoryEntrySchema>;
 
 /**
  * A full point-in-time copy of everything mutable, taken before every
- * mutating action so any mistake can be reverted. `params`/`columns` are
- * loosely typed here because their schemas land in later steps; restore
- * writes them back verbatim.
+ * mutating action so any mistake can be reverted. `params`/`columns`/`copy`
+ * are loosely typed here so an older snapshot still parses after their
+ * schemas change; restore writes them back verbatim.
  */
 export const SnapshotSchema = z.object({
   ts: z.string(),
@@ -95,6 +97,8 @@ export const SnapshotSchema = z.object({
     overridesVersion: z.number().int().optional(),
     params: z.unknown().nullable(),
     columns: z.unknown().nullable(),
+    /** absent in snapshots taken before /admin/text existed */
+    copy: z.unknown().nullable().optional(),
   }),
 });
 

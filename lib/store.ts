@@ -19,6 +19,7 @@ import {
   type ColumnConfig,
 } from "./columns";
 import { ParamsSchema, type Params } from "./params-apply";
+import { StoredCopySchema, resolveCopy, type Copy } from "./copy";
 
 /**
  * Persistence: Neon Postgres in production (Vercel Marketplace add-on), a
@@ -107,9 +108,116 @@ async function trimLog(client: Sql, list: string, cap: number): Promise<void> {
     ) keep)`;
 }
 
-// ── source dataset (employees + caps), managed via /admin/import ────────────
+// ── versioned documents (lost updates return 409) ───────────────────────────
+//
+// Two documents carry a version: the overrides doc (many editors, debounced
+// autosave) and the dataset (inline figure edits and imports). The primitives
+// below are shared by both; the dev file fallback keeps the counter in a
+// sibling `.ver.json` because there is no version column to read.
+
+export type CasResult =
+  | { ok: true; version: number }
+  | { ok: false; current: number };
+
+async function loadDocVersion(key: string, verFile: string): Promise<number> {
+  try {
+    const client = sql();
+    let raw: unknown;
+    if (client) {
+      const rows =
+        await client`SELECT version FROM kestrel_docs WHERE key = ${key}`;
+      raw = rows[0]?.version ?? 0;
+    } else {
+      raw = await devRead(verFile);
+    }
+    const n = Number(raw);
+    return Number.isInteger(n) && n >= 0 ? n : 0;
+  } catch (err) {
+    console.error(`[store] failed to load version for ${key}:`, err);
+    return 0;
+  }
+}
+
+/**
+ * Compare-and-set save: only writes when the caller's version matches the
+ * stored one, otherwise reports the current version so the caller can 409.
+ * Each branch is a single atomic statement. The two branches exist because a
+ * lone guarded upsert would insert unconditionally when no row exists yet —
+ * a stale expectedVersion > 0 must fail against an empty table, not win.
+ * The dev file fallback does a plain compare (single-process `next dev`).
+ */
+async function saveDocCas(
+  key: string,
+  file: string,
+  verFile: string,
+  doc: unknown,
+  expectedVersion: number
+): Promise<CasResult> {
+  const client = sql();
+  if (client) {
+    const payload = JSON.stringify(doc);
+    const rows =
+      expectedVersion === 0
+        ? await client`INSERT INTO kestrel_docs (key, doc, version)
+            VALUES (${key}, ${payload}::jsonb, 1)
+            ON CONFLICT (key) DO UPDATE
+              SET doc = EXCLUDED.doc, version = kestrel_docs.version + 1, updated_at = now()
+              WHERE kestrel_docs.version = 0
+            RETURNING version`
+        : await client`UPDATE kestrel_docs
+            SET doc = ${payload}::jsonb, version = version + 1, updated_at = now()
+            WHERE key = ${key} AND version = ${expectedVersion}
+            RETURNING version`;
+    if (rows.length > 0) return { ok: true, version: Number(rows[0].version) };
+    // Mismatch. The version reported here is read after the failed write, so
+    // it can be newer than the one that caused the failure — equally valid
+    // for the caller's 409 payload (the client refreshes to it either way).
+    const cur = await client`SELECT version FROM kestrel_docs WHERE key = ${key}`;
+    return { ok: false, current: Number(cur[0]?.version ?? 0) };
+  }
+  if (process.env.NODE_ENV === "development") {
+    const current = await loadDocVersion(key, verFile);
+    if (current !== expectedVersion) return { ok: false, current };
+    await devWrite(file, doc);
+    await devWrite(verFile, current + 1);
+    return { ok: true, version: current + 1 };
+  }
+  throw new Error(NO_DB);
+}
+
+/**
+ * Unconditional write that still bumps the version (snapshot restore, import,
+ * and any dataset write), so an editor holding a stale version gets a 409 on
+ * their next save rather than silently overwriting.
+ */
+async function saveDocForce(
+  key: string,
+  file: string,
+  verFile: string,
+  doc: unknown
+): Promise<number> {
+  const client = sql();
+  if (client) {
+    const rows = await client`INSERT INTO kestrel_docs (key, doc, version)
+      VALUES (${key}, ${JSON.stringify(doc)}::jsonb, 1)
+      ON CONFLICT (key) DO UPDATE
+        SET doc = EXCLUDED.doc, version = kestrel_docs.version + 1, updated_at = now()
+      RETURNING version`;
+    return Number(rows[0]?.version ?? 0);
+  }
+  if (process.env.NODE_ENV === "development") {
+    const next = (await loadDocVersion(key, verFile)) + 1;
+    await devWrite(file, doc);
+    await devWrite(verFile, next);
+    return next;
+  }
+  throw new Error(NO_DB);
+}
+
+// ── source dataset (employees + caps), edited inline and via /admin/import ───
 const DATA_KEY = "kestrel:data:fy26";
 const DATA_FILE = "dataset.json";
+const DATA_VER_FILE = "dataset.ver.json";
 
 /** Returns null when no dataset has been stored (callers fall back). */
 export async function loadStoredDataset(): Promise<Dataset | null> {
@@ -122,11 +230,28 @@ export async function loadStoredDataset(): Promise<Dataset | null> {
   return doc;
 }
 
-export function saveStoredDataset(doc: Dataset): Promise<void> {
-  return saveDoc(DATA_KEY, DATA_FILE, doc);
+export function loadStoredDatasetVersion(): Promise<number> {
+  return loadDocVersion(DATA_KEY, DATA_VER_FILE);
 }
 
-// ── editors' bonus adjustments (versioned: lost updates return 409) ──────────
+/**
+ * Unconditional dataset write (import, snapshot restore, seed script). Still
+ * bumps the version, so an editor with the old roster open 409s on their next
+ * inline edit instead of writing against data that has since been replaced.
+ */
+export function saveStoredDataset(doc: Dataset): Promise<number> {
+  return saveDocForce(DATA_KEY, DATA_FILE, DATA_VER_FILE, doc);
+}
+
+/** Versioned dataset write, used by the inline figure editor. */
+export function saveStoredDatasetCas(
+  doc: Dataset,
+  expectedVersion: number
+): Promise<CasResult> {
+  return saveDocCas(DATA_KEY, DATA_FILE, DATA_VER_FILE, doc, expectedVersion);
+}
+
+// ── editors' bonus adjustments (versioned) ──────────────────────────────────
 const OVERRIDES_KEY = "kestrel:overrides:fy26";
 const OVERRIDES_FILE = "overrides.json";
 const OVERRIDES_VER_FILE = "overrides.ver.json";
@@ -135,91 +260,26 @@ export function loadOverrides(): Promise<Overrides> {
   return loadDoc(OVERRIDES_KEY, OVERRIDES_FILE, OverridesSchema, {});
 }
 
-export async function loadOverridesVersion(): Promise<number> {
-  try {
-    const client = sql();
-    let raw: unknown;
-    if (client) {
-      const rows =
-        await client`SELECT version FROM kestrel_docs WHERE key = ${OVERRIDES_KEY}`;
-      raw = rows[0]?.version ?? 0;
-    } else {
-      raw = await devRead(OVERRIDES_VER_FILE);
-    }
-    const n = Number(raw);
-    return Number.isInteger(n) && n >= 0 ? n : 0;
-  } catch (err) {
-    console.error("[store] failed to load overrides version:", err);
-    return 0;
-  }
+export function loadOverridesVersion(): Promise<number> {
+  return loadDocVersion(OVERRIDES_KEY, OVERRIDES_VER_FILE);
 }
 
-export type CasResult =
-  | { ok: true; version: number }
-  | { ok: false; current: number };
-
-/**
- * Compare-and-set save: only writes when the caller's version matches the
- * stored one, otherwise reports the current version so the caller can 409.
- * Each branch is a single atomic statement. The two branches exist because a
- * lone guarded upsert would insert unconditionally when no row exists yet —
- * a stale expectedVersion > 0 must fail against an empty table, not win.
- * The dev file fallback does a plain compare (single-process `next dev`).
- */
-export async function saveOverridesCas(
+export function saveOverridesCas(
   doc: Overrides,
   expectedVersion: number
 ): Promise<CasResult> {
-  const client = sql();
-  if (client) {
-    const payload = JSON.stringify(doc);
-    const rows =
-      expectedVersion === 0
-        ? await client`INSERT INTO kestrel_docs (key, doc, version)
-            VALUES (${OVERRIDES_KEY}, ${payload}::jsonb, 1)
-            ON CONFLICT (key) DO UPDATE
-              SET doc = EXCLUDED.doc, version = kestrel_docs.version + 1, updated_at = now()
-              WHERE kestrel_docs.version = 0
-            RETURNING version`
-        : await client`UPDATE kestrel_docs
-            SET doc = ${payload}::jsonb, version = version + 1, updated_at = now()
-            WHERE key = ${OVERRIDES_KEY} AND version = ${expectedVersion}
-            RETURNING version`;
-    if (rows.length > 0) return { ok: true, version: Number(rows[0].version) };
-    // Mismatch. The version reported here is read after the failed write, so
-    // it can be newer than the one that caused the failure — equally valid
-    // for the caller's 409 payload (the client refreshes to it either way).
-    const cur =
-      await client`SELECT version FROM kestrel_docs WHERE key = ${OVERRIDES_KEY}`;
-    return { ok: false, current: Number(cur[0]?.version ?? 0) };
-  }
-  if (process.env.NODE_ENV === "development") {
-    const current = await loadOverridesVersion();
-    if (current !== expectedVersion) return { ok: false, current };
-    await devWrite(OVERRIDES_FILE, doc);
-    await devWrite(OVERRIDES_VER_FILE, current + 1);
-    return { ok: true, version: current + 1 };
-  }
-  throw new Error(NO_DB);
+  return saveDocCas(
+    OVERRIDES_KEY,
+    OVERRIDES_FILE,
+    OVERRIDES_VER_FILE,
+    doc,
+    expectedVersion
+  );
 }
 
-/**
- * Unconditional write that still bumps the version (used by snapshot
- * restore), so any editor holding a stale version gets a 409 next save.
- */
-export async function saveOverridesForce(doc: Overrides): Promise<void> {
-  const client = sql();
-  if (client) {
-    await client`INSERT INTO kestrel_docs (key, doc, version)
-      VALUES (${OVERRIDES_KEY}, ${JSON.stringify(doc)}::jsonb, 1)
-      ON CONFLICT (key) DO UPDATE
-        SET doc = EXCLUDED.doc, version = kestrel_docs.version + 1, updated_at = now()`;
-  } else if (process.env.NODE_ENV === "development") {
-    await devWrite(OVERRIDES_FILE, doc);
-    await devWrite(OVERRIDES_VER_FILE, (await loadOverridesVersion()) + 1);
-  } else {
-    throw new Error(NO_DB);
-  }
+/** Returns the new version so a caller can hand it back to an open client. */
+export function saveOverridesForce(doc: Overrides): Promise<number> {
+  return saveDocForce(OVERRIDES_KEY, OVERRIDES_FILE, OVERRIDES_VER_FILE, doc);
 }
 
 // ── access-rule overlay (managed from /admin) ────────────────────────────────
@@ -270,6 +330,24 @@ export async function loadColumnConfig(): Promise<ColumnConfig> {
 
 export function saveColumnConfig(cfg: ColumnConfig): Promise<void> {
   return saveDoc(COLUMNS_KEY, COLUMNS_FILE, cfg);
+}
+
+// ── dashboard wording (managed via /admin/text) ─────────────────────────────
+const COPY_KEY = "kestrel:copy:fy26";
+const COPY_FILE = "copy.json";
+
+export async function loadCopy(): Promise<Copy> {
+  const stored = await loadDoc<Partial<Copy> | null>(
+    COPY_KEY,
+    COPY_FILE,
+    StoredCopySchema as z.ZodType<Partial<Copy> | null>,
+    null
+  );
+  return resolveCopy(stored);
+}
+
+export function saveCopy(copy: Copy): Promise<void> {
+  return saveDoc(COPY_KEY, COPY_FILE, copy);
 }
 
 // ── snapshots (newest first, capped at 50) ───────────────────────────────────

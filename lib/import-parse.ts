@@ -16,6 +16,7 @@ import {
   type Dataset,
 } from "./schema";
 import { applyOverrides, computeScalesAndBonuses } from "./calc";
+import { deriveFacets } from "./dataset-edit";
 
 /** Header labels accepted in files (case-insensitive), keyed by field. */
 export const FIELD_LABELS: Record<string, string> = {
@@ -214,15 +215,12 @@ export interface ImportPreview {
 
 /** Shape imported employees into a dataset (caps kept, filter lists derived). */
 export function candidateDataset(current: Dataset, employees: Employee[]): Dataset {
-  const uniq = (xs: string[]) => [...new Set(xs)].sort();
   return {
     emp: employees,
     vCap: current.vCap,
     nCap: current.nCap,
     gCap: current.gCap,
-    cats: uniq(employees.map((e) => e.cat)),
-    depts: uniq(employees.map((e) => e.dept)),
-    mgrs: uniq(employees.map((e) => e.mgr)),
+    ...deriveFacets(employees),
   };
 }
 

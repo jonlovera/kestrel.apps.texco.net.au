@@ -17,6 +17,7 @@ import {
   scaleVisible,
   type ColumnConfig,
 } from "./columns";
+import { DEFAULT_COPY, type Copy } from "./copy";
 import {
   applyOverrides,
   computeScalesAndBonuses,
@@ -30,14 +31,33 @@ import type {
   UserInfo,
 } from "./payload-types";
 
+export interface PayloadOptions {
+  overridesVersion?: number;
+  columnConfig?: ColumnConfig;
+  copy?: Copy;
+  /** optimistic-concurrency token for inline dataset edits (editors only) */
+  datasetVersion?: number;
+  /**
+   * The company modifier already folded into `data` by applyParams. Editors
+   * need it to convert a displayed After-IPM figure back to the stored one.
+   */
+  companyModifier?: number;
+}
+
 export function buildPayloadCore(
   data: Dataset,
   overrides: Overrides,
   scope: Scope,
   user: UserInfo,
-  overridesVersion = 0,
-  columnConfig: ColumnConfig = DEFAULT_COLUMNS
+  opts: PayloadOptions = {}
 ): DashboardPayload {
+  const {
+    overridesVersion = 0,
+    columnConfig = DEFAULT_COLUMNS,
+    copy = DEFAULT_COPY,
+    datasetVersion = 0,
+    companyModifier = 1,
+  } = opts;
   const showScale = scaleVisible(columnConfig);
 
   if (scope.rule.type === "full") {
@@ -47,8 +67,11 @@ export function buildPayloadCore(
       employees: data.emp,
       overrides,
       overridesVersion,
+      datasetVersion,
+      companyModifier,
       columns: effectiveColumns(columnConfig, NUMERIC_FIELDS),
       showScale,
+      copy,
       caps: { vCap: data.vCap, nCap: data.nCap, gCap: data.gCap },
       cats: data.cats,
       depts: data.depts,
@@ -129,6 +152,7 @@ export function buildPayloadCore(
     visibleFields: scope.visibleFields,
     columns: effectiveColumns(columnConfig, scope.visibleFields),
     showScale,
+    copy,
     showStateColumn:
       scope.rule.type === "subset" ||
       (scope.rule.type === "state" && scope.rule.states.length > 1),

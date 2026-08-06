@@ -8,6 +8,8 @@ import {
   saveStoredDataset,
   loadColumnConfig,
   saveColumnConfig,
+  loadCopy,
+  saveCopy,
   loadSnapshots,
   pushSnapshot,
   appendHistory,
@@ -15,6 +17,7 @@ import {
 import { loadParams, saveParams } from "./store";
 import { shouldCoalesce } from "./snapshots-core";
 import { ColumnConfigSchema } from "./columns";
+import { CopySchema } from "./copy";
 import { ParamsSchema } from "./params-apply";
 
 /**
@@ -25,12 +28,13 @@ import { ParamsSchema } from "./params-apply";
  */
 export async function takeSnapshot(actor: string, reason: string): Promise<void> {
   try {
-    const [dataset, overrides, overridesVersion, columns, params, existing] =
+    const [dataset, overrides, overridesVersion, columns, copy, params, existing] =
       await Promise.all([
         getDataset(),
         loadOverrides(),
         loadOverridesVersion(),
         loadColumnConfig(),
+        loadCopy(),
         loadParams(),
         loadSnapshots(1),
       ]);
@@ -47,6 +51,7 @@ export async function takeSnapshot(actor: string, reason: string): Promise<void>
         overridesVersion,
         params,
         columns,
+        copy,
       },
     };
     await pushSnapshot(snapshot);
@@ -77,6 +82,9 @@ export async function restoreSnapshot(ts: string, actor: string): Promise<void> 
   if (cols.success) await saveColumnConfig(cols.data);
   const params = ParamsSchema.safeParse(target.state.params);
   if (params.success) await saveParams(params.data);
+  // absent in snapshots taken before /admin/text existed — leave copy alone
+  const copy = CopySchema.safeParse(target.state.copy);
+  if (copy.success) await saveCopy(copy.data);
 
   await appendHistory([
     {

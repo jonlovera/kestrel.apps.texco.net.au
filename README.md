@@ -8,6 +8,8 @@ fields the signed-in user isn't entitled to. Sign-in is Microsoft Entra ID
 - **Full access** users get the whole dataset and edit it in the browser with
   the prototype's instant recalculation; every change is revalidated
   server-side and persisted to Postgres, so results survive across sessions.
+  They can also drop a spreadsheet onto the dashboard to replace the roster,
+  edit the source figures inline, and add or remove people (see §5).
 - **State** and **subset** users get read-only, server-computed views with
   only their permitted rows and fields — verified absent from the network
   payload, not hidden with CSS.
@@ -97,21 +99,56 @@ users only; every page and API authorises independently):
 - **Columns** — show/hide/rename/reorder/reformat the table columns, and hide
   the pool-card scale factor. Display only: never changes entitlement or
   calculations (tested).
+- **Text** — the wording on the dashboard: scheme name, the status banner
+  (editable, and can be switched off once figures are final), the three pool
+  card titles and the footer. Display only, same guarantee as Columns. The
+  browser tab title and the sign-in / no-access pages stay hardcoded so the
+  scheme is never named on a pre-auth surface.
 - **Params** — the VIC/NSW/group caps and the company-wide modifier, with a
   live preview of the impact before saving. Defaults match the source data
   exactly (modifier 1.0 = today's behaviour).
-- **Import** — upload the .xlsx/.csv (headers: ID, Surname, Given name,
-  Position, Department, Manager, Category, State, VIC %, NSW %, Package,
-  Bonus %, IPM %, After IPM, Disc adj, FY25 bonus, Site manager). Preview
-  shows added/removed people and the pool total before/after for
-  reconciliation; removals of people with entered figures need explicit
-  confirmation; manager-entered IPMs/adjustments/locks are never overwritten.
+- **Import** — drop the .xlsx/.csv onto the dashboard or this page, or pick a
+  file (headers: ID, Surname, Given name, Position, Department, Manager,
+  Category, State, VIC %, NSW %, Package, Bonus %, IPM %, After IPM, Disc adj,
+  FY25 bonus, Site manager). Preview shows added/removed people and the pool
+  total before/after for reconciliation; removals of people with entered
+  figures need explicit confirmation; manager-entered IPMs/adjustments/locks
+  are never overwritten.
 - **Snapshots** — a full copy of everything is taken before every change;
   one-click restore (itself undoable) and per-snapshot JSON download. Last
   50 kept.
 
 Concurrent editing is safe: saves carry a version and a stale save gets a
-"someone else saved" reload instead of silently overwriting.
+"someone else saved" reload instead of silently overwriting. The dataset and
+the overrides doc are versioned separately, so an import (or someone else's
+inline edit) also forces open editors to reload before their next change.
+
+### Editing from the dashboard
+
+Two write paths, deliberately kept apart:
+
+| | Fields | Stored in | Survives an import? |
+|---|---|---|---|
+| **Your judgement** | Bonus %, IPM %, Disc adj, locks | overrides doc | **Yes** |
+| **Payroll facts** | Package, After IPM, FY25 bonus, pool split, site-manager flag, who exists | the dataset | **No** — the spreadsheet wins |
+
+Package, After IPM and FY25 bonus are typed straight into the table. The pencil
+on each row opens a drawer for the VIC/NSW split, the site-manager flag and
+**Remove person**; **+ Add person** beside the filters takes a new starter.
+Removing someone deletes their entered figures with them (behind a confirm),
+and the filter lists re-derive automatically.
+
+**A package edit carries After IPM with it, pro rata.** The frozen engine
+derives each person's company modifier from their After-IPM figure
+(`cpm = bipm / (pkg × bp × ipm)`, `lib/calc.ts`), so the `pkg` terms cancel and
+editing Package *alone* would move the bonus by exactly $0. Scaling After IPM
+by the same ratio keeps the derived modifier identical and makes a pay rise
+raise the bonus proportionally. See `scaledBipm()` in `lib/dataset-edit.ts`.
+
+Pool weights are validated: VIC + NSW must total 100% (or both be 0% for
+someone outside the pools) and must match the person's state — every one of the
+155 source rows already satisfies this, and a partial split would allocate part
+of a bonus against neither state cap.
 
 **Source data is not in git.** `data/bonus.json` (155 salary packages) is
 gitignored; the app reads the dataset from the database (`kestrel_docs` key

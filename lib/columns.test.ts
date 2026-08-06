@@ -83,8 +83,8 @@ describe("effectiveColumns = config-visible AND scope-visible", () => {
 
 describe("presentation has zero effect on calculation", () => {
   it("every numeric output is strictly identical under all-hidden vs scrambled configs", () => {
-    const a = buildPayloadCore(data, {}, vicScope, user, 0, allHidden);
-    const b = buildPayloadCore(data, {}, vicScope, user, 0, scrambled);
+    const a = buildPayloadCore(data, {}, vicScope, user, { columnConfig: allHidden });
+    const b = buildPayloadCore(data, {}, vicScope, user, { columnConfig: scrambled });
     if (a.mode !== "readonly" || b.mode !== "readonly") throw new Error("expected readonly");
 
     expect(a.rows.length).toBe(b.rows.length);
@@ -101,8 +101,8 @@ describe("presentation has zero effect on calculation", () => {
   });
 
   it("hiding the scale pseudo-column strips the scale figure from the payload bytes", () => {
-    const withScale = buildPayloadCore(data, {}, vicScope, user, 0, DEFAULT_COLUMNS);
-    const without = buildPayloadCore(data, {}, vicScope, user, 0, allHidden);
+    const withScale = buildPayloadCore(data, {}, vicScope, user, { columnConfig: DEFAULT_COLUMNS });
+    const without = buildPayloadCore(data, {}, vicScope, user, { columnConfig: allHidden });
     if (withScale.mode !== "readonly" || without.mode !== "readonly") throw new Error();
     expect(withScale.poolCards[0].scale).toBeTypeOf("number");
     expect(without.poolCards[0].scale).toBeUndefined();
@@ -116,7 +116,7 @@ describe("entitlement is unaffected by column config (non-negotiable #2)", () =>
       ...c,
       visible: true,
     }));
-    const payload = buildPayloadCore(data, {}, vicScope, user, 0, pkgVisible);
+    const payload = buildPayloadCore(data, {}, vicScope, user, { columnConfig: pkgVisible });
     const json = JSON.stringify(payload);
     expect(json).not.toContain('"pkg"');
     // and the column list itself never advertises the unentitled field

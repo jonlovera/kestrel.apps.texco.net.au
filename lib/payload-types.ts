@@ -5,6 +5,7 @@
 import type { Employee, Overrides } from "./schema";
 import type { NumericField } from "./access-types";
 import type { PayloadColumn } from "./columns";
+import type { Copy } from "./copy";
 
 export interface UserInfo {
   name: string;
@@ -54,6 +55,8 @@ export interface ReadonlyPayload {
   /** display columns: config-visible AND scope-visible, in config order */
   columns: PayloadColumn[];
   showScale: boolean;
+  /** editable wording (presentation only — never gates data) */
+  copy: Copy;
   showStateColumn: boolean;
   poolCards: StatePoolCard[];
   cats: string[];
@@ -68,9 +71,19 @@ export interface EditorPayload {
   overrides: Overrides;
   /** optimistic-concurrency token; saves carrying a stale value get 409 */
   overridesVersion: number;
+  /** the same, for inline dataset edits (a separate document) */
+  datasetVersion: number;
+  /**
+   * The company modifier already folded into `employees[].bipm` by
+   * applyParams. The client divides by it before sending an edited After-IPM
+   * figure, so what gets stored is the source value.
+   */
+  companyModifier: number;
   /** display columns: config-visible (editors are scope-visible on all) */
   columns: PayloadColumn[];
   showScale: boolean;
+  /** editable wording (presentation only — never gates data) */
+  copy: Copy;
   caps: { vCap: number; nCap: number; gCap: number };
   cats: string[];
   depts: string[];
