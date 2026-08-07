@@ -86,12 +86,12 @@ export default function Dropzone({
   if (rejected) {
     return (
       <div className="fixed inset-x-0 top-0 z-[60] flex justify-center px-4 pt-4">
-        <div className="flex items-center gap-4 rounded-md border-2 border-[#FC4D0F] bg-[#FED9CC] px-4 py-2.5 text-[13px] font-semibold shadow-lg">
+        <div className="flex items-center gap-4 border-2 border-[#FC4D0F] bg-[#FED9CC] px-4 py-2.5 text-[13px] font-semibold shadow-lg">
           That file type can&apos;t be imported — use .xlsx, .xlsm or .csv.
           <button
             type="button"
             onClick={() => setRejected(false)}
-            className="text-[11px] uppercase tracking-wide underline"
+            className="text-[11px] tracking-wide underline"
           >
             Dismiss
           </button>
@@ -104,8 +104,8 @@ export default function Dropzone({
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[60] flex items-center justify-center bg-[#191919]/70 p-8">
-      <div className="rounded-xl border-4 border-dashed border-[#FC4D0F] bg-white px-12 py-10 text-center shadow-2xl">
-        <p className="text-[15px] font-bold uppercase tracking-[2px] text-[#191919]">
+      <div className="border-4 border-dashed border-[#FC4D0F] bg-white px-12 py-10 text-center shadow-2xl">
+        <p className="text-[15px] font-bold text-[#191919]">
           {label}
         </p>
         <p className="mt-2 text-[13px] text-[#5C5C5C]">

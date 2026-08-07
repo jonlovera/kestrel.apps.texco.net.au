@@ -34,9 +34,9 @@ const STATES = ["VIC", "NSW", "SHARED"] as const;
 
 const pct = (v: number) => Math.round(v * 1000) / 10;
 
-const label = "mb-1 block text-[11px] font-semibold uppercase tracking-wide text-[#5C5C5C]";
+const label = "mb-1 block text-[11px] font-semibold tracking-wide text-[#5C5C5C]";
 const field =
-  "w-full rounded border border-neutral-300 px-2 py-1.5 text-[13px] outline-none focus:border-[#FC4D0F] disabled:bg-neutral-100 disabled:text-neutral-400";
+  "w-full border border-neutral-300 px-2 py-1.5 text-[13px] outline-none focus:border-[#FC4D0F] disabled:bg-neutral-100 disabled:text-neutral-400";
 
 export default function EmployeeEditor({
   mode,
@@ -180,7 +180,7 @@ export default function EmployeeEditor({
       <div className="relative flex h-full w-full max-w-[440px] flex-col overflow-auto bg-white shadow-2xl">
         <div className="sticky top-0 flex items-start justify-between bg-[#191919] px-5 py-3.5">
           <div>
-            <h2 className="text-[13px] font-bold uppercase tracking-[1.5px] text-white">
+            <h2 className="text-[13px] font-bold text-white">
               {adding ? "Add a person" : `${existing!.gn} ${existing!.sn}`}
             </h2>
             {!adding && (
@@ -193,7 +193,7 @@ export default function EmployeeEditor({
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="ml-4 rounded border border-[#FC4D0F]/50 px-2.5 py-1 text-[11px] font-semibold uppercase text-[#F79470] hover:bg-[#FC4D0F] hover:text-white disabled:opacity-40"
+            className="ml-4 border border-[#FC4D0F]/50 px-2.5 py-1 text-[11px] font-semibold text-[#F79470] hover:bg-[#FC4D0F] hover:text-white disabled:opacity-40"
           >
             Close
           </button>
@@ -201,7 +201,7 @@ export default function EmployeeEditor({
 
         <div className="flex-1 px-5 py-4">
           {error && (
-            <div className="mb-4 rounded-md border-2 border-[#FC4D0F] bg-[#FED9CC] px-3 py-2 text-[13px] font-semibold">
+            <div className="mb-4 border-2 border-[#FC4D0F] bg-[#FED9CC] px-3 py-2 text-[13px] font-semibold">
               {error}
             </div>
           )}
@@ -297,8 +297,8 @@ export default function EmployeeEditor({
                     placeholder={suggestedBipm !== null ? String(suggestedBipm) : ""}
                   />
                   <p className="mt-1 text-[11px] text-[#5C5C5C]">
-                    This figure anchors their bonus. Leave it blank to use{" "}
-                    {suggestedBipm !== null ? fmt(suggestedBipm) : "package × bonus % × IPM %"}{" "}
+                    This figure anchors their bonus. Leave it blank to use{""}
+                    {suggestedBipm !== null ? fmt(suggestedBipm) : "package × bonus % × IPM %"}{""}
                     — package × bonus % × IPM %, i.e. a company modifier of 1.0.
                   </p>
                 </div>
@@ -308,7 +308,7 @@ export default function EmployeeEditor({
 
           {/* pool split — both modes */}
           <div className="mb-4 border-t border-neutral-200 pt-4">
-            <h3 className="mb-2 text-[12px] font-bold uppercase tracking-wide">
+            <h3 className="mb-2 text-[12px] font-bold tracking-wide">
               Pool split
             </h3>
             <div className="grid grid-cols-2 gap-3">
@@ -353,8 +353,8 @@ export default function EmployeeEditor({
             )}
           </div>
 
-          <p className="mb-4 rounded-md bg-neutral-100 px-3 py-2 text-[11px] leading-5 text-[#5C5C5C]">
-            These are payroll facts, so they live in the source data and{" "}
+          <p className="mb-4 bg-neutral-100 px-3 py-2 text-[11px] leading-5 text-[#5C5C5C]">
+            These are payroll facts, so they live in the source data and{""}
             <strong>are replaced the next time a spreadsheet is imported</strong>.
             Bonus %, IPM % and discretionary adjustments are your entries — those
             survive an import. A snapshot is taken before every change.
@@ -365,7 +365,7 @@ export default function EmployeeEditor({
               type="button"
               disabled={busy || (adding ? !addReady : !dirty)}
               onClick={adding ? submitAdd : submitEdit}
-              className="rounded-md bg-[#FC4D0F] px-5 py-2.5 text-[12px] font-bold uppercase tracking-[2px] text-white transition-colors hover:bg-[#e0440d] disabled:opacity-40"
+              className="bg-[#FC4D0F] px-5 py-2.5 text-[12px] font-bold text-white transition-colors hover:bg-[#e0440d] disabled:opacity-40"
             >
               {busy ? "Saving…" : adding ? "Add person" : "Save changes"}
             </button>
@@ -374,7 +374,7 @@ export default function EmployeeEditor({
                 type="button"
                 disabled={busy}
                 onClick={remove}
-                className="ml-auto rounded-md border-2 border-[#FC4D0F] px-4 py-2 text-[12px] font-bold uppercase tracking-wide text-[#FC4D0F] transition-colors hover:bg-[#FED9CC] disabled:opacity-40"
+                className="ml-auto border-2 border-[#FC4D0F] px-4 py-2 text-[12px] font-bold tracking-wide text-[#FC4D0F] transition-colors hover:bg-[#FED9CC] disabled:opacity-40"
               >
                 Remove person
               </button>

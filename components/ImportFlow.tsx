@@ -128,8 +128,8 @@ export function ExpectedColumns() {
 
 export function ImportErrors({ errors }: { errors: string[] }) {
   return (
-    <div className="rounded-lg bg-white p-5 shadow-sm">
-      <h2 className="mb-2 text-[13px] font-bold uppercase tracking-[1.5px] text-[#FC4D0F]">
+    <div className="bg-white p-5 shadow-sm">
+      <h2 className="mb-2 text-[13px] font-bold text-[#FC4D0F]">
         The file can&apos;t be imported — nothing was changed
       </h2>
       <ul className="list-inside list-disc text-[13px] leading-6">
@@ -158,8 +158,8 @@ export function ImportPreview({
 }) {
   const needsConfirm = preview.removedWithData.length > 0;
   return (
-    <div className="rounded-lg bg-white p-5 shadow-sm">
-      <h2 className="mb-3 text-[13px] font-bold uppercase tracking-[1.5px]">
+    <div className="bg-white p-5 shadow-sm">
+      <h2 className="mb-3 text-[13px] font-bold">
         Preview — nothing has been changed yet
       </h2>
       <div className="mb-3 grid grid-cols-1 gap-2 text-[13px] sm:grid-cols-2">
@@ -167,28 +167,28 @@ export function ImportPreview({
           Rows in file: <strong>{preview.rowCount}</strong>
         </div>
         <div>
-          Total pool:{" "}
+          Total pool:{""}
           <strong>
             {fmt(preview.totalBefore)} → {fmt(preview.totalAfter)}
-          </strong>{" "}
+          </strong>{""}
           <span className="text-[#5C5C5C]">(reconcile against your spreadsheet)</span>
         </div>
         <div>
-          Added ({preview.added.length}):{" "}
+          Added ({preview.added.length}):{""}
           <span className="text-[#5C5C5C]">{preview.added.join(", ") || "none"}</span>
         </div>
         <div>
-          Removed ({preview.removed.length}):{" "}
+          Removed ({preview.removed.length}):{""}
           <span className="text-[#5C5C5C]">{preview.removed.join(", ") || "none"}</span>
         </div>
       </div>
 
       {needsConfirm && (
-        <div className="mb-3 rounded-md border-2 border-[#FC4D0F] bg-[#FED9CC] p-3 text-[13px]">
+        <div className="mb-3 border-2 border-[#FC4D0F] bg-[#FED9CC] p-3 text-[13px]">
           <strong>
             These employees have manager-entered figures that will be deleted
             with them:
-          </strong>{" "}
+          </strong>{""}
           {preview.removedWithData.join(", ")}
           <label className="mt-2 flex items-center gap-2 font-semibold">
             <input
@@ -207,7 +207,7 @@ export function ImportPreview({
           type="button"
           disabled={busy || (needsConfirm && !confirm)}
           onClick={onApply}
-          className="rounded-md bg-[#FC4D0F] px-6 py-2.5 text-[12px] font-bold uppercase tracking-[2px] text-white transition-colors hover:bg-[#e0440d] disabled:opacity-50"
+          className="bg-[#FC4D0F] px-6 py-2.5 text-[12px] font-bold text-white transition-colors hover:bg-[#e0440d] disabled:opacity-50"
         >
           {busy ? "Importing…" : "Apply import"}
         </button>
@@ -215,7 +215,7 @@ export function ImportPreview({
           type="button"
           disabled={busy}
           onClick={onCancel}
-          className="rounded-md bg-neutral-200 px-6 py-2.5 text-[12px] font-bold uppercase tracking-[2px] text-neutral-600 hover:bg-neutral-300"
+          className="bg-neutral-200 px-6 py-2.5 text-[12px] font-bold text-neutral-600 hover:bg-neutral-300"
         >
           Cancel
         </button>

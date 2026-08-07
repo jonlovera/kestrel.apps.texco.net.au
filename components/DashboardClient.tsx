@@ -181,6 +181,8 @@ export default function DashboardClient({
   const [selCats, setSelCats] = useState<string[]>(payload.cats);
   const [selDepts, setSelDepts] = useState<string[]>(payload.depts);
   const [selMgrs, setSelMgrs] = useState<string[]>(payload.mgrs);
+  // 90% is the scheme default every row carries, so that's where this starts
+  const [bulkIpm, setBulkIpm] = useState("90");
 
   /**
    * Send one change to the source dataset. Returns whether it stuck, so the
@@ -563,6 +565,36 @@ export default function DashboardClient({
     void patchDataset({ op: "state", id, st });
   }
 
+  /**
+   * Set one IPM across everyone currently shown — the walkthrough workflow is
+   * "put the whole list on 100%, see what that does to the pool, then bring
+   * individuals back down". Scoped to the visible rows, so the tab and filters
+   * decide who it lands on; locked rows are left alone.
+   *
+   * One state update, so the existing debounce sends it as a single save.
+   */
+  function applyBulkIpm() {
+    const pct = parsePercentInput(bulkIpm);
+    if (pct === null) return;
+    const targets = visibleRows.filter((r) => !r.locked);
+    const skipped = visibleRows.length - targets.length;
+    if (targets.length === 0) {
+      setDsError("Nothing to apply to — every row shown is locked.");
+      return;
+    }
+    const msg =
+      `Set IPM to ${Math.round(pct * 100)}% for the ${targets.length} ` +
+      `${targets.length === 1 ? "person" : "people"} currently shown?` +
+      (skipped > 0 ? `\n\n${skipped} locked ${skipped === 1 ? "row is" : "rows are"} skipped.` : "") +
+      `\n\nIndividuals can be adjusted afterwards, and a snapshot is taken first so this can be undone.`;
+    if (!confirm(msg)) return;
+    setOverrides((prev) => {
+      const next = { ...prev };
+      for (const r of targets) next[r.id] = { ...next[r.id], ipmEdit: pct };
+      return next;
+    });
+  }
+
   function toggleLock(id: string) {
     const emp = empById.get(id);
     if (!emp || emp.sm) return;
@@ -617,11 +649,13 @@ export default function DashboardClient({
             metrics={[
               { label: "Pool available", value: fmt(c.available) },
               { label: "Total allocated", value: fmt(c.stateBonuses), bold: true },
-              { label: "Remaining", value: fmt(remaining), negative: remaining < 0 },
+              {
+                label: "Remaining to allocate",
+                value: fmt(remaining),
+                negative: remaining < 0,
+              },
             ]}
             utilPct={c.utilPct}
-            scaleFactor={c.scale ?? null}
-            scaleLabel={c.scaleLabel}
           />
         );
       });
@@ -644,11 +678,13 @@ export default function DashboardClient({
       title: string,
       cap: number,
       total: number,
-      sharedDeduction: number | null,
-      scale: number | null,
-      scaleLabel: string | null
+      sharedDeduction: number | null
     ) => {
       const remain = cap - total;
+      // The shared-services split only makes sense while looking at shared
+      // services, so it is surfaced on that tab alone; every other tab shows
+      // the plain cap / allocated / remaining the leads actually work against.
+      const showShared = sharedDeduction !== null && activeTab === "SHARED";
       const metrics: PoolMetric[] = [
         // in edit mode the cap is typed here and everything above recalculates
         {
@@ -658,16 +694,14 @@ export default function DashboardClient({
             ? { onEdit: (raw: string) => updateCap(capField, raw), editValue: cap }
             : {}),
         },
-        ...(sharedDeduction !== null
+        ...(showShared
           ? [
             { label: `${title.split(" ")[0]} bonuses`, value: fmt(total - sharedDeduction) },
-            { label: "Shared svc deduction", value: fmt(sharedDeduction) },
+            { label: "Shared services", value: fmt(sharedDeduction) },
           ]
-          : [{ label: "Total bonuses", value: fmt(total), bold: true }]),
-        ...(sharedDeduction !== null
-          ? [{ label: "Total allocated", value: fmt(total), bold: true }]
           : []),
-        { label: "Remaining", value: fmt(remain), negative: remain < 0 },
+        { label: "Total allocated", value: fmt(total), bold: true },
+        { label: "Remaining to allocate", value: fmt(remain), negative: remain < 0 },
       ];
       return (
         <PoolCard
@@ -683,13 +717,11 @@ export default function DashboardClient({
               onCommit={(next) =>
                 updateCopy({ poolTitles: { ...copy.poolTitles, [which]: next } })
               }
-              inputClassName="w-[190px] uppercase"
+              inputClassName="w-[190px]"
             />
           }
           metrics={metrics}
           utilPct={total / cap}
-          scaleFactor={scale}
-          scaleLabel={scaleLabel ?? undefined}
           busy={dsBusy}
         />
       );
@@ -697,13 +729,14 @@ export default function DashboardClient({
 
     const t = copy.poolTitles;
     return [
-      // scale figure is gated by the 'scale' pseudo-column config
-      card("vic", "vCap", t.vic, vCap, vicTotal, sharedVic, payload.showScale ? pool.vicScale : null, "VIC scale factor"),
-      card("nsw", "nCap", t.nsw, nCap, nswTotal, sharedNsw, payload.showScale ? pool.nswScale : null, "NSW scale factor"),
-      card("group", "gCap", t.group, gCap, groupTotal, null, null, null),
+      card("vic", "vCap", t.vic, vCap, vicTotal, sharedVic),
+      card("nsw", "nCap", t.nsw, nCap, nswTotal, sharedNsw),
+      card("group", "gCap", t.group, gCap, groupTotal, null),
     ];
+    // updateCap/updateCopy are recreated every render and would defeat the
+    // memo; they only ever read the same `params`/`copy` already listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEditor, payload, emps, pool, params, copy, editing, dsBusy]);
+  }, [isEditor, payload, emps, pool, params, copy, editing, dsBusy, activeTab]);
 
   function doSort(key: string) {
     if (sortCol === key) setSortDir((d) => -d);
@@ -728,7 +761,7 @@ export default function DashboardClient({
             disabled={dsBusy}
             label="Scheme name"
             onCommit={(schemeName) => updateCopy({ schemeName })}
-            className="hidden text-xs font-medium uppercase tracking-[2px] text-[#FC4D0F] sm:inline"
+            className="hidden text-xs font-medium text-[#FC4D0F] sm:inline"
             inputClassName="w-[280px]"
           />
         </div>
@@ -749,7 +782,7 @@ export default function DashboardClient({
             <button
               type="button"
               onClick={toggleShowAll}
-              className="rounded border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"
+              className="border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"
               title="Or press Space"
             >
               {showAll ? "Hide everything" : "Show everything"}
@@ -759,7 +792,7 @@ export default function DashboardClient({
             <button
               type="button"
               onClick={toggleEditing}
-              className={`rounded px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-wide transition-colors ${
+              className={`px-3.5 py-1.5 text-[11px] font-bold tracking-wide transition-colors ${
                 editing
                   ? "bg-[#FC4D0F] text-white hover:bg-[#e0440d]"
                   : "border border-[#FC4D0F]/50 text-[#F79470] hover:bg-[#FC4D0F] hover:text-white"
@@ -776,15 +809,15 @@ export default function DashboardClient({
           {isEditor && !editing && (
             <Link
               href="/admin"
-              className="rounded border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"
+              className="border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"
             >
               Admin
             </Link>
           )}
           <button
             type="button"
-            onClick={() => signOut({ callbackUrl: "/login" })}
-            className="rounded border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"
+            onClick={() => signOut({ callbackUrl:"/login" })}
+            className="border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"
           >
             Logout
           </button>
@@ -794,7 +827,7 @@ export default function DashboardClient({
       {/* Status banner — editable in place, and switchable off once final */}
       {(copy.bannerVisible || editing) && (
         <div
-          className={`px-6 py-1.5 text-center text-xs font-bold uppercase tracking-[2px] text-white ${
+          className={`px-6 py-1.5 text-center text-xs font-bold text-white ${
             copy.bannerVisible ? "bg-[#FC4D0F]" : "bg-neutral-400"
           }`}
         >
@@ -830,28 +863,28 @@ export default function DashboardClient({
                 key={t}
                 type="button"
                 onClick={() => openTab(t)}
-                className={`rounded-t-md px-5 py-2 text-xs font-bold uppercase tracking-wide transition-colors ${activeTab === t
+                className={`-md px-5 py-2 text-xs font-bold tracking-wide transition-colors ${activeTab === t
                     ? "bg-[#FC4D0F] text-white"
                     : "bg-neutral-200 text-[#5C5C5C] hover:bg-neutral-300"
                   }`}
               >
-                {t}
+                {t === "ALL" ? "All" : t === "SHARED" ? "Shared" : t === "HISTORY" ? "History" : t}
               </button>
             ))}
           </div>
         )}
 
         {activeTab === "HISTORY" ? (
-          <div className="mb-5 rounded-lg bg-white shadow-sm">
+          <div className="mb-5 bg-white shadow-sm">
             <div className="flex items-center justify-between border-b border-neutral-100 px-4 py-3">
-              <h2 className="text-[13px] font-bold uppercase tracking-[1.5px]">
+              <h2 className="text-[13px] font-bold">
                 Change history
               </h2>
               <button
                 type="button"
                 disabled={historyLoading}
                 onClick={fetchHistory}
-                className="rounded border border-neutral-300 px-3 py-1 text-[11px] font-semibold uppercase text-[#5C5C5C] transition-colors hover:border-[#FC4D0F] hover:text-[#FC4D0F] disabled:opacity-40"
+                className="border border-neutral-300 px-3 py-1 text-[11px] font-semibold text-[#5C5C5C] transition-colors hover:border-[#FC4D0F] hover:text-[#FC4D0F] disabled:opacity-40"
               >
                 {historyLoading ? "Loading…" : "Refresh"}
               </button>
@@ -872,7 +905,7 @@ export default function DashboardClient({
                       {["When", "Who", "What"].map((h) => (
                         <th
                           key={h}
-                          className="sticky top-0 whitespace-nowrap bg-[#191919] px-3 py-2.5 text-left text-[11px] uppercase tracking-wide text-white"
+                          className="sticky top-0 whitespace-nowrap bg-[#191919] px-3 py-2.5 text-left text-[11px] tracking-wide text-white"
                         >
                           {h}
                         </th>
@@ -894,7 +927,7 @@ export default function DashboardClient({
                         <td className="whitespace-nowrap px-3 py-2">{h.actor}</td>
                         <td className={`px-3 py-2 ${showAll ? "" : "blur-[6px] select-none"}`}>
                           {h.kind === "access" && (
-                            <span className="mr-2 inline-block rounded bg-neutral-200 px-1.5 py-px text-[10px] font-bold uppercase text-neutral-600">
+                            <span className="mr-2 inline-block bg-neutral-200 px-1.5 py-px text-[10px] font-bold text-neutral-600">
                               access
                             </span>
                           )}
@@ -912,20 +945,27 @@ export default function DashboardClient({
             {/* A rejected inline edit explains itself here; the cell has already
             snapped back to the stored figure. */}
             {isEditor && dsError && !drawer && (
-              <div className="mb-4 flex items-start justify-between gap-4 rounded-md border-2 border-[#FC4D0F] bg-[#FED9CC] px-4 py-2 text-[13px] font-semibold">
+              <div className="mb-4 flex items-start justify-between gap-4 border-2 border-[#FC4D0F] bg-[#FED9CC] px-4 py-2 text-[13px] font-semibold">
                 <span>{dsError}</span>
                 <button
                   type="button"
                   onClick={() => setDsError(null)}
-                  className="shrink-0 text-[11px] uppercase tracking-wide underline"
+                  className="shrink-0 text-[11px] tracking-wide underline"
                 >
                   Dismiss
                 </button>
               </div>
             )}
 
-            {/* Pool cards */}
-            <div className="mb-4 flex flex-wrap gap-4">{poolCardEls}</div>
+            {/* Pool summary — frozen, so "remaining to allocate" stays on
+                screen while the employee list scrolls underneath it. The
+                offset clears the sticky top bar, plus the banner when shown. */}
+            <div
+              className="sticky z-30 -mx-5 mb-4 flex flex-wrap gap-4 bg-[#f5f5f5] px-5 pb-4 pt-1"
+              style={{ top: copy.bannerVisible ? 78 : 52 }}
+            >
+              {poolCardEls}
+            </div>
 
             {/* Controls */}
             <div className="mb-3 flex flex-wrap items-center gap-3">
@@ -934,7 +974,7 @@ export default function DashboardClient({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search employees..."
-                className="w-full rounded-md border-2 border-neutral-200 px-3.5 py-2 text-[13px] outline-none focus:border-[#FC4D0F] sm:w-[220px]"
+                className="w-full border-2 border-neutral-200 px-3.5 py-2 text-[13px] outline-none focus:border-[#FC4D0F] sm:w-[220px]"
               />
               <MultiSelect label="Roles" items={facets.cats} selected={selCats} onChange={setSelCats} />
               <MultiSelect label="Departments" items={facets.depts} selected={selDepts} onChange={setSelDepts} />
@@ -948,7 +988,7 @@ export default function DashboardClient({
                       setDsError(null);
                       setDrawer({ kind: "add" });
                     }}
-                    className="rounded-md border-2 border-[#FC4D0F] px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-wide text-[#FC4D0F] transition-colors hover:bg-[#FC4D0F] hover:text-white disabled:opacity-40"
+                    className="border-2 border-[#FC4D0F] px-3.5 py-1.5 text-[11px] font-bold tracking-wide text-[#FC4D0F] transition-colors hover:bg-[#FC4D0F] hover:text-white disabled:opacity-40"
                   >
                     + Add person
                   </button>
@@ -957,9 +997,32 @@ export default function DashboardClient({
                     onChange={applyColumnConfig}
                     busy={dsBusy}
                   />
+                  {/* Bulk IPM: set the whole visible list at once, then bring
+                      individuals down. */}
+                  <div className="flex items-center gap-1.5 border-2 border-neutral-200 px-2.5 py-1 text-[11px] font-semibold text-[#5C5C5C]">
+                    Set IPM for the {visibleRows.length} shown
+                    <input
+                      type="text"
+                      value={bulkIpm}
+                      disabled={dsBusy}
+                      aria-label="Bulk IPM percentage"
+                      onChange={(e) => setBulkIpm(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && applyBulkIpm()}
+                      className="w-[52px] border border-neutral-300 px-1.5 py-1 text-right tabular-nums outline-none focus:border-[#FC4D0F]"
+                    />
+                    %
+                    <button
+                      type="button"
+                      disabled={dsBusy}
+                      onClick={applyBulkIpm}
+                      className="ml-1 bg-[#FC4D0F] px-2.5 py-1 font-bold text-white transition-colors hover:bg-[#e0440d] disabled:opacity-40"
+                    >
+                      Apply
+                    </button>
+                  </div>
                   {/* The one scheme-wide figure with no card of its own. It
                       rescales every After-IPM value, so it reloads on save. */}
-                  <label className="flex items-center gap-1.5 rounded-md border-2 border-neutral-200 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#5C5C5C]">
+                  <label className="flex items-center gap-1.5 border-2 border-neutral-200 px-2.5 py-1 text-[11px] font-semibold tracking-wide text-[#5C5C5C]">
                     Company modifier
                     <input
                       type="number"
@@ -973,17 +1036,17 @@ export default function DashboardClient({
                       onKeyDown={(e) =>
                         e.key === "Enter" && (e.target as HTMLInputElement).blur()
                       }
-                      className="w-[64px] rounded border border-neutral-300 px-1.5 py-1 text-right tabular-nums outline-none focus:border-[#FC4D0F] disabled:opacity-50"
+                      className="w-[64px] border border-neutral-300 px-1.5 py-1 text-right tabular-nums outline-none focus:border-[#FC4D0F] disabled:opacity-50"
                     />
                   </label>
                 </>
               )}
               <div className="ml-auto flex items-center gap-3 text-xs text-[#5C5C5C]">
-                <span className="rounded bg-neutral-100 px-2.5 py-1">
+                <span className="bg-neutral-100 px-2.5 py-1">
                   Showing: {visibleRows.length} / {allRows.length}
                 </span>
                 {typeof totFinal === "number" && (
-                  <span className="rounded bg-neutral-100 px-2.5 py-1">
+                  <span className="bg-neutral-100 px-2.5 py-1">
                     Total bonuses: {fmt(totFinal)}
                   </span>
                 )}
@@ -1052,27 +1115,27 @@ export default function DashboardClient({
           onClose={closeImport}
         >
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-[13px] font-bold uppercase tracking-[1.5px] text-white">
+            <h2 className="text-[13px] font-bold text-white">
               Import employee data
             </h2>
             <button
               type="button"
               disabled={importFlow.busy}
               onClick={closeImport}
-              className="rounded border border-white/40 px-3 py-1 text-[11px] font-semibold uppercase text-white hover:bg-white/10 disabled:opacity-40"
+              className="border border-white/40 px-3 py-1 text-[11px] font-semibold text-white hover:bg-white/10 disabled:opacity-40"
             >
               Close
             </button>
           </div>
 
           {importFlow.fatal && (
-            <div className="mb-3 rounded-md border-2 border-[#FC4D0F] bg-[#FED9CC] px-4 py-2 text-[13px] font-semibold">
+            <div className="mb-3 border-2 border-[#FC4D0F] bg-[#FED9CC] px-4 py-2 text-[13px] font-semibold">
               {importFlow.fatal}
             </div>
           )}
 
           {importFlow.stage.step === "checking" && (
-            <div className="rounded-lg bg-white px-5 py-8 text-center text-[13px] text-[#5C5C5C] shadow-sm">
+            <div className="bg-white px-5 py-8 text-center text-[13px] text-[#5C5C5C] shadow-sm">
               Checking the file…
             </div>
           )}
@@ -1090,15 +1153,15 @@ export default function DashboardClient({
             />
           )}
           {importFlow.stage.step === "done" && (
-            <div className="rounded-lg border-t-4 border-[#FC4D0F] bg-white p-5 shadow-sm">
-              <h3 className="mb-2 text-[13px] font-bold uppercase tracking-[1.5px]">
+            <div className="border-t-4 border-[#FC4D0F] bg-white p-5 shadow-sm">
+              <h3 className="mb-2 text-[13px] font-bold">
                 Import applied
               </h3>
               <p className="mb-4 text-[13px]">
                 {importFlow.stage.preview.rowCount} employees imported (
-                {importFlow.stage.preview.added.length} added,{" "}
-                {importFlow.stage.preview.removed.length} removed). Total pool:{" "}
-                {fmt(importFlow.stage.preview.totalAfter)}. It can be undone from{" "}
+                {importFlow.stage.preview.added.length} added,{""}
+                {importFlow.stage.preview.removed.length} removed). Total pool:{""}
+                {fmt(importFlow.stage.preview.totalAfter)}. It can be undone from{""}
                 <Link href="/admin/snapshots" className="font-semibold text-[#FC4D0F] underline">
                   Snapshots
                 </Link>
@@ -1107,7 +1170,7 @@ export default function DashboardClient({
               <button
                 type="button"
                 onClick={closeImport}
-                className="rounded-md bg-[#FC4D0F] px-6 py-2.5 text-[12px] font-bold uppercase tracking-[2px] text-white hover:bg-[#e0440d]"
+                className="bg-[#FC4D0F] px-6 py-2.5 text-[12px] font-bold text-white hover:bg-[#e0440d]"
               >
                 Show updated figures
               </button>

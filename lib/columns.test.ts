@@ -11,11 +11,12 @@ import type { Dataset } from "./schema";
 import type { Scope } from "./access";
 import { NUMERIC_FIELDS } from "./access-types";
 import {
+  ColumnConfigSchema,
   DEFAULT_COLUMNS,
+  dropRetiredFields,
   IDENTITY_FIELDS,
   effectiveColumns,
   normalizeConfig,
-  scaleVisible,
   type ColumnConfig,
 } from "./columns";
 import { buildPayloadCore } from "./scope-core";
@@ -74,11 +75,22 @@ describe("effectiveColumns = config-visible AND scope-visible", () => {
     expect(cols[0].format).toBe("number");
   });
 
-  it("'scale' is a pseudo-column, never a table column", () => {
+  it("the retired scale pseudo-column is gone from the vocabulary", () => {
     const cols = effectiveColumns(DEFAULT_COLUMNS, NUMERIC_FIELDS);
     expect(cols.some((c) => (c.key as string) === "scale")).toBe(false);
-    expect(scaleVisible(DEFAULT_COLUMNS)).toBe(true);
-    expect(scaleVisible(allHidden)).toBe(false);
+    expect(DEFAULT_COLUMNS.some((c) => (c.field as string) === "scale")).toBe(false);
+  });
+
+  it("a stored config still holding a retired field loses that field, not the rest", () => {
+    // otherwise the whole document fails validation and every column setting
+    // she has chosen silently resets to defaults
+    const legacy = [
+      { field: "scale", visible: true, label: "Scale factor", format: "number", decimals: 4 },
+      { field: "final", visible: true, label: "FY26 payment", format: "currency", decimals: 0 },
+    ];
+    const cleaned = ColumnConfigSchema.parse(dropRetiredFields(legacy));
+    expect(cleaned.map((c) => c.field)).toEqual(["final"]);
+    expect(cleaned[0].label).toBe("FY26 payment");
   });
 
   it("normalizeConfig restores missing fields from defaults", () => {
@@ -150,14 +162,6 @@ describe("presentation has zero effect on calculation", () => {
     expect(a.poolCards[0].utilPct).toBe(b.poolCards[0].utilPct);
   });
 
-  it("hiding the scale pseudo-column strips the scale figure from the payload bytes", () => {
-    const withScale = buildPayloadCore(data, {}, vicScope, user, { columnConfig: DEFAULT_COLUMNS });
-    const without = buildPayloadCore(data, {}, vicScope, user, { columnConfig: allHidden });
-    if (withScale.mode !== "readonly" || without.mode !== "readonly") throw new Error();
-    expect(withScale.poolCards[0].scale).toBeTypeOf("number");
-    expect(without.poolCards[0].scale).toBeUndefined();
-    expect(JSON.stringify(without.poolCards)).not.toContain('"scale"');
-  });
 });
 
 describe("entitlement is unaffected by column config (non-negotiable #2)", () => {

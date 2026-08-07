@@ -15,6 +15,7 @@ import { AccessRuleSchema, type AccessRule } from "./access-rules";
 import {
   ColumnConfigSchema,
   DEFAULT_COLUMNS,
+  dropRetiredFields,
   normalizeConfig,
   type ColumnConfig,
 } from "./columns";
@@ -319,10 +320,16 @@ const COLUMNS_KEY = "kestrel:columns:fy26";
 const COLUMNS_FILE = "columns.json";
 
 export async function loadColumnConfig(): Promise<ColumnConfig> {
+  // preprocess so an entry for a retired field costs that one column rather
+  // than failing validation and resetting every column setting
+  const Tolerant = z.preprocess(
+    dropRetiredFields,
+    ColumnConfigSchema
+  ) as z.ZodType<ColumnConfig>;
   const cfg = await loadDoc<ColumnConfig>(
     COLUMNS_KEY,
     COLUMNS_FILE,
-    ColumnConfigSchema as z.ZodType<ColumnConfig>,
+    Tolerant,
     DEFAULT_COLUMNS
   );
   return normalizeConfig(cfg);

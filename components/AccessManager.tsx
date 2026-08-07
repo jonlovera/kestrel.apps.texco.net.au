@@ -125,7 +125,7 @@ export default function AccessManager({
   );
 
   const inputCls =
-    "rounded-md border-2 border-neutral-200 px-3 py-2 text-[13px] outline-none focus:border-[#FC4D0F]";
+    " border-2 border-neutral-200 px-3 py-2 text-[13px] outline-none focus:border-[#FC4D0F]";
 
   return (
     <div>
@@ -136,25 +136,25 @@ export default function AccessManager({
           unless listed here. Start typing a name below and pick them from the
           directory, or type any address in full — access can be granted to
           people outside the bonus scheme too. Changes apply immediately — no
-          deploy needed. Entries marked{" "}
+          deploy needed. Entries marked{""}
           <span className="font-semibold">code</span> are seeded in the repo and
           reappear unless removed here.
         </p>
 
         {error && (
-          <div className="mb-4 rounded-md border-2 border-[#FC4D0F] bg-[#FED9CC] px-4 py-2 text-[13px] font-semibold text-[#191919]">
+          <div className="mb-4 border-2 border-[#FC4D0F] bg-[#FED9CC] px-4 py-2 text-[13px] font-semibold text-[#191919]">
             {error}
           </div>
         )}
 
-        <div className="mb-6 overflow-x-auto rounded-lg shadow-sm">
+        <div className="mb-6 overflow-x-auto shadow-sm">
           <table className="w-full border-collapse bg-white text-[13px]">
             <thead>
               <tr>
                 {["Email", "Access", "Visible fields", "Source", ""].map((h) => (
                   <th
                     key={h}
-                    className="whitespace-nowrap bg-[#191919] px-3 py-2.5 text-left text-[11px] uppercase tracking-wide text-white"
+                    className="whitespace-nowrap bg-[#191919] px-3 py-2.5 text-left text-[11px] tracking-wide text-white"
                   >
                     {h}
                   </th>
@@ -171,7 +171,7 @@ export default function AccessManager({
                   </td>
                   <td className="px-3 py-2">
                     <span
-                      className={`inline-block rounded px-2 py-0.5 text-[11px] font-bold ${
+                      className={`inline-block px-2 py-0.5 text-[11px] font-bold ${
                         r.source === "db"
                           ? "bg-[#FED9CC] text-[#FC4D0F]"
                           : "bg-neutral-200 text-neutral-600"
@@ -189,7 +189,7 @@ export default function AccessManager({
                         if (confirm(`Remove all access for ${r.email}?`))
                           call("DELETE", { email: r.email });
                       }}
-                      className="rounded border border-neutral-300 px-3 py-1 text-[11px] font-semibold uppercase text-[#5C5C5C] transition-colors hover:border-[#FC4D0F] hover:text-[#FC4D0F] disabled:cursor-not-allowed disabled:opacity-40"
+                      className="border border-neutral-300 px-3 py-1 text-[11px] font-semibold text-[#5C5C5C] transition-colors hover:border-[#FC4D0F] hover:text-[#FC4D0F] disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       Remove
                     </button>
@@ -200,8 +200,8 @@ export default function AccessManager({
           </table>
         </div>
 
-        <div className="rounded-lg border-t-4 border-[#FC4D0F] bg-white p-5 shadow-sm">
-          <h2 className="mb-3 text-[13px] font-bold uppercase tracking-[1.5px]">
+        <div className="border-t-4 border-[#FC4D0F] bg-white p-5 shadow-sm">
+          <h2 className="mb-3 text-[13px] font-bold">
             Add or update a person
           </h2>
           <div className="mb-3 flex flex-wrap items-center gap-3">
@@ -243,7 +243,7 @@ export default function AccessManager({
                 onChange={(e) => setEmpSearch(e.target.value)}
                 className={`${inputCls} mb-2 w-[280px]`}
               />
-              <div className="max-h-[200px] overflow-y-auto rounded-md border-2 border-neutral-200 p-2">
+              <div className="max-h-[200px] overflow-y-auto border-2 border-neutral-200 p-2">
                 {filteredEmployees.map((e) => (
                   <label
                     key={e.id}
@@ -268,7 +268,7 @@ export default function AccessManager({
 
           {type !== "full" && (
             <div className="mb-4">
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[#5C5C5C]">
+              <div className="mb-1 text-[11px] font-semibold tracking-wide text-[#5C5C5C]">
                 Visible fields
               </div>
               <div className="flex flex-wrap gap-3">
@@ -282,7 +282,7 @@ export default function AccessManager({
                     />
                     {FIELD_LABELS[f]}
                     {SENSITIVE.includes(f) && (
-                      <span className="rounded bg-[#FED9CC] px-1.5 py-px text-[10px] font-bold text-[#FC4D0F]">
+                      <span className="bg-[#FED9CC] px-1.5 py-px text-[10px] font-bold text-[#FC4D0F]">
                         salary
                       </span>
                     )}
@@ -296,7 +296,7 @@ export default function AccessManager({
             type="button"
             disabled={busy}
             onClick={submit}
-            className="rounded-md bg-[#FC4D0F] px-6 py-2.5 text-[12px] font-bold uppercase tracking-[2px] text-white transition-colors hover:bg-[#e0440d] disabled:opacity-50"
+            className="bg-[#FC4D0F] px-6 py-2.5 text-[12px] font-bold text-white transition-colors hover:bg-[#e0440d] disabled:opacity-50"
           >
             {busy ? "Saving…" : "Save"}
           </button>

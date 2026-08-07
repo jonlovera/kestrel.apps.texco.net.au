@@ -27,11 +27,9 @@ export type ColumnFormat = (typeof COLUMN_FORMATS)[number];
 export const IDENTITY_FIELDS = ["name", "state", "pos", "dept", "mgr", "cat"] as const;
 export type IdentityField = (typeof IDENTITY_FIELDS)[number];
 
-/** 'scale' is a pseudo-column gating the scale-factor figure on pool cards. */
 export const CONFIGURABLE_FIELDS = [
   ...IDENTITY_FIELDS,
   ...NUMERIC_FIELDS,
-  "scale",
 ] as const;
 export type ConfigurableField = (typeof CONFIGURABLE_FIELDS)[number];
 
@@ -76,7 +74,6 @@ export const DEFAULT_COLUMNS: ColumnConfig = [
   { field: "da", visible: true, label: "Disc adj", format: "currency", decimals: 0 },
   { field: "yoy", visible: true, label: "YoY diff", format: "currency", decimals: 0 },
   { field: "final", visible: true, label: "Final", format: "currency", decimals: 0 },
-  { field: "scale", visible: true, label: "Scale factor", format: "number", decimals: 4 },
 ];
 
 /** Ensure every configurable field appears exactly once (missing → default). */
@@ -117,7 +114,7 @@ export function effectiveColumns(
   const scoped = new Set<string>(scopeVisibleFields);
   const out: PayloadColumn[] = [];
   for (const c of normalizeConfig(config)) {
-    if (!c.visible || c.field === "scale") continue;
+    if (!c.visible) continue;
     if (isIdentityField(c.field)) {
       out.push({
         key: c.field,
@@ -138,7 +135,19 @@ export function effectiveColumns(
   return out;
 }
 
-/** Whether pool cards show the scale-factor figure. */
-export function scaleVisible(config: ColumnConfig): boolean {
-  return normalizeConfig(config).find((c) => c.field === "scale")!.visible;
+/**
+ * Configs stored before a field was retired (the scale-factor pseudo-column)
+ * still live in the database. Dropping them here rather than letting the
+ * schema reject the whole document means a retired field costs one column, not
+ * every column setting she has ever chosen.
+ */
+export function dropRetiredFields(raw: unknown): unknown {
+  if (!Array.isArray(raw)) return raw;
+  const known = new Set<string>(CONFIGURABLE_FIELDS);
+  return raw.filter(
+    (entry) =>
+      typeof entry === "object" &&
+      entry !== null &&
+      known.has(String((entry as { field?: unknown }).field))
+  );
 }

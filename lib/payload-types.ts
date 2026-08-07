@@ -63,9 +63,6 @@ export interface StatePoolCard {
    */
   available: number;
   utilPct: number;
-  /** omitted server-side when the 'scale' pseudo-column is hidden */
-  scale?: number;
-  scaleLabel?: string;
 }
 
 export interface ReadonlyPayload {
@@ -75,7 +72,6 @@ export interface ReadonlyPayload {
   visibleFields: NumericField[];
   /** display columns: config-visible AND scope-visible, in config order */
   columns: PayloadColumn[];
-  showScale: boolean;
   /**
    * Editable wording, minus `poolTitles`. A read-only user's card titles are
    * resolved server-side into `poolCards[].title`, so sending the map as well
@@ -113,7 +109,6 @@ export interface EditorPayload {
    * the resolved `columns` list and nothing more.
    */
   columnConfig: ColumnConfig;
-  showScale: boolean;
   /** editable wording (presentation only — never gates data) */
   copy: Copy;
   /** editable on the pool cards; `caps` mirrors the first three */

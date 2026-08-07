@@ -15,7 +15,6 @@ import {
   DEFAULT_COLUMNS,
   effectiveColumns,
   normalizeConfig,
-  scaleVisible,
   type ColumnConfig,
 } from "./columns";
 import { DEFAULT_COPY, type Copy } from "./copy";
@@ -59,7 +58,6 @@ export function buildPayloadCore(
     datasetVersion = 0,
     companyModifier = 1,
   } = opts;
-  const showScale = scaleVisible(columnConfig);
   const normalizedConfig = normalizeConfig(columnConfig);
 
   if (scope.rule.type === "full") {
@@ -73,7 +71,6 @@ export function buildPayloadCore(
       companyModifier,
       columns: effectiveColumns(columnConfig, NUMERIC_FIELDS),
       columnConfig: normalizedConfig,
-      showScale,
       copy,
       params: {
         vCap: data.vCap,
@@ -128,7 +125,7 @@ export function buildPayloadCore(
   });
 
   // Pool cards: state users get their state card(s) like the prototype's
-  // state views (total, utilisation, scale factor). Subset users get none.
+  // state views (pool available, total allocated, remaining). Subset users get none.
   const poolCards: StatePoolCard[] = [];
   if (scope.rule.type === "state") {
     for (const st of scope.rule.states) {
@@ -146,10 +143,6 @@ export function buildPayloadCore(
         available: avail,
         utilPct: avail > 0 ? stateBonuses / avail : 1,
       };
-      if (showScale) {
-        card.scale = st === "VIC" ? pool.vicScale : pool.nswScale;
-        card.scaleLabel = `${st} scale factor`;
-      }
       poolCards.push(card);
     }
   }
@@ -171,7 +164,6 @@ export function buildPayloadCore(
     rows,
     visibleFields: scope.visibleFields,
     columns,
-    showScale,
     // pool titles are already baked into poolCards[].title above; sending the
     // map too would name the pools this user has no business seeing
     copy: {

@@ -20,7 +20,7 @@ export default async function LoginPage({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#191919]">
-      <div className="w-[380px] overflow-hidden rounded-lg bg-white shadow-2xl">
+      <div className="w-[380px] overflow-hidden bg-white shadow-2xl">
         <div className="bg-[#191919] px-8 pt-7 pb-5 text-center">
           <TexcoX className="mx-auto mb-4 h-9 w-9" />
           <TexcoWordmark className="mx-auto mb-1 block w-[200px]" />
@@ -30,13 +30,13 @@ export default async function LoginPage({
             action={async () => {
               "use server";
               await signIn("microsoft-entra-id", {
-                redirectTo: callbackUrl ?? "/",
+                redirectTo: callbackUrl ??"/",
               });
             }}
           >
             <button
               type="submit"
-              className="w-full rounded-md bg-[#FC4D0F] px-4 py-3 text-[13px] font-bold uppercase tracking-[3px] text-white transition-colors hover:bg-[#e0440d]"
+              className="w-full bg-[#FC4D0F] px-4 py-3 text-[13px] font-bold text-white transition-colors hover:bg-[#e0440d]"
             >
               Sign in with Microsoft
             </button>
@@ -57,12 +57,12 @@ export default async function LoginPage({
                   await signIn("password", {
                     email: String(formData.get("email") ?? ""),
                     password: String(formData.get("password") ?? ""),
-                    redirectTo: callbackUrl ?? "/",
+                    redirectTo: callbackUrl ??"/",
                   });
                 } catch (err) {
                   if (err instanceof AuthError) {
                     redirect(
-                      `/login?error=CredentialsSignin${
+`/login?error=CredentialsSignin${
                         callbackUrl ? `&callbackUrl=${encodeURIComponent(callbackUrl)}` : ""
                       }`
                     );
@@ -76,18 +76,18 @@ export default async function LoginPage({
                 type="email"
                 required
                 placeholder="Email"
-                className="mb-3 w-full rounded-md border-2 border-neutral-200 px-4 py-3 text-[15px] outline-none focus:border-[#FC4D0F]"
+                className="mb-3 w-full border-2 border-neutral-200 px-4 py-3 text-[15px] outline-none focus:border-[#FC4D0F]"
               />
               <input
                 name="password"
                 type="password"
                 required
                 placeholder="Password"
-                className="mb-4 w-full rounded-md border-2 border-neutral-200 px-4 py-3 text-[15px] outline-none focus:border-[#FC4D0F]"
+                className="mb-4 w-full border-2 border-neutral-200 px-4 py-3 text-[15px] outline-none focus:border-[#FC4D0F]"
               />
               <button
                 type="submit"
-                className="w-full rounded-md bg-[#191919] px-4 py-3 text-[13px] font-bold uppercase tracking-[3px] text-white transition-colors hover:bg-[#333]"
+                className="w-full bg-[#191919] px-4 py-3 text-[13px] font-bold text-white transition-colors hover:bg-[#333]"
               >
                 Sign in
               </button>
@@ -100,7 +100,7 @@ export default async function LoginPage({
                 "use server";
                 await signIn("dev-login", {
                   email: String(formData.get("email") ?? ""),
-                  redirectTo: callbackUrl ?? "/",
+                  redirectTo: callbackUrl ??"/",
                 });
               }}
             >
@@ -111,11 +111,11 @@ export default async function LoginPage({
                 name="email"
                 type="email"
                 placeholder="someone@texco.net.au"
-                className="mb-2 w-full rounded-md border-2 border-neutral-200 px-3 py-2 text-sm outline-none focus:border-[#FC4D0F]"
+                className="mb-2 w-full border-2 border-neutral-200 px-3 py-2 text-sm outline-none focus:border-[#FC4D0F]"
               />
               <button
                 type="submit"
-                className="w-full rounded-md bg-neutral-200 px-3 py-2 text-xs font-bold uppercase tracking-wide text-neutral-600 hover:bg-neutral-300"
+                className="w-full bg-neutral-200 px-3 py-2 text-xs font-bold tracking-wide text-neutral-600 hover:bg-neutral-300"
               >
                 Sign in as
               </button>

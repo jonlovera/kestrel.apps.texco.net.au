@@ -40,14 +40,14 @@ export default function SnapshotList({
           any of them to keep a copy off the platform.
         </p>
 
-        <div className="overflow-x-auto rounded-lg shadow-sm">
+        <div className="overflow-x-auto shadow-sm">
           <table className="w-full border-collapse bg-white text-[13px]">
             <thead>
               <tr>
                 {["When", "Who", "Why", "Contents", "", ""].map((h, i) => (
                   <th
                     key={i}
-                    className="whitespace-nowrap bg-[#191919] px-3 py-2.5 text-left text-[11px] uppercase tracking-wide text-white"
+                    className="whitespace-nowrap bg-[#191919] px-3 py-2.5 text-left text-[11px] tracking-wide text-white"
                   >
                     {h}
                   </th>
@@ -84,7 +84,7 @@ export default function SnapshotList({
                   <td className="px-3 py-2">
                     <a
                       href={`/api/snapshots/download?ts=${encodeURIComponent(s.ts)}`}
-                      className="rounded border border-neutral-300 px-3 py-1 text-[11px] font-semibold uppercase text-[#5C5C5C] transition-colors hover:border-[#FC4D0F] hover:text-[#FC4D0F]"
+                      className="border border-neutral-300 px-3 py-1 text-[11px] font-semibold text-[#5C5C5C] transition-colors hover:border-[#FC4D0F] hover:text-[#FC4D0F]"
                     >
                       Download
                     </a>
@@ -105,7 +105,7 @@ export default function SnapshotList({
                       <button
                         type="submit"
                         disabled={pending}
-                        className="rounded bg-[#FC4D0F] px-3 py-1 text-[11px] font-bold uppercase text-white transition-colors hover:bg-[#e0440d] disabled:opacity-50"
+                        className="bg-[#FC4D0F] px-3 py-1 text-[11px] font-bold text-white transition-colors hover:bg-[#e0440d] disabled:opacity-50"
                       >
                         {pending ? "Restoring…" : "Restore"}
                       </button>

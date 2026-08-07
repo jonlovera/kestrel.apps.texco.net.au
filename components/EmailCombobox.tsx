@@ -126,7 +126,7 @@ export default function EmailCombobox({
       />
 
       {showList && (
-        <ul id="directory-matches" className="absolute z-50 mt-1 max-h-[280px] w-[360px] overflow-auto rounded-lg border border-neutral-200 bg-white shadow-2xl">
+        <ul id="directory-matches" className="absolute z-50 mt-1 max-h-[280px] w-[360px] overflow-auto border border-neutral-200 bg-white shadow-2xl">
           {loading && matches.length === 0 && (
             <li className="px-3 py-2 text-[12px] text-[#5C5C5C]">Searching…</li>
           )}

@@ -51,7 +51,7 @@ export default function EditableText({
           el.blur();
         }
       }}
-      className={`rounded border border-dashed border-current/40 bg-transparent px-1 outline-none focus:border-solid focus:border-[#FC4D0F] disabled:opacity-50 ${className} ${inputClassName}`}
+      className={`border border-dashed border-current/40 bg-transparent px-1 outline-none focus:border-solid focus:border-[#FC4D0F] disabled:opacity-50 ${className} ${inputClassName}`}
     />
   );
 }

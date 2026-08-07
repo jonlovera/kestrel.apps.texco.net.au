@@ -10,7 +10,7 @@ export default async function NoAccessPage() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#191919]">
-      <div className="w-[420px] overflow-hidden rounded-lg bg-white shadow-2xl">
+      <div className="w-[420px] overflow-hidden bg-white shadow-2xl">
         <div className="bg-[#191919] px-8 py-6 text-center">
           <TexcoX className="mx-auto mb-1 h-9 w-9" />
         </div>
@@ -25,12 +25,12 @@ export default async function NoAccessPage() {
           <form
             action={async () => {
               "use server";
-              await signOut({ redirectTo: "/login" });
+              await signOut({ redirectTo:"/login" });
             }}
           >
             <button
               type="submit"
-              className="rounded-md bg-neutral-200 px-6 py-2 text-xs font-bold uppercase tracking-wide text-neutral-600 hover:bg-neutral-300"
+              className="bg-neutral-200 px-6 py-2 text-xs font-bold tracking-wide text-neutral-600 hover:bg-neutral-300"
             >
               Sign out
             </button>

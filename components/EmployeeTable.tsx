@@ -71,7 +71,7 @@ interface Props {
 const STATES = ["VIC", "NSW", "SHARED"] as const;
 
 const cellInput =
-  "rounded border border-neutral-300 px-1.5 py-1 text-xs outline-none focus:border-[#FC4D0F] disabled:opacity-50";
+  "border border-neutral-300 px-1.5 py-1 text-xs outline-none focus:border-[#FC4D0F] disabled:opacity-50";
 
 /**
  * Enter moves down a column, Shift+Enter up, Escape abandons the edit. Tab is
@@ -239,7 +239,7 @@ export default function EmployeeTable({
               ? "bg-[#3D3D3D] text-white"
               : "bg-[#FDA478] text-white";
         return (
-          <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-bold ${cls}`}>
+          <span className={`inline-block px-2 py-0.5 text-[11px] font-bold ${cls}`}>
             {r.st}
           </span>
         );
@@ -331,7 +331,7 @@ export default function EmployeeTable({
           <button
             type="button"
             onClick={() => handlers.toggleLock(r.id)}
-            className={`h-7 w-7 rounded border-[1.5px] text-sm transition-colors ${
+            className={`h-7 w-7 border-[1.5px] text-sm transition-colors ${
               r.locked
                 ? "border-[#FC4D0F] bg-[#FC4D0F]"
                 : "border-neutral-300 bg-transparent hover:border-[#FC4D0F]"
@@ -348,7 +348,7 @@ export default function EmployeeTable({
             title={`Pool split, site-manager flag, or remove ${r.name}`}
             disabled={busy}
             onClick={() => handlers.openRowEditor(r.id)}
-            className="h-7 w-7 rounded border-[1.5px] border-neutral-300 text-sm transition-colors hover:border-[#FC4D0F] disabled:opacity-40"
+            className="h-7 w-7 border-[1.5px] border-neutral-300 text-sm transition-colors hover:border-[#FC4D0F] disabled:opacity-40"
           >
             ✎
           </button>
@@ -359,7 +359,7 @@ export default function EmployeeTable({
   }
 
   return (
-    <div className="mb-5 max-h-[calc(100vh-260px)] overflow-auto rounded-lg shadow-sm">
+    <div className="mb-5 max-h-[calc(100vh-260px)] overflow-auto shadow-sm">
       {editing && (
         <>
           <datalist id="dept-suggestions">
@@ -397,7 +397,7 @@ export default function EmployeeTable({
                     : undefined
                 }
                 title={editing && !c.noSort ? "Double-click to rename" : undefined}
-                className={`sticky top-0 z-10 whitespace-nowrap bg-[#191919] px-2 py-2.5 text-left text-[11px] uppercase tracking-wide text-white select-none ${
+                className={`sticky top-0 z-10 whitespace-nowrap bg-[#191919] px-2 py-2.5 text-left text-[11px] tracking-wide text-white select-none ${
                   c.noSort ? "" : "cursor-pointer hover:bg-[#333]"
                 } ${c.num ? "text-right" : ""}`}
               >
@@ -426,7 +426,7 @@ export default function EmployeeTable({
                   key={c.key}
                   className={`whitespace-nowrap border-b border-neutral-100 px-2 py-2 group-hover:bg-neutral-50 ${
                     c.num ? "text-right tabular-nums" : ""
-                  } ${c.key === "final" ? "bg-[#E7D8FC]" : c.key === "f25" ? "bg-[#f7f7f7]" : ""}`}
+                  } ${c.key === "final" ? "bg-[#D4B9FA]" : c.key === "f25" ? "bg-[#f7f7f7]" : ""}`}
                 >
                   {cell(r, c, rowIdx)}
                 </td>
@@ -440,7 +440,7 @@ export default function EmployeeTable({
               // percentages don't sum meaningfully — no total for them
               const v =
                 c.key === "name"
-                  ? `TOTALS (${rows.length})`
+                  ? `Totals (${rows.length})`
                   : c.format === "percent"
                     ? ""
                     : typeof totals[c.key as NumericField] === "number"
@@ -453,7 +453,7 @@ export default function EmployeeTable({
                   key={c.key}
                   className={`whitespace-nowrap px-2 py-2 text-[13px] font-bold text-white ${
                     c.num ? "text-right tabular-nums" : ""
-                  } ${c.key === "final" ? "bg-[#7c3aed]" : "bg-[#FC4D0F]"}`}
+                  } ${c.key === "final" ? "bg-[#D4B9FA]" : "bg-[#FC4D0F]"}`}
                 >
                   {v}
                 </td>

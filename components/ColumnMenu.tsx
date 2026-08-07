@@ -66,22 +66,22 @@ export default function ColumnMenu({
     onChange(next);
   }
 
-  const shown = config.filter((c) => c.visible && c.field !== "scale").length;
+  const shown = config.filter((c) => c.visible).length;
   const inputCls =
-    "rounded border border-neutral-300 px-1.5 py-1 text-[12px] outline-none focus:border-[#FC4D0F]";
+    "border border-neutral-300 px-1.5 py-1 text-[12px] outline-none focus:border-[#FC4D0F]";
 
   return (
     <div className="relative" ref={box}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="rounded-md border-2 border-neutral-300 px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-wide text-[#5C5C5C] transition-colors hover:border-[#FC4D0F] hover:text-[#FC4D0F]"
+        className="border-2 border-neutral-300 px-3.5 py-1.5 text-[11px] font-bold tracking-wide text-[#5C5C5C] transition-colors hover:border-[#FC4D0F] hover:text-[#FC4D0F]"
       >
         Columns ({shown}) ▾
       </button>
 
       {open && (
-        <div className="absolute right-0 z-50 mt-1 max-h-[70vh] w-[440px] overflow-auto rounded-lg border border-neutral-200 bg-white p-3 shadow-2xl">
+        <div className="absolute right-0 z-50 mt-1 max-h-[70vh] w-[440px] overflow-auto border border-neutral-200 bg-white p-3 shadow-2xl">
           <p className="mb-2 text-[12px] text-[#5C5C5C]">
             Tick to show, arrows to reorder, and type over a heading to rename
             it. Changes are display only — they never alter a figure or who can
@@ -112,23 +112,23 @@ export default function ColumnMenu({
                     />
                   </td>
                   <td className="py-1 pr-1 text-neutral-400">
-                    {c.field === "scale" ? "pool cards" : c.field}
+                    {c.field}
                   </td>
                   <td className="py-1 pr-1 whitespace-nowrap">
                     <button
                       type="button"
                       disabled={busy || i === 0}
                       onClick={() => move(i, -1)}
-                      className="rounded border border-neutral-300 px-1.5 disabled:opacity-30"
+                      className="border border-neutral-300 px-1.5 disabled:opacity-30"
                       aria-label={`Move ${c.label} up`}
                     >
                       ↑
-                    </button>{" "}
+                    </button>{""}
                     <button
                       type="button"
                       disabled={busy || i === config.length - 1}
                       onClick={() => move(i, 1)}
-                      className="rounded border border-neutral-300 px-1.5 disabled:opacity-30"
+                      className="border border-neutral-300 px-1.5 disabled:opacity-30"
                       aria-label={`Move ${c.label} down`}
                     >
                       ↓
@@ -154,7 +154,7 @@ export default function ColumnMenu({
                               {FORMAT_LABELS[f]}
                             </option>
                           ))}
-                        </select>{" "}
+                        </select>{""}
                         <input
                           type="number"
                           min={0}

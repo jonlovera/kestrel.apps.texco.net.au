@@ -36,7 +36,7 @@ export default function ImportPanel() {
         </p>
 
         {fatal && (
-          <div className="mb-4 rounded-md border-2 border-[#FC4D0F] bg-[#FED9CC] px-4 py-2 text-[13px] font-semibold">
+          <div className="mb-4 border-2 border-[#FC4D0F] bg-[#FED9CC] px-4 py-2 text-[13px] font-semibold">
             {fatal}
           </div>
         )}
@@ -44,7 +44,7 @@ export default function ImportPanel() {
         {(stage.step === "pick" ||
           stage.step === "checking" ||
           stage.step === "errors") && (
-          <div className="mb-5 rounded-lg border-t-4 border-[#FC4D0F] bg-white p-5 shadow-sm">
+          <div className="mb-5 border-t-4 border-[#FC4D0F] bg-white p-5 shadow-sm">
             <input
               type="file"
               accept=".xlsx,.xlsm,.csv"
@@ -53,7 +53,7 @@ export default function ImportPanel() {
                 const f = e.target.files?.[0];
                 if (f) check(f);
               }}
-              className="block text-[13px] file:mr-4 file:rounded-md file:border-0 file:bg-[#FC4D0F] file:px-4 file:py-2 file:text-[12px] file:font-bold file:uppercase file:tracking-wide file:text-white hover:file:bg-[#e0440d]"
+              className="block text-[13px] file:mr-4 file:border-0 file:bg-[#FC4D0F] file:px-4 file:py-2 file:text-[12px] file:font-bold file:tracking-wide file:text-white hover:file:bg-[#e0440d]"
             />
             {stage.step === "checking" && (
               <p className="mt-3 text-[13px] text-[#5C5C5C]">Checking the file…</p>
@@ -82,27 +82,27 @@ export default function ImportPanel() {
         )}
 
         {stage.step === "done" && (
-          <div className="mb-5 rounded-lg border-t-4 border-[#FC4D0F] bg-white p-5 shadow-sm">
-            <h2 className="mb-2 text-[13px] font-bold uppercase tracking-[1.5px]">
+          <div className="mb-5 border-t-4 border-[#FC4D0F] bg-white p-5 shadow-sm">
+            <h2 className="mb-2 text-[13px] font-bold">
               Import applied
             </h2>
             <p className="text-[13px]">
               {stage.preview.rowCount} employees imported
-              ({stage.preview.added.length} added, {stage.preview.removed.length}{" "}
-              removed). Total pool: {fmt(stage.preview.totalAfter)}.{" "}
+              ({stage.preview.added.length} added, {stage.preview.removed.length}{""}
+              removed). Total pool: {fmt(stage.preview.totalAfter)}.{""}
               <Link href="/" className="font-semibold text-[#FC4D0F] underline">
                 Open the dashboard
-              </Link>{" "}
-              or{" "}
+              </Link>{""}
+              or{""}
               <Link href="/admin/snapshots" className="font-semibold text-[#FC4D0F] underline">
                 view snapshots
-              </Link>{" "}
+              </Link>{""}
               if it needs to be undone.
             </p>
             <button
               type="button"
               onClick={reset}
-              className="mt-3 rounded-md bg-neutral-200 px-4 py-2 text-[12px] font-bold uppercase tracking-wide text-neutral-600 hover:bg-neutral-300"
+              className="mt-3 bg-neutral-200 px-4 py-2 text-[12px] font-bold tracking-wide text-neutral-600 hover:bg-neutral-300"
             >
               Import another
             </button>

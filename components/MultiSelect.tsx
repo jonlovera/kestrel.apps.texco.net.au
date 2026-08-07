@@ -35,8 +35,8 @@ export function MultiSelect({
       selected[0]
     ) : (
       <>
-        {label}{" "}
-        <span className="ml-1 inline-block rounded-full bg-[#FC4D0F] px-1.5 py-px text-[10px] font-bold text-white">
+        {label}{""}
+        <span className="ml-1 inline-block bg-[#FC4D0F] px-1.5 py-px text-[10px] font-bold text-white">
           {selected.length}
         </span>
       </>
@@ -47,7 +47,7 @@ export function MultiSelect({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className={`flex w-full min-w-[160px] items-center justify-between gap-1.5 rounded-md border-2 bg-white px-3.5 py-2 text-left text-[13px] outline-none ${
+        className={`flex w-full min-w-[160px] items-center justify-between gap-1.5 border-2 bg-white px-3.5 py-2 text-left text-[13px] outline-none ${
           open ? "border-[#FC4D0F]" : "border-neutral-200"
         }`}
       >
@@ -55,7 +55,7 @@ export function MultiSelect({
         <span className="text-[10px] text-neutral-400">▾</span>
       </button>
       {open && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-0.5 max-h-[260px] overflow-y-auto rounded-md border-2 border-neutral-200 bg-white shadow-lg">
+        <div className="absolute left-0 right-0 top-full z-50 mt-0.5 max-h-[260px] overflow-y-auto border-2 border-neutral-200 bg-white shadow-lg">
           <label className="flex cursor-pointer items-center gap-2 border-b border-neutral-100 px-3 py-1.5 text-[13px] font-semibold hover:bg-neutral-100">
             <input
               type="checkbox"

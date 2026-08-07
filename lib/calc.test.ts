@@ -302,3 +302,103 @@ describe("real-data regression (data/bonus.json)", () => {
     expect(totalNswAlloc(emps, pool.nswScale)).toBeCloseTo(1038408.25, 6);
   });
 });
+
+/**
+ * WALKTHROUGH REQUIREMENT — confirmed correct with the finance owner and not
+ * to be broken:
+ *
+ *   Site managers are FIXED, not redistributed. Their bonus is purely their
+ *   actual percentage × IPM. It does not pro-rata against the pool.
+ *   Everyone else pro-rates off the pool, so their figures shift as other
+ *   allocations change.
+ *
+ * The mechanism is lib/calc.ts: a site manager's finalBonus is assigned
+ * bipmCalc directly (`pkg × bpEdit × cpm × ipmEdit`) and never multiplied by
+ * vicScale/nswScale, while they still consume pool via empLockedVp/Np.
+ */
+describe("site managers are fixed, everyone else pro-rates (do not break)", () => {
+  it("a site manager's bonus is package × bonus% × IPM%, with no scale applied", () => {
+    const { byId, pool } = run();
+    const c = byId.C;
+    expect(c.finalBonus).toBeCloseTo(c.pkg * c.bpEdit * c.cpm * c.ipmEdit, 10);
+    // and that is emphatically NOT the scaled figure the others receive
+    expect(pool.vicScale).not.toBeCloseTo(1, 3);
+    expect(c.finalBonus).not.toBeCloseTo(c.bipmCalc * pool.vicScale, 3);
+  });
+
+  it("editing a site manager's IPM moves their bonus proportionally, and only theirs", () => {
+    const base = run();
+    const half = run({ C: { ipmEdit: 0.5 } });
+    expect(half.byId.C.finalBonus).toBeCloseTo(base.byId.C.finalBonus * 0.5, 10);
+    // their released pool flows to the others, which is the point of the pool
+    expect(half.byId.A.finalBonus).toBeGreaterThan(base.byId.A.finalBonus);
+    expect(half.byId.B.finalBonus).toBeGreaterThan(base.byId.B.finalBonus);
+  });
+
+  it("editing a site manager's bonus % moves their bonus proportionally", () => {
+    const base = run();
+    const doubled = run({ C: { bpEdit: FIXTURE[2].bp * 2 } });
+    expect(doubled.byId.C.finalBonus).toBeCloseTo(base.byId.C.finalBonus * 2, 10);
+  });
+
+  it("a site manager does NOT move when other people's allocations change", () => {
+    const base = run();
+    const afterOthersChange = run({
+      A: { ipmEdit: 0.4 },
+      B: { daEdit: 50 },
+      D: { ipmEdit: 1.5 },
+    });
+    // everyone else in VIC shifted…
+    expect(afterOthersChange.byId.A.finalBonus).not.toBeCloseTo(
+      base.byId.A.finalBonus,
+      6
+    );
+    expect(afterOthersChange.byId.B.finalBonus).not.toBeCloseTo(
+      base.byId.B.finalBonus,
+      6
+    );
+    // …the site manager did not move at all
+    expect(afterOthersChange.byId.C.finalBonus).toBeCloseTo(
+      base.byId.C.finalBonus,
+      10
+    );
+  });
+
+  it("a site manager is unaffected by the pool cap itself", () => {
+    const emps = applyOverrides(FIXTURE, {});
+    computeScalesAndBonuses(emps, { vCap: 100_000, nCap: 500, gCap: 100_500 });
+    const rich = emps.find((e) => e.id === "C")!.finalBonus;
+    const emps2 = applyOverrides(FIXTURE, {});
+    computeScalesAndBonuses(emps2, { vCap: 10, nCap: 500, gCap: 510 });
+    const poor = emps2.find((e) => e.id === "C")!.finalBonus;
+    expect(rich).toBeCloseTo(200, 10);
+    expect(poor).toBeCloseTo(200, 10);
+  });
+
+  it("a site manager still consumes pool, so the others scale around them", () => {
+    const withSm = run();
+    // same fixture with C no longer a site manager: C now scales like the rest
+    const emps = applyOverrides(
+      FIXTURE.map((e) => (e.id === "C" ? { ...e, sm: 0 as const } : e)),
+      {}
+    );
+    const pool = computeScalesAndBonuses(emps, CAPS);
+    // C's 200 came off the top before; now it competes, so the scale differs
+    expect(pool.vicScale).not.toBeCloseTo(withSm.pool.vicScale, 6);
+    expect(emps.find((e) => e.id === "C")!.finalBonus).not.toBeCloseTo(200, 3);
+  });
+
+  it("holds on the real dataset: every site manager equals their own figure", () => {
+    const real = JSON.parse(
+      readFileSync(join(__dirname, "..", "data", "bonus.json"), "utf-8")
+    ) as { emp: Employee[]; vCap: number; nCap: number; gCap: number };
+    const emps = applyOverrides(real.emp, {});
+    computeScalesAndBonuses(emps, real);
+    const sms = emps.filter((e) => e.sm);
+    expect(sms.length).toBeGreaterThan(0);
+    for (const e of sms) {
+      expect(e.finalBonus).toBeCloseTo(e.pkg * e.bpEdit * e.cpm * e.ipmEdit, 6);
+      expect(e.finalBonus).toBeCloseTo(e.bipm, 6);
+    }
+  });
+});
