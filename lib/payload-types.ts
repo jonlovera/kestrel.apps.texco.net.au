@@ -54,6 +54,14 @@ export interface DisplayRow extends ScopedRow {
 export interface StatePoolCard {
   title: string;
   stateBonuses: number;
+  /**
+   * The state's own pool after shared services have been allocated out of it —
+   * what these employees actually draw from, and what the utilisation bar is a
+   * proportion of. Deliberately NOT the raw state cap plus a shared-services
+   * deduction: that breakdown is group information a state lead has no call to
+   * see. The group cap never appears in a read-only payload at all.
+   */
+  available: number;
   utilPct: number;
   /** omitted server-side when the 'scale' pseudo-column is hidden */
   scale?: number;
@@ -68,8 +76,13 @@ export interface ReadonlyPayload {
   /** display columns: config-visible AND scope-visible, in config order */
   columns: PayloadColumn[];
   showScale: boolean;
-  /** editable wording (presentation only — never gates data) */
-  copy: Copy;
+  /**
+   * Editable wording, minus `poolTitles`. A read-only user's card titles are
+   * resolved server-side into `poolCards[].title`, so sending the map as well
+   * would ship them the names of pools they can't see ("NSW pool", "Group
+   * total") — no figures, but it advertises views that aren't theirs.
+   */
+  copy: Omit<Copy, "poolTitles">;
   showStateColumn: boolean;
   poolCards: StatePoolCard[];
   cats: string[];

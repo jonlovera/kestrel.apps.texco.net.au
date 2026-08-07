@@ -140,8 +140,10 @@ export function buildPayloadCore(
       );
       const avail = st === "VIC" ? pool.stateVicAvail : pool.stateNswAvail;
       const card: StatePoolCard = {
-        title: `${st} pool`,
+        // resolved here, so renaming a pool card reaches state leads too
+        title: st === "VIC" ? copy.poolTitles.vic : copy.poolTitles.nsw,
         stateBonuses,
+        available: avail,
         utilPct: avail > 0 ? stateBonuses / avail : 1,
       };
       if (showScale) {
@@ -170,7 +172,14 @@ export function buildPayloadCore(
     visibleFields: scope.visibleFields,
     columns,
     showScale,
-    copy,
+    // pool titles are already baked into poolCards[].title above; sending the
+    // map too would name the pools this user has no business seeing
+    copy: {
+      schemeName: copy.schemeName,
+      bannerText: copy.bannerText,
+      bannerVisible: copy.bannerVisible,
+      footerText: copy.footerText,
+    },
     showStateColumn,
     poolCards,
     cats: uniq(allowed.map((e) => e.cat)),

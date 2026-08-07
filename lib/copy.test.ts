@@ -142,11 +142,37 @@ describe("wording does not affect entitlement", () => {
     expect(json).not.toContain('"bp"');
   });
 
-  it("copy reaches both editor and read-only payloads", () => {
-    const ro = buildPayloadCore(data, {}, vicScope, user, { copy: rewritten });
+  it("an editor gets the whole wording doc", () => {
     const ed = buildPayloadCore(data, {}, fullScope, user, { copy: rewritten });
-    expect(ro.copy).toEqual(rewritten);
     expect(ed.copy).toEqual(rewritten);
+  });
+
+  it("a read-only user gets the wording but NOT the pool-title map", () => {
+    // their card titles arrive already resolved, so shipping the map as well
+    // would name pools they can't see ("New South Wales", "Everyone")
+    const ro = buildPayloadCore(data, {}, vicScope, user, { copy: rewritten });
+    if (ro.mode !== "readonly") throw new Error("expected readonly");
+    expect(ro.copy).toEqual({
+      schemeName: rewritten.schemeName,
+      bannerText: rewritten.bannerText,
+      bannerVisible: rewritten.bannerVisible,
+      footerText: rewritten.footerText,
+    });
+    expect("poolTitles" in ro.copy).toBe(false);
+
+    const json = JSON.stringify(ro);
+    expect(json).not.toContain(rewritten.poolTitles.nsw);
+    expect(json).not.toContain(rewritten.poolTitles.group);
+    // their own state's title is the one that does come through, on the card
+    expect(ro.poolCards[0].title).toBe(rewritten.poolTitles.vic);
+  });
+
+  it("renaming a pool card reaches state leads too", () => {
+    const ro = buildPayloadCore(data, {}, vicScope, user, {
+      copy: { ...DEFAULT_COPY, poolTitles: { ...DEFAULT_COPY.poolTitles, vic: "Victoria" } },
+    });
+    if (ro.mode !== "readonly") throw new Error();
+    expect(ro.poolCards[0].title).toBe("Victoria");
   });
 
   it("omitting copy falls back to the defaults, so first load reads identically", () => {

@@ -6,7 +6,7 @@ import { signOut } from "next-auth/react";
 import type { DashboardPayload, DisplayRow } from "@/lib/payload-types";
 import { NUMERIC_FIELDS, type NumericField } from "@/lib/access-types";
 import { effectiveColumns, type ColumnConfig } from "@/lib/columns";
-import type { Copy } from "@/lib/copy";
+import { DEFAULT_COPY, type Copy } from "@/lib/copy";
 import type { Params } from "@/lib/params-apply";
 import type { Employee, Overrides, HistoryEntry } from "@/lib/schema";
 import type { DatasetPatch } from "@/lib/dataset-edit";
@@ -77,7 +77,13 @@ export default function DashboardClient({
   const [columnConfig, setColumnConfig] = useState<ColumnConfig>(
     isEditor ? payload.columnConfig : []
   );
-  const [copy, setCopy] = useState<Copy>(payload.copy);
+  // Read-only payloads carry no poolTitles (their card titles arrive already
+  // resolved), so the defaults stand in for a map this view never renders.
+  const [copy, setCopy] = useState<Copy>(
+    isEditor
+      ? payload.copy
+      : { ...payload.copy, poolTitles: DEFAULT_COPY.poolTitles }
+  );
   const [params, setParams] = useState<Params>(
     isEditor ? payload.params : { vCap: 0, nCap: 0, gCap: 0, companyModifier: 1 }
   );
@@ -600,18 +606,25 @@ export default function DashboardClient({
   // ── pool cards ──
   const poolCardEls = useMemo(() => {
     if (!isEditor) {
-      return payload.poolCards.map((c) => (
-        <PoolCard
-          key={c.title}
-          title={c.title}
-          metrics={[
-            { label: "State bonuses", value: fmt(c.stateBonuses), bold: true },
-          ]}
-          utilPct={c.utilPct}
-          scaleFactor={c.scale ?? null}
-          scaleLabel={c.scaleLabel}
-        />
-      ));
+      // A state lead sees their own pool and nothing wider: no group total, no
+      // other state, no shared-services breakdown.
+      return payload.poolCards.map((c) => {
+        const remaining = c.available - c.stateBonuses;
+        return (
+          <PoolCard
+            key={c.title}
+            title={c.title}
+            metrics={[
+              { label: "Pool available", value: fmt(c.available) },
+              { label: "Total allocated", value: fmt(c.stateBonuses), bold: true },
+              { label: "Remaining", value: fmt(remaining), negative: remaining < 0 },
+            ]}
+            utilPct={c.utilPct}
+            scaleFactor={c.scale ?? null}
+            scaleLabel={c.scaleLabel}
+          />
+        );
+      });
     }
     if (!pool) return null;
     const { vCap, nCap, gCap } = params;

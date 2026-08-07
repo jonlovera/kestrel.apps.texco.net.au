@@ -80,3 +80,70 @@ describe("field stripping strips bytes, not pixels", () => {
     expect(json).toContain('"final"');
   });
 });
+
+describe("a state lead sees their own pool and nothing wider", () => {
+  const vic = buildPayloadCore(data, {}, vicScopeNoPkg, user);
+  if (vic.mode !== "readonly") throw new Error("expected readonly");
+
+  it("gets exactly one pool card — their own state", () => {
+    expect(vic.poolCards).toHaveLength(1);
+    expect(vic.poolCards[0].title).toBe("VIC pool");
+  });
+
+  it("the card carries their available pool, so cap and remaining can be shown", () => {
+    const card = vic.poolCards[0];
+    expect(card.available).toBeGreaterThan(0);
+    expect(card.stateBonuses).toBeGreaterThan(0);
+    // the utilisation bar is a proportion of that same figure
+    expect(card.utilPct).toBeCloseTo(card.stateBonuses / card.available, 12);
+  });
+
+  it("the group cap and group total never reach the payload", () => {
+    const json = JSON.stringify(vic);
+    expect(json).not.toContain('"gCap"');
+    expect(json).not.toContain('"caps"');
+    expect(json).not.toContain(String(data.gCap));
+    // the whole-company bonus total must not be derivable from the bytes
+    const groupTotal = Math.round(
+      vic.poolCards.reduce((s, c) => s + c.stateBonuses, 0)
+    );
+    expect(groupTotal).toBeLessThan(Math.round(data.gCap));
+  });
+
+  it("the other state's figures never reach the payload", () => {
+    const json = JSON.stringify(vic);
+    expect(json).not.toContain('"NSW pool"');
+    expect(json).not.toContain(String(data.nCap));
+    expect(vic.rows.every((r) => r.st === "VIC")).toBe(true);
+  });
+
+  it("a two-state lead gets a card per state and still no group figure", () => {
+    const both: Scope = {
+      ...vicScopeNoPkg,
+      rule: {
+        type: "state",
+        states: ["VIC", "NSW"],
+        visibleFields: vicScopeNoPkg.visibleFields,
+      },
+    };
+    const payload = buildPayloadCore(data, {}, both, user);
+    if (payload.mode !== "readonly") throw new Error();
+    expect(payload.poolCards.map((c) => c.title)).toEqual(["VIC pool", "NSW pool"]);
+    expect(JSON.stringify(payload)).not.toContain('"gCap"');
+  });
+
+  it("a subset lead gets no pool card at all", () => {
+    const subset: Scope = {
+      ...vicScopeNoPkg,
+      rule: {
+        type: "subset",
+        employeeIds: [data.emp[0].id],
+        visibleFields: ["final"],
+      },
+      visibleFields: ["final"],
+    };
+    const payload = buildPayloadCore(data, {}, subset, user);
+    if (payload.mode !== "readonly") throw new Error();
+    expect(payload.poolCards).toHaveLength(0);
+  });
+});
