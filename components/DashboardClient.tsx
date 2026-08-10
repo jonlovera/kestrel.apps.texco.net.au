@@ -877,6 +877,15 @@ export default function DashboardClient({
             </button>
           )}
           {isEditor && !editing && (
+            <a
+              href="/api/export"
+              title="Download the current figures as an Excel workbook, for the HR folder"
+              className="border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"
+            >
+              Export
+            </a>
+          )}
+          {isEditor && !editing && (
             <Link
               href="/admin"
               className="border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"

@@ -83,10 +83,11 @@ export default function SnapshotList({
                   </td>
                   <td className="px-3 py-2">
                     <a
-                      href={`/api/snapshots/download?ts=${encodeURIComponent(s.ts)}`}
+                      href={`/api/export?ts=${encodeURIComponent(s.ts)}`}
+                      title="Download this version as an Excel workbook"
                       className="border border-neutral-300 px-3 py-1 text-[11px] font-semibold text-[#5C5C5C] transition-colors hover:border-[#FC4D0F] hover:text-[#FC4D0F]"
                     >
-                      Download
+                      Excel
                     </a>
                   </td>
                   <td className="px-3 py-2">
