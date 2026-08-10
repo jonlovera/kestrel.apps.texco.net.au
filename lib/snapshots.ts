@@ -28,7 +28,7 @@ import { ParamsSchema } from "./params-apply";
  */
 export async function takeSnapshot(actor: string, reason: string): Promise<void> {
   try {
-    const [dataset, overrides, overridesVersion, columns, copy, params, existing] =
+    const [dataset, overrides, overridesVersion, columns, copy, params] =
       await Promise.all([
         getDataset(),
         loadOverrides(),
@@ -36,10 +36,9 @@ export async function takeSnapshot(actor: string, reason: string): Promise<void>
         loadColumnConfig(),
         loadCopy(),
         loadParams(),
-        loadSnapshots(1),
       ]);
     const now = new Date().toISOString();
-    if (shouldCoalesce(existing[0], actor, reason, now)) return;
+    if (shouldCoalesce()) return;
 
     const snapshot: Snapshot = {
       ts: now,

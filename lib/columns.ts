@@ -141,6 +141,23 @@ export function effectiveColumns(
  * schema reject the whole document means a retired field costs one column, not
  * every column setting she has ever chosen.
  */
+/**
+ * Labels that were renamed after configs had already been saved with the old
+ * one. Only an untouched old default is migrated — if she has deliberately
+ * renamed a column, that name is hers and stays.
+ */
+const RENAMED_DEFAULTS: Record<string, [string, string]> = {
+  // "Disc adj" read as finance jargon to everyone else using the tool
+  da: ["Disc adj", "Discretionary"],
+};
+
+export function migrateRenamedLabels(config: ColumnConfig): ColumnConfig {
+  return config.map((c) => {
+    const rename = RENAMED_DEFAULTS[c.field];
+    return rename && c.label === rename[0] ? { ...c, label: rename[1] } : c;
+  });
+}
+
 export function dropRetiredFields(raw: unknown): unknown {
   if (!Array.isArray(raw)) return raw;
   const known = new Set<string>(CONFIGURABLE_FIELDS);

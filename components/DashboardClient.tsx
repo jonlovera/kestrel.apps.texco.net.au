@@ -57,6 +57,12 @@ export default function DashboardClient({
   payload: DashboardPayload;
 }) {
   const isEditor = payload.mode === "editor";
+  /**
+   * Whether this person can change anything at all. Today that means an admin;
+   * state leads join them once the scoped-write path lands, which is why the
+   * save controls key off this rather than off `isEditor` directly.
+   */
+  const canEditAnything = isEditor;
 
   // ── editor state: the SOURCE dataset, persisted per-change to /api/dataset ─
   // Held in state (not read straight off the payload) so an inline edit
@@ -64,11 +70,12 @@ export default function DashboardClient({
   const [employees, setEmployees] = useState<Employee[]>(
     isEditor ? payload.employees : []
   );
-  const [facets, setFacets] = useState({
-    cats: payload.cats,
-    depts: payload.depts,
-    mgrs: payload.mgrs,
-  });
+  // the roster only changes via import now, which reloads the page, so these
+  // are fixed for the life of the view
+  const facets = useMemo(
+    () => ({ cats: payload.cats, depts: payload.depts, mgrs: payload.mgrs }),
+    [payload.cats, payload.depts, payload.mgrs]
+  );
   const datasetVersionRef = useRef(isEditor ? payload.datasetVersion : 0);
   const [dsBusy, setDsBusy] = useState(false);
   const [dsError, setDsError] = useState<string | null>(null);
@@ -107,61 +114,94 @@ export default function DashboardClient({
     importFlow.reset();
   }
 
-  // ── editor state: the overrides doc, persisted (debounced) to /api/state ──
+  // ── the overrides doc: scratch until Save ────────────────────────────────
   const [overrides, setOverrides] = useState<Overrides>(
     isEditor ? payload.overrides : {}
   );
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const firstRender = useRef(true);
-  // set when the server hands us an overrides doc it has already persisted,
-  // so the autosave effect doesn't POST it straight back
-  const skipNextSave = useRef(false);
   // optimistic-concurrency token; a stale save gets a 409 instead of
   // silently overwriting a colleague's changes
   const versionRef = useRef(isEditor ? payload.overridesVersion : 0);
 
+  /**
+   * The last committed state. Everything typed since is scratch: local to this
+   * browser, invisible to everyone else, and gone if the tab closes.
+   *
+   * That is the point of the tool — "if I move this person to $15k, what
+   * happens to everyone else?" — and those experiments must not leak into
+   * anyone else's view, or into the record, until Save says so.
+   */
+  const [savedOverrides, setSavedOverrides] = useState<Overrides>(
+    isEditor ? payload.overrides : {}
+  );
+  const dirty = useMemo(
+    () => JSON.stringify(overrides) !== JSON.stringify(savedOverrides),
+    [overrides, savedOverrides]
+  );
+
+  /** How many people have an unsaved change against them. */
+  const pendingCount = useMemo(() => {
+    const ids = new Set([
+      ...Object.keys(overrides),
+      ...Object.keys(savedOverrides),
+    ]);
+    let n = 0;
+    for (const id of ids) {
+      if (JSON.stringify(overrides[id] ?? {}) !== JSON.stringify(savedOverrides[id] ?? {})) n++;
+    }
+    return n;
+  }, [overrides, savedOverrides]);
+
+  // Losing an afternoon of what-ifs to a stray tab close is worse than a prompt
   useEffect(() => {
-    if (!isEditor) return;
-    if (firstRender.current) {
-      firstRender.current = false;
-      return;
-    }
-    if (skipNextSave.current) {
-      skipNextSave.current = false;
-      return;
-    }
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  async function save() {
     setSaveStatus("saving");
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      try {
-        const res = await fetch("/api/state", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ version: versionRef.current, overrides }),
-        });
-        if (res.status === 409) {
-          alert(
-            "Someone else saved changes since this page loaded. Reloading to pick up the latest figures — your last change was not saved."
-          );
-          window.location.reload();
-          return;
-        }
-        if (res.ok) {
-          const body = await res.json();
-          if (typeof body.version === "number") versionRef.current = body.version;
-          setSaveStatus("saved");
-        } else {
-          setSaveStatus("error");
-        }
-      } catch {
-        setSaveStatus("error");
+    try {
+      const res = await fetch("/api/state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: versionRef.current, overrides }),
+      });
+      if (res.status === 409) {
+        alert(
+          "Someone else saved changes since this page loaded. Reloading to pick up the latest figures — your changes were not saved."
+        );
+        window.location.reload();
+        return;
       }
-    }, 500);
-    return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-    };
-  }, [overrides, isEditor, payload]);
+      if (!res.ok) {
+        setSaveStatus("error");
+        return;
+      }
+      const body = await res.json();
+      if (typeof body.version === "number") versionRef.current = body.version;
+      // adopt what the server actually stored, not what we sent: it re-clamps
+      // discretionary adjustments and refuses anything out of scope
+      setOverrides(body.overrides ?? overrides);
+      setSavedOverrides(body.overrides ?? overrides);
+      setSaveStatus("saved");
+    } catch {
+      setSaveStatus("error");
+    }
+  }
+
+  function discard() {
+    if (pendingCount === 0) return;
+    if (
+      !confirm(
+        `Discard ${pendingCount} unsaved ${pendingCount === 1 ? "change" : "changes"}?\n\nThe figures go back to the last saved version.`
+      )
+    )
+      return;
+    setOverrides(savedOverrides);
+    setSaveStatus("idle");
+  }
 
   // ── calc (editor mode runs the prototype's engine client-side) ──
   const { emps, pool } = useMemo<{
@@ -188,9 +228,9 @@ export default function DashboardClient({
   const [bulkIpm, setBulkIpm] = useState("90");
 
   /**
-   * Send one change to the source dataset. Returns whether it stuck, so the
-   * drawer knows whether to close. Errors surface next to the control that
-   * caused them rather than in an alert.
+   * Send one After-IPM change to the source dataset. Unlike the overrides
+   * doc this commits immediately: it is a deliberate, infrequent correction to
+   * the source figures rather than part of the what-if loop.
    */
   async function patchDataset(patch: DatasetPatch): Promise<boolean> {
     setDsBusy(true);
@@ -213,21 +253,10 @@ export default function DashboardClient({
         setDsError(body.error ?? "That change could not be saved.");
         return false;
       }
+      // an After-IPM change can't move anyone between filter groups, so the
+      // facets and the pickers stay exactly as they are
       datasetVersionRef.current = body.version;
       setEmployees(body.employees);
-      setFacets({ cats: body.cats, depts: body.depts, mgrs: body.mgrs });
-      // adding or removing someone reshuffles the filter lists; reset the
-      // pickers to "everything" so nobody silently vanishes from the table
-      setSelCats(body.cats);
-      setSelDepts(body.depts);
-      setSelMgrs(body.mgrs);
-      if (body.overrides) {
-        // the server pruned a removed person's entries and already saved
-        // them — adopt its result without echoing it straight back
-        skipNextSave.current = true;
-        versionRef.current = body.overridesVersion ?? versionRef.current;
-        setOverrides(body.overrides);
-      }
       return true;
     } catch {
       setDsError("That change could not be saved — check your connection.");
@@ -734,12 +763,47 @@ export default function DashboardClient({
           />
         </div>
         <div className="flex items-center gap-3">
-          {isEditor && (
-            <span className="text-[11px] text-[#F79470]">
-              {saveStatus === "saving" && "Saving…"}
-              {saveStatus === "saved" && "All changes saved"}
-              {saveStatus === "error" && "⚠ Save failed — retrying on next change"}
-            </span>
+          {canEditAnything && (
+            <>
+              <span className="text-[11px] text-[#F79470]">
+                {saveStatus === "saving"
+                  ? "Saving…"
+                  : saveStatus === "error"
+                    ? "⚠ Save failed — nothing was written"
+                    : dirty
+                      ? "Unsaved — visible only to you"
+                      : saveStatus === "saved"
+                        ? "Saved"
+                        : ""}
+              </span>
+              {dirty && (
+                <button
+                  type="button"
+                  onClick={discard}
+                  disabled={saveStatus === "saving"}
+                  className="border border-[#FC4D0F]/50 px-3 py-1.5 text-[11px] font-semibold text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white disabled:opacity-40"
+                >
+                  Discard
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={save}
+                disabled={!dirty || saveStatus === "saving"}
+                title={
+                  dirty
+                    ? "Commit these figures and publish them to everyone with access"
+                    : "Nothing to save"
+                }
+                className="bg-[#FC4D0F] px-3.5 py-1.5 text-[11px] font-bold text-white transition-colors hover:bg-[#e0440d] disabled:bg-transparent disabled:text-[#F79470]/50"
+              >
+                {saveStatus === "saving"
+                  ? "Saving…"
+                  : pendingCount > 0
+                    ? `Save ${pendingCount} ${pendingCount === 1 ? "change" : "changes"}`
+                    : "Save"}
+              </button>
+            </>
           )}
           <span className="text-right text-xs leading-tight text-[#F79470]">
             {payload.user.name}

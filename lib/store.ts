@@ -16,6 +16,7 @@ import {
   ColumnConfigSchema,
   DEFAULT_COLUMNS,
   dropRetiredFields,
+  migrateRenamedLabels,
   normalizeConfig,
   type ColumnConfig,
 } from "./columns";
@@ -332,7 +333,7 @@ export async function loadColumnConfig(): Promise<ColumnConfig> {
     Tolerant,
     DEFAULT_COLUMNS
   );
-  return normalizeConfig(cfg);
+  return migrateRenamedLabels(normalizeConfig(cfg));
 }
 
 export function saveColumnConfig(cfg: ColumnConfig): Promise<void> {

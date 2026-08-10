@@ -14,6 +14,7 @@ import {
   ColumnConfigSchema,
   DEFAULT_COLUMNS,
   dropRetiredFields,
+  migrateRenamedLabels,
   IDENTITY_FIELDS,
   effectiveColumns,
   normalizeConfig,
@@ -216,5 +217,28 @@ describe("entitlement is unaffected by column config (non-negotiable #2)", () =>
     });
     if (payload.mode !== "readonly") throw new Error();
     expect(payload.columns.some((c) => c.key === "state")).toBe(true);
+  });
+});
+
+describe("labels renamed after configs were already saved", () => {
+  it("migrates an untouched old default", () => {
+    const stored: ColumnConfig = DEFAULT_COLUMNS.map((c) =>
+      c.field === "da" ? { ...c, label: "Disc adj" } : c
+    );
+    const migrated = migrateRenamedLabels(stored);
+    expect(migrated.find((c) => c.field === "da")!.label).toBe("Discretionary");
+  });
+
+  it("leaves a name she chose herself alone", () => {
+    const stored: ColumnConfig = DEFAULT_COLUMNS.map((c) =>
+      c.field === "da" ? { ...c, label: "Manager discretion" } : c
+    );
+    expect(migrateRenamedLabels(stored).find((c) => c.field === "da")!.label).toBe(
+      "Manager discretion"
+    );
+  });
+
+  it("is a no-op on a current config", () => {
+    expect(migrateRenamedLabels(DEFAULT_COLUMNS)).toEqual(DEFAULT_COLUMNS);
   });
 });
