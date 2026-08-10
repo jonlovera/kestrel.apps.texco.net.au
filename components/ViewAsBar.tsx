@@ -6,10 +6,16 @@ import { beginViewAs, endViewAs } from "@/app/actions/view-as";
 /**
  * The View as control and its banner.
  *
- * Read-only by design: while active, every route that persists refuses the
- * write (lib/api-guard.ts). The banner says so plainly, because an admin who
- * forgets which view they are in and then can't save would reasonably think
- * the tool was broken.
+ * A view is faithful, not flattened: the target's own cells are live, so an
+ * admin can see what that person can change and try a figure to see what they
+ * would see. Nothing can be persisted, because every route that writes refuses
+ * while a view is active (lib/api-guard.ts), and the affordances that commit
+ * on blur rather than on Save are switched off in the dashboard instead of
+ * being left to fail against that refusal.
+ *
+ * The banner therefore has to say two things at once: what this person may
+ * change, and that none of it will be saved. An admin who forgets which view
+ * they are in and then can't save would reasonably think the tool was broken.
  *
  * The banner is deliberately not brand orange — that already means "Draft" on
  * this screen, and two different meanings in the same colour is how someone
@@ -20,16 +26,39 @@ export interface ViewAsState {
   actor: string;
   viewingAs: string | null;
   candidates: { email: string; summary: string }[];
+  /**
+   * What the person being viewed may change, in their own column names, e.g.
+   * "IPM %, Discretionary". Empty when they can change nothing.
+   *
+   * Stated plainly because it is the question a view is usually asked to
+   * answer, and the table alone cannot answer it: an empty Discretionary
+   * column looks the same whether they may type in it or not.
+   */
+  targetCanEdit?: string[];
 }
 
-export function ViewAsBanner({ actor, viewingAs }: ViewAsState) {
+export function ViewAsBanner({ actor, viewingAs, targetCanEdit }: ViewAsState) {
   if (!viewingAs) return null;
+  const canEdit = targetCanEdit ?? [];
   return (
     <div className="flex flex-wrap items-center justify-center gap-3 bg-brand-lavender px-6 py-2 text-center text-xs font-bold text-brand-95">
       <span>
         Viewing as <strong>{viewingAs}</strong> — you are {actor}
       </span>
-      <span className="font-normal">Changes are disabled in this view.</span>
+      <span className="font-normal">
+        {canEdit.length > 0 ? (
+          <>
+            They can set <strong className="font-bold">{canEdit.join(", ")}</strong>
+          </>
+        ) : (
+          "They can't change anything."
+        )}
+      </span>
+      <span className="font-normal">
+        {canEdit.length > 0
+          ? "Try figures freely, nothing here can be saved."
+          : "Changes are disabled in this view."}
+      </span>
       <form action={endViewAs}>
         <button
           type="submit"

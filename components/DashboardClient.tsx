@@ -59,20 +59,22 @@ export default function DashboardClient({
   viewAs?: ViewAsState;
 }) {
   const isEditor = payload.mode === "editor";
-  // While viewing as someone else nothing may be written, so every edit
-  // affordance is hidden — the controls match what the server would allow
-  // rather than failing on save.
   const viewingAs = viewAs?.viewingAs ?? null;
   /**
    * Which table columns this person may type into. An admin gets the full set;
    * a state lead gets IPM and Discretionary for their own rows, decided
    * server-side and handed over on the payload. The server checks again on
    * every write — this only governs which cells look typeable.
+   *
+   * This is NOT blanked while viewing as. The point of a view is to show what
+   * that person can actually do, and a screen with their cells hidden answers
+   * the wrong question. Nothing can be written either way: requireWriter
+   * (lib/api-guard.ts) refuses every persisting route while a view is active,
+   * and that guard, not a hidden control, is the boundary.
    */
   const canEditFields = useMemo(
-    () =>
-      viewingAs ? [] : isEditor ? OVERRIDE_EDITABLE : payload.canEditFields,
-    [viewingAs, isEditor, payload]
+    () => (isEditor ? OVERRIDE_EDITABLE : payload.canEditFields),
+    [isEditor, payload]
   );
   const canEditAnything = canEditFields.length > 0;
 
@@ -96,6 +98,17 @@ export default function DashboardClient({
   // One switch. Off, the dashboard is plain text and presentable; on, every
   // cell, heading, pool cap and column is typeable.
   const [editing, setEditing] = useState(false);
+  /**
+   * Edit mode minus everything that commits the moment you leave the field.
+   *
+   * The cell inputs are deferred behind Save, so they can stay live while
+   * viewing as: typing runs the what-if through /api/preview, which persists
+   * nothing, and there is no Save button to press. The dataset figure, the
+   * pool caps, the headings and the column config are different — each fires
+   * its write on blur — so they are switched off rather than left to fail
+   * against the server's 403.
+   */
+  const configuring = editing && !viewingAs;
   const [columnConfig, setColumnConfig] = useState<ColumnConfig>(
     isEditor ? payload.columnConfig : []
   );
@@ -198,15 +211,21 @@ export default function DashboardClient({
     return () => clearTimeout(timer);
   }, [overrides, isEditor, canEditAnything, dirty]);
 
-  // Losing an afternoon of what-ifs to a stray tab close is worse than a prompt
+  // Losing an afternoon of what-ifs to a stray tab close is worse than a prompt.
+  // Not while viewing as, though: those figures were never savable, so there is
+  // nothing to lose and the prompt would just be in the way.
   useEffect(() => {
-    if (!dirty) return;
+    if (!dirty || viewingAs) return;
     const warn = (e: BeforeUnloadEvent) => e.preventDefault();
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
+  }, [dirty, viewingAs]);
 
   async function save() {
+    // Belt-and-braces: the Save button is not rendered while viewing as, and
+    // requireWriter would 403 anyway. Neither is a reason to let the request
+    // leave the browser.
+    if (viewingAs) return;
     setSaveStatus("saving");
     try {
       const res = await fetch("/api/state", {
@@ -279,6 +298,7 @@ export default function DashboardClient({
    * the source figures rather than part of the what-if loop.
    */
   async function patchDataset(patch: DatasetPatch): Promise<boolean> {
+    if (viewingAs) return false;
     setDsBusy(true);
     setDsError(null);
     try {
@@ -321,6 +341,7 @@ export default function DashboardClient({
     path: "columns" | "copy" | "params",
     body: unknown
   ): Promise<boolean> {
+    if (viewingAs) return false;
     setDsBusy(true);
     setDsError(null);
     try {
@@ -500,11 +521,16 @@ export default function DashboardClient({
       label: c.label,
       num: !c.identity,
       editable: canEditFields.includes(c.key),
-      dsEditable: isEditor && DATASET_EDITABLE.includes(c.key),
+      // After IPM writes straight to the dataset on blur, so unlike the
+      // override cells it cannot stay live while viewing as.
+      dsEditable: isEditor && !viewingAs && DATASET_EDITABLE.includes(c.key),
       format: c.format,
       decimals: c.decimals,
     }));
-    const tools: TableColumn[] = isEditor
+    // Not while viewing as: the lock is deferred behind Save like the cells,
+    // but with no Save button it would only strand the view in an unsaved
+    // state and arm the leave-page warning.
+    const tools: TableColumn[] = isEditor && !viewingAs
       ? [
         // the lock stays visible outside edit mode so you can still see who is
         // settled; only the pencil is an edit-mode affordance
@@ -513,7 +539,7 @@ export default function DashboardClient({
       ]
       : [];
     return [...configured, ...tools];
-  }, [isEditor, editing, columnConfig, payload, canEditFields]);
+  }, [isEditor, editing, viewingAs, columnConfig, payload, canEditFields]);
 
   // ── filtering + sorting (prototype getVisibleEmployees) ──
   const visibleRows = useMemo(() => {
@@ -571,6 +597,21 @@ export default function DashboardClient({
     [emps]
   );
 
+  /**
+   * The same lookup for read-only viewers, who have no `emps` at all.
+   *
+   * A lead is deliberately never sent the dataset or the caps — that is the
+   * whole point of the read-only payload — so `emps` is empty for them and
+   * `empById` can never resolve a row. Their edits used to be dropped on that
+   * miss, silently: the cells rendered, accepted typing, and threw it away.
+   * Everything the guards below actually need (locked, site manager, in-pool)
+   * is already on the row they were sent.
+   */
+  const rowById = useMemo(
+    () => new Map(allRows.map((r) => [r.id, r])),
+    [allRows]
+  );
+
   function setOverride(id: string, patch: Overrides[string]) {
     setOverrides((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
   }
@@ -578,21 +619,34 @@ export default function DashboardClient({
   function updatePercent(id: string, field: "bpEdit" | "ipmEdit", val: string) {
     const num = parsePercentInput(val);
     if (num === null) return;
-    const emp = empById.get(id);
-    if (!emp || emp.locked) return;
+    if (isEditor) {
+      const emp = empById.get(id);
+      if (!emp || emp.locked) return;
+    } else {
+      const row = rowById.get(id);
+      if (!row || row.locked) return;
+    }
     setOverride(id, { [field]: num });
   }
 
   function updateDA(id: string, val: string) {
     let num = parseDaInput(val);
-    const emp = empById.get(id);
-    if (!emp || emp.locked || emp.sm || !pool) return;
-    const maxDa = getMaxDA(emp, pool);
-    if (num > maxDa) {
-      num = maxDa;
-      alert(
-        `Discretionary Adjustment capped to ${fmt(maxDa)} — the maximum available within the pool cap.`
-      );
+    if (isEditor) {
+      const emp = empById.get(id);
+      if (!emp || emp.locked || emp.sm || !pool) return;
+      // Only an editor holds the pool, so only an editor can cap on the spot.
+      // A lead's figure is clamped by the server instead, identically, on both
+      // the preview and the save (clampDaToPool in lib/calc.ts).
+      const maxDa = getMaxDA(emp, pool);
+      if (num > maxDa) {
+        num = maxDa;
+        alert(
+          `Discretionary Adjustment capped to ${fmt(maxDa)} — the maximum available within the pool cap.`
+        );
+      }
+    } else {
+      const row = rowById.get(id);
+      if (!row || row.locked || row.sm || !row.inPool) return;
     }
     setOverride(id, { daEdit: num });
   }
@@ -733,7 +787,7 @@ export default function DashboardClient({
         {
           label: "Pool cap",
           value: fmt(cap),
-          ...(editing
+          ...(configuring
             ? { onEdit: (raw: string) => updateCap(capField, raw), editValue: cap }
             : {}),
         },
@@ -753,7 +807,7 @@ export default function DashboardClient({
           titleNode={
             <EditableText
               value={title}
-              editing={editing}
+              editing={configuring}
               disabled={dsBusy}
               label={`${which} pool card title`}
               maxLength={40}
@@ -800,7 +854,7 @@ export default function DashboardClient({
           <TexcoWordmark className="mr-4 h-[18px] w-auto shrink-0 text-white" />
           <EditableText
             value={copy.schemeName}
-            editing={editing}
+            editing={configuring}
             disabled={dsBusy}
             label="Scheme name"
             onCommit={(schemeName) => updateCopy({ schemeName })}
@@ -809,7 +863,7 @@ export default function DashboardClient({
           />
         </div>
         <div className="flex items-center gap-3">
-          {canEditAnything && (
+          {canEditAnything && !viewingAs && (
             <>
               <span className="text-[11px] text-brand-orange-soft">
                 {saveStatus === "saving"
@@ -916,7 +970,7 @@ export default function DashboardClient({
       {viewAs && <ViewAsBanner {...viewAs} />}
 
       {/* Status banner — editable in place, and switchable off once final */}
-      {(copy.bannerVisible || editing) && (
+      {(copy.bannerVisible || configuring) && (
         <div
           className={`px-6 py-1.5 text-center text-xs font-bold text-white ${
             copy.bannerVisible ? "bg-brand-orange" : "bg-neutral-400"
@@ -924,13 +978,13 @@ export default function DashboardClient({
         >
           <EditableText
             value={copy.bannerText}
-            editing={editing}
+            editing={configuring}
             disabled={dsBusy}
             label="Status banner"
             onCommit={(bannerText) => updateCopy({ bannerText })}
             inputClassName="w-[320px] text-center"
           />
-          {editing && (
+          {configuring && (
             <label className="ml-4 inline-flex items-center gap-1.5 text-[11px] normal-case">
               <input
                 type="checkbox"
@@ -1070,7 +1124,7 @@ export default function DashboardClient({
               <MultiSelect label="Roles" items={facets.cats} selected={selCats} onChange={setSelCats} />
               <MultiSelect label="Departments" items={facets.depts} selected={selDepts} onChange={setSelDepts} />
               <MultiSelect label="Managers" items={facets.mgrs} selected={selMgrs} onChange={setSelMgrs} />
-              {editing && (
+              {configuring && (
                 <>
                   <ColumnMenu
                     config={columnConfig}
@@ -1153,7 +1207,7 @@ export default function DashboardClient({
       <footer className="border-t-2 border-brand-orange bg-white px-6 py-3.5 text-center text-[11px] tracking-wide text-brand-70">
         <EditableText
           value={copy.footerText}
-          editing={editing}
+          editing={configuring}
           disabled={dsBusy}
           label="Footer"
           maxLength={160}

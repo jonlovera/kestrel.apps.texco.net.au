@@ -213,6 +213,41 @@ export function getMaxDA(emp: CalcEmployee, pool: PoolState): number {
   return Math.max(0, Math.floor(maxDa));
 }
 
+/**
+ * Hold every discretionary adjustment to what the pool can actually absorb.
+ *
+ * Shared by the save path and the what-if preview so the two agree. They used
+ * to disagree: a lead could type an adjustment over the cap, watch the preview
+ * show it in full, save, and have it silently clamped to something smaller.
+ * A preview that shows a figure the save would not store is worse than no
+ * preview, so both now run this.
+ *
+ * Mutates the entries in place, the way the save path already did, and reports
+ * which ids it moved so a caller can log or surface it.
+ */
+export function clampDaToPool(
+  overrides: Overrides,
+  employees: Employee[],
+  caps: Caps
+): string[] {
+  const emps = applyOverrides(employees, overrides);
+  const pool = computeScalesAndBonuses(emps, caps);
+  const byId = new Map(emps.map((e) => [e.id, e]));
+  const clamped: string[] = [];
+  for (const [id, ov] of Object.entries(overrides)) {
+    // A locked row is frozen at its locked figure, so there is nothing to cap.
+    if (ov.daEdit === undefined || ov.locked) continue;
+    const emp = byId.get(id);
+    if (!emp) continue;
+    const maxDa = getMaxDA(emp, pool);
+    if (ov.daEdit > maxDa) {
+      ov.daEdit = maxDa;
+      clamped.push(id);
+    }
+  }
+  return clamped;
+}
+
 /** VIC pool allocation of one employee (prototype getVicAlloc). */
 export function getVicAlloc(e: CalcEmployee, vicScale: number): number {
   if (e.sm) return e.bipmCalc * e.vp;

@@ -7,7 +7,7 @@ import { z } from "zod";
 import { diffOverrides } from "@/lib/history-diff";
 import { takeSnapshot } from "@/lib/snapshots";
 import { sanitiseOverrideWrite } from "@/lib/write-scope";
-import { applyOverrides, computeScalesAndBonuses, getMaxDA } from "@/lib/calc";
+import { applyOverrides, computeScalesAndBonuses, clampDaToPool } from "@/lib/calc";
 
 export const dynamic = "force-dynamic";
 
@@ -101,15 +101,8 @@ export async function POST(req: Request) {
   }
 
   // Clamp adjustments to what the pool (with locks in place) can absorb.
-  const emps = applyOverrides(data.emp, sanitised);
-  const pool = computeScalesAndBonuses(emps, data);
-  const byId = new Map(emps.map((e) => [e.id, e]));
-  for (const [id, ov] of Object.entries(sanitised)) {
-    if (ov.daEdit !== undefined && !ov.locked) {
-      const maxDa = getMaxDA(byId.get(id)!, pool);
-      if (ov.daEdit > maxDa) ov.daEdit = maxDa;
-    }
-  }
+  // Shared with /api/preview so the what-if and the save never disagree.
+  clampDaToPool(sanitised, data.emp, data);
 
   // Snapshot, then save with optimistic concurrency: a stale version means
   // someone else saved since this client loaded — 409, never silently clobber.

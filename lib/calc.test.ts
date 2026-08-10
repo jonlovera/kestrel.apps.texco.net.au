@@ -6,6 +6,7 @@ import {
   applyOverrides,
   computeScalesAndBonuses,
   getMaxDA,
+  clampDaToPool,
   getVicAlloc,
   getNswAlloc,
   deriveCpm,
@@ -400,5 +401,52 @@ describe("site managers are fixed, everyone else pro-rates (do not break)", () =
       expect(e.finalBonus).toBeCloseTo(e.pkg * e.bpEdit * e.cpm * e.ipmEdit, 6);
       expect(e.finalBonus).toBeCloseTo(e.bipm, 6);
     }
+  });
+});
+
+describe("clampDaToPool", () => {
+  /**
+   * The save path and the what-if preview both run this, so a lead can never
+   * be shown an adjustment the save would quietly reduce. Baseline room for A
+   * is 800 (getMaxDA above), so 800 stands and 801 comes back as 800.
+   */
+  it("leaves an adjustment the pool can absorb alone", () => {
+    const overrides: Overrides = { A: { daEdit: 800 } };
+    expect(clampDaToPool(overrides, FIXTURE, CAPS)).toEqual([]);
+    expect(overrides.A.daEdit).toBe(800);
+  });
+
+  it("clamps an adjustment past the cap down to the absorbable maximum", () => {
+    const overrides: Overrides = { A: { daEdit: 10000 } };
+    expect(clampDaToPool(overrides, FIXTURE, CAPS)).toEqual(["A"]);
+    expect(overrides.A.daEdit).toBe(800);
+    // and at the clamped figure the cap holds exactly
+    const { emps, pool } = run(overrides);
+    expect(totalVicAlloc(emps, pool.vicScale)).toBeCloseTo(1000, 8);
+  });
+
+  it("clamps to the tighter of the two pools for a split employee", () => {
+    const overrides: Overrides = { E: { daEdit: 10000 } };
+    clampDaToPool(overrides, FIXTURE, CAPS);
+    expect(overrides.E.daEdit).toBe(Math.floor(Math.min(800 / 0.6, 500 / 0.4)));
+  });
+
+  it("leaves a locked row alone — its bonus is already frozen", () => {
+    const overrides: Overrides = { A: { daEdit: 10000, locked: true } };
+    expect(clampDaToPool(overrides, FIXTURE, CAPS)).toEqual([]);
+    expect(overrides.A.daEdit).toBe(10000);
+  });
+
+  it("ignores entries with no adjustment, and unknown employees", () => {
+    const overrides: Overrides = { B: { ipmEdit: 0.5 }, ZZZ: { daEdit: 9999 } };
+    expect(clampDaToPool(overrides, FIXTURE, CAPS)).toEqual([]);
+    expect(overrides.B.ipmEdit).toBe(0.5);
+    expect(overrides.ZZZ.daEdit).toBe(9999);
+  });
+
+  it("zero-weight employees can absorb nothing", () => {
+    const overrides: Overrides = { F: { daEdit: 500 } };
+    expect(clampDaToPool(overrides, FIXTURE, CAPS)).toEqual(["F"]);
+    expect(overrides.F.daEdit).toBe(0);
   });
 });
