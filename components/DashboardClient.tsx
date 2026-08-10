@@ -25,7 +25,6 @@ import { fmt } from "@/lib/fmt";
 import { TexcoX, TexcoWordmark } from "./TexcoBrand";
 import { PoolCard, type PoolMetric } from "./PoolCard";
 import { MultiSelect } from "./MultiSelect";
-import EmployeeEditor from "./EmployeeEditor";
 import EmployeeTable, { type TableColumn } from "./EmployeeTable";
 import ColumnMenu from "./ColumnMenu";
 import EditableText from "./EditableText";
@@ -40,10 +39,17 @@ import {
 type Tab = "ALL" | "VIC" | "NSW" | "SHARED" | "HISTORY";
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
-/** Which columns an editor can type into, and down which write path. */
-const OVERRIDE_EDITABLE = ["bp", "ipm", "da"];
-const DATASET_EDITABLE = ["pkg", "bipm", "f25"];
-const TEXT_EDITABLE = ["name", "pos", "dept", "mgr", "cat", "state"];
+/**
+ * Which columns can be typed into, and down which write path.
+ *
+ * Bonus % left this list when it became spreadsheet-only, and so did package,
+ * FY25 and every identity field. What remains is the allocation: IPM and
+ * Discretionary through the overrides doc, After IPM through the dataset.
+ * The server re-decides all of it on every write (lib/write-scope.ts) — this
+ * only governs which cells look typeable.
+ */
+const OVERRIDE_EDITABLE = ["ipm", "da"];
+const DATASET_EDITABLE = ["bipm"];
 
 export default function DashboardClient({
   payload,
@@ -66,9 +72,6 @@ export default function DashboardClient({
   const datasetVersionRef = useRef(isEditor ? payload.datasetVersion : 0);
   const [dsBusy, setDsBusy] = useState(false);
   const [dsError, setDsError] = useState<string | null>(null);
-  const [drawer, setDrawer] = useState<
-    { kind: "add" } | { kind: "edit"; id: string } | null
-  >(null);
 
   // ── edit mode ─────────────────────────────────────────────────────────────
   // One switch. Off, the dashboard is plain text and presentable; on, every
@@ -291,20 +294,6 @@ export default function DashboardClient({
     void saveConfig("params", next);
   }
 
-  /**
-   * The company modifier rescales every employee's After-IPM figure
-   * (lib/params-apply.ts), and `employees` here is already params-applied —
-   * re-deriving that in the browser invites drift, so this one saves and then
-   * reloads. It's a rare, scheme-wide change.
-   */
-  async function updateCompanyModifier(raw: string) {
-    const value = Number(raw);
-    if (!Number.isFinite(value) || value === params.companyModifier) return;
-    if (await saveConfig("params", { ...params, companyModifier: value })) {
-      window.location.reload();
-    }
-  }
-
   // ── privacy: figures are masked by default; reveal per row, or all at once
   //    via the header button / Space ──
   const [showAll, setShowAll] = useState(false);
@@ -437,7 +426,6 @@ export default function DashboardClient({
       num: !c.identity,
       editable: isEditor && OVERRIDE_EDITABLE.includes(c.key),
       dsEditable: isEditor && DATASET_EDITABLE.includes(c.key),
-      textEditable: isEditor && TEXT_EDITABLE.includes(c.key),
       format: c.format,
       decimals: c.decimals,
     }));
@@ -534,35 +522,15 @@ export default function DashboardClient({
     setOverride(id, { daEdit: num });
   }
 
-  /** One source-dataset figure, edited in the table. No-ops if unchanged. */
-  function updateDatasetFigure(
-    id: string,
-    field: "pkg" | "bipm" | "f25",
-    current: number,
-    raw: string
-  ) {
+  /**
+   * The one remaining dataset edit: After IPM. No-ops if unchanged.
+   * Package, FY25 and bonus % are read-only for everyone now — they come from
+   * the spreadsheet, because a typo in one cascades through every figure.
+   */
+  function updateDatasetFigure(id: string, current: number, raw: string) {
     const next = parseDaInput(raw); // same lenient "$1,234" parsing
     if (Math.round(next) === Math.round(current)) return;
-    void patchDataset({ op: "field", id, field, value: next });
-  }
-
-  /** One identity field. Empty or unchanged input is ignored. */
-  function updateText(
-    id: string,
-    field: "gn" | "sn" | "pos" | "dept" | "mgr" | "cat",
-    current: string,
-    raw: string
-  ) {
-    const next = raw.trim();
-    if (!next || next === current) return;
-    void patchDataset({ op: "text", id, field, value: next });
-  }
-
-  /** State moves the pool split with it — see splitForState in dataset-edit. */
-  function updateState(id: string, st: "VIC" | "NSW" | "SHARED") {
-    const emp = empById.get(id);
-    if (!emp || emp.st === st) return;
-    void patchDataset({ op: "state", id, st });
+    void patchDataset({ op: "field", id, field: "bipm", value: next });
   }
 
   /**
@@ -944,7 +912,7 @@ export default function DashboardClient({
           <>
             {/* A rejected inline edit explains itself here; the cell has already
             snapped back to the stored figure. */}
-            {isEditor && dsError && !drawer && (
+            {isEditor && dsError  && (
               <div className="mb-4 flex items-start justify-between gap-4 border-2 border-[#FC4D0F] bg-[#FED9CC] px-4 py-2 text-[13px] font-semibold">
                 <span>{dsError}</span>
                 <button
@@ -981,17 +949,6 @@ export default function DashboardClient({
               <MultiSelect label="Managers" items={facets.mgrs} selected={selMgrs} onChange={setSelMgrs} />
               {editing && (
                 <>
-                  <button
-                    type="button"
-                    disabled={dsBusy}
-                    onClick={() => {
-                      setDsError(null);
-                      setDrawer({ kind: "add" });
-                    }}
-                    className="border-2 border-[#FC4D0F] px-3.5 py-1.5 text-[11px] font-bold tracking-wide text-[#FC4D0F] transition-colors hover:bg-[#FC4D0F] hover:text-white disabled:opacity-40"
-                  >
-                    + Add person
-                  </button>
                   <ColumnMenu
                     config={columnConfig}
                     onChange={applyColumnConfig}
@@ -1020,25 +977,18 @@ export default function DashboardClient({
                       Apply
                     </button>
                   </div>
-                  {/* The one scheme-wide figure with no card of its own. It
-                      rescales every After-IPM value, so it reloads on save. */}
-                  <label className="flex items-center gap-1.5 border-2 border-neutral-200 px-2.5 py-1 text-[11px] font-semibold tracking-wide text-[#5C5C5C]">
+                  {/* Informational only, per the walkthrough: it scales every
+                      After-IPM figure, so it is not something to nudge from
+                      here. It changes with the scheme, not with an allocation. */}
+                  <span
+                    className="flex items-center gap-1.5 border-2 border-neutral-200 px-2.5 py-1 text-[11px] font-semibold text-[#5C5C5C]"
+                    title="Scales every After-IPM figure. 1 = no change."
+                  >
                     Company modifier
-                    <input
-                      type="number"
-                      step="0.01"
-                      min={0.1}
-                      max={2}
-                      defaultValue={params.companyModifier}
-                      disabled={dsBusy}
-                      title="Scales every After-IPM figure. 1 = no change; saving reloads the page."
-                      onBlur={(e) => void updateCompanyModifier(e.target.value)}
-                      onKeyDown={(e) =>
-                        e.key === "Enter" && (e.target as HTMLInputElement).blur()
-                      }
-                      className="w-[64px] border border-neutral-300 px-1.5 py-1 text-right tabular-nums outline-none focus:border-[#FC4D0F] disabled:opacity-50"
-                    />
-                  </label>
+                    <span className="tabular-nums text-[#191919]">
+                      {params.companyModifier}
+                    </span>
+                  </span>
                 </>
               )}
               <div className="ml-auto flex items-center gap-3 text-xs text-[#5C5C5C]">
@@ -1065,18 +1015,11 @@ export default function DashboardClient({
               sortCol={sortCol}
               sortDir={sortDir}
               onSort={doSort}
-              facets={facets}
               handlers={{
                 updatePercent,
                 updateDA,
                 updateDatasetFigure,
-                updateText,
-                updateState,
                 toggleLock,
-                openRowEditor: (id) => {
-                  setDsError(null);
-                  setDrawer({ kind: "edit", id });
-                },
                 renameColumn,
               }}
             />
@@ -1104,7 +1047,7 @@ export default function DashboardClient({
             setImportOpen(true);
             void importFlow.check(file);
           }}
-          disabled={importOpen || dsBusy || drawer !== null}
+          disabled={importOpen || dsBusy}
           label="Drop the spreadsheet to update the figures"
         />
       )}
@@ -1179,25 +1122,6 @@ export default function DashboardClient({
         </ImportModal>
       )}
 
-      {isEditor && drawer && (
-        <EmployeeEditor
-          mode={
-            drawer.kind === "add"
-              ? { kind: "add" }
-              : { kind: "edit", employee: empById.get(drawer.id)! }
-          }
-          cats={facets.cats}
-          depts={facets.depts}
-          mgrs={facets.mgrs}
-          busy={dsBusy}
-          error={dsError}
-          onSubmit={patchDataset}
-          onClose={() => {
-            setDrawer(null);
-            setDsError(null);
-          }}
-        />
-      )}
     </div>
   );
 }

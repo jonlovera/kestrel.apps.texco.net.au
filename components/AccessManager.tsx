@@ -25,7 +25,7 @@ const FIELD_LABELS: Record<NumericField, string> = {
   bipm: "After IPM",
   calc: "Calc bonus",
   f25: "FY25 bonus",
-  da: "Disc adj",
+  da: "Discretionary",
   yoy: "YoY diff",
   final: "Final",
 };

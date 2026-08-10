@@ -3,12 +3,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getDataset, getParams } from "@/lib/data";
 import { requireEditor, noStore } from "@/lib/api-guard";
-import {
-  loadOverrides,
-  saveStoredDatasetCas,
-  saveOverridesForce,
-  appendHistory,
-} from "@/lib/store";
+import { saveStoredDatasetCas, appendHistory } from "@/lib/store";
 import { takeSnapshot } from "@/lib/snapshots";
 import { applyDatasetPatch, DatasetPatchSchema } from "@/lib/dataset-edit";
 import { applyParams } from "@/lib/params-apply";
@@ -21,12 +16,11 @@ const BodySchema = z.object({
 });
 
 /**
- * Inline edits to the source dataset: a figure, the pool split, or adding /
- * removing a person. Full-access users only.
+ * The one remaining dataset edit: After IPM, which finance calls "Bonus".
+ * Full-access users only — a lead may set IPM and Discretionary, never this.
  *
- * One patch per request — unlike /api/state (debounced autosave of the whole
- * overrides doc), these are deliberate, infrequent changes, so each gets its
- * own snapshot point, history entry and version bump.
+ * One patch per request: these are deliberate, infrequent changes, so each
+ * gets its own snapshot point, history entry and version bump.
  *
  * The client works in DISPLAYED figures: the dashboard's employees come from
  * getEffectiveDataset(), whose bipm has already been scaled by the company
@@ -46,20 +40,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  const [data, params, overrides] = await Promise.all([
-    getDataset(),
-    getParams(),
-    loadOverrides(),
-  ]);
+  const [data, params] = await Promise.all([getDataset(), getParams()]);
 
   const patch = unscale(body.patch, params.companyModifier);
-  const result = applyDatasetPatch(
-    data,
-    patch,
-    overrides,
-    email,
-    new Date().toISOString()
-  );
+  const result = applyDatasetPatch(data, patch, email, new Date().toISOString());
   if (!result.ok) {
     return NextResponse.json(
       { error: result.errors[0], errors: result.errors },
@@ -86,16 +70,10 @@ export async function POST(req: Request) {
       )
     );
   }
-  // Force-write bumps the overrides version too, so other open editors 409
-  // and reload rather than resurrecting a removed person's figures. This
-  // client gets the new version back so its own next save isn't a false 409.
-  const overridesVersion = result.overridesChanged
-    ? await saveOverridesForce(result.overrides)
-    : undefined;
   await appendHistory(result.history);
 
   console.log(
-    `[audit] dataset-write email=${email} op=${body.patch.op} version=${cas.version} ts=${new Date().toISOString()}`
+    `[audit] dataset-write email=${email} emp=${body.patch.id} version=${cas.version} ts=${new Date().toISOString()}`
   );
   revalidatePath("/");
 
@@ -109,31 +87,16 @@ export async function POST(req: Request) {
       cats: result.dataset.cats,
       depts: result.dataset.depts,
       mgrs: result.dataset.mgrs,
-      overrides: result.overridesChanged ? result.overrides : undefined,
-      overridesVersion,
     })
   );
 }
 
-/** Convert displayed figures back to stored ones (see the note above). */
+/** Convert the displayed figure back to the stored one (see the note above). */
 function unscale(
   patch: z.infer<typeof DatasetPatchSchema>,
   companyModifier: number
 ): z.infer<typeof DatasetPatchSchema> {
   if (companyModifier === 1 || companyModifier <= 0) return patch;
-  if (patch.op === "field" && patch.field === "bipm") {
-    return { ...patch, value: patch.value / companyModifier };
-  }
-  if (patch.op === "add") {
-    return {
-      ...patch,
-      employee: {
-        ...patch.employee,
-        bipm: patch.employee.bipm / companyModifier,
-      },
-    };
-  }
-  // A pkg edit scales bipm by a RATIO, which the modifier cancels out of.
-  return patch;
+  return { ...patch, value: patch.value / companyModifier };
 }
 

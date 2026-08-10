@@ -71,7 +71,7 @@ export const DEFAULT_COLUMNS: ColumnConfig = [
   { field: "bipm", visible: true, label: "After IPM", format: "currency", decimals: 0 },
   { field: "calc", visible: true, label: "Calc bonus", format: "currency", decimals: 0 },
   { field: "f25", visible: true, label: "FY25 bonus", format: "currency", decimals: 0 },
-  { field: "da", visible: true, label: "Disc adj", format: "currency", decimals: 0 },
+  { field: "da", visible: true, label: "Discretionary", format: "currency", decimals: 0 },
   { field: "yoy", visible: true, label: "YoY diff", format: "currency", decimals: 0 },
   { field: "final", visible: true, label: "Final", format: "currency", decimals: 0 },
 ];

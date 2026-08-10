@@ -34,13 +34,13 @@ describe("diffOverrides", () => {
 
   it("a DA change produces a currency-formatted entry with from/to", () => {
     const [e] = diff({}, { ABCDE: { daEdit: 5000 } });
-    expect(e.summary).toBe("Set Disc adj for Alan Bidychak: $0 → $5,000");
+    expect(e.summary).toBe("Set Discretionary for Alan Bidychak: $0 → $5,000");
     expect(e).toMatchObject({ kind: "edit", field: "da", from: 0, to: 5000, actor: "jlovera@texco.net.au", ts: TS });
   });
 
   it("reverting a field back to base also records (override removed)", () => {
     const [e] = diff({ ABCDE: { daEdit: 5000 } }, {});
-    expect(e.summary).toBe("Set Disc adj for Alan Bidychak: $5,000 → $0");
+    expect(e.summary).toBe("Set Discretionary for Alan Bidychak: $5,000 → $0");
   });
 
   it("percent fields format as whole percents", () => {

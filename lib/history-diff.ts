@@ -28,7 +28,7 @@ export function diffOverrides(
     }[] = [
       { key: "bpEdit", field: "bp", label: "Bonus%", show: fmtPctWhole },
       { key: "ipmEdit", field: "ipm", label: "IPM%", show: fmtPctWhole },
-      { key: "daEdit", field: "da", label: "Disc adj", show: fmt },
+      { key: "daEdit", field: "da", label: "Discretionary", show: fmt },
     ];
 
     for (const f of fields) {
