@@ -2,8 +2,8 @@
 
 Next.js port of the single-file EBS dashboard prototype. Row- and field-level
 access control is enforced **server-side**: the browser never receives rows or
-fields the signed-in user isn't entitled to. Sign-in is Microsoft Entra ID
-(the same method as the tools app) — no passwords in this app at all.
+fields the signed-in user isn't entitled to. Sign-in is delegated to Texco
+Identity, the company's single sign-on provider — no passwords in this app.
 
 - **Full access** users get the whole dataset with the prototype's instant
   recalculation, and drop the spreadsheet onto the dashboard to refresh it.
@@ -28,9 +28,11 @@ Copy `.env.example` to `.env.local` and fill it in:
 | Variable | What it is |
 |---|---|
 | `AUTH_SECRET` | Session-cookie signing secret. Generate: `openssl rand -base64 32` |
-| `AZURE_CLIENT_ID` | From the Entra app registration (below) |
-| `AZURE_CLIENT_SECRET` | Client secret from the same registration |
-| `AZURE_TENANT_ID` | The Texco directory (tenant) id — restricts sign-in to Texco accounts |
+| `IDENTITY_URL` | `https://identity.texco.net.au` |
+| `IDENTITY_CLIENT_ID` | From the registration at identity |
+| `IDENTITY_CLIENT_SECRET` | Same registration — stored hashed there, so copy it once |
+| `IDENTITY_WEBHOOK_SECRET` | Signs the logout/deactivation callbacks |
+| `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` / `AZURE_TENANT_ID` | **Not login any more.** App-only Graph credentials behind the directory type-ahead on `/admin/access` |
 | `DATABASE_URL` | Neon Postgres (auto-injected when you add the Vercel integration) |
 | `BONUS_USERS` | *(optional)* JSON access rules merged over `lib/access.ts` |
 | `DEV_LOGIN` | *(local only)* `1` shows an email-only dev login during `next dev`. Never set on Vercel |
@@ -72,24 +74,71 @@ granted to people outside the bonus scheme (payroll, IT). Only full-access
 users can search, and the lookup returns names, addresses and job titles only —
 it never touches the bonus data.
 
-## 2. Passwords
+## 2. Signing in — Texco Identity
 
-There are none. Authentication is delegated to Microsoft Entra ID, exactly
-like the tools app — staff sign in with their normal M365 account (and
-whatever MFA/conditional-access policies IT enforces there). Removing someone
-from the tenant removes their ability to sign in.
+Sign-in is delegated to **Texco Identity**, the company's single sign-on
+provider, which performs the Microsoft Entra sign-in itself. This app never
+talks to Microsoft for login: a session established in any other Texco app is
+honoured here, signing out of one signs out of all, and deactivating someone in
+identity ends their access here too.
 
-### Temporary password login (stop-gap)
+There is no login screen. A signed-out visitor is forwarded straight into the
+OAuth flow, and when they already have an identity session they see nothing but
+the page they asked for. `/login` renders only to report an error or a
+deliberate logout.
 
-While Entra sign-in is being set up, setting the `TEMP_LOGIN_PASSWORD` env var
-adds an email + password form to the login page: any email paired with that
-one shared password gets a session. Access control still applies — the email
-must be granted access (see §3) or they land on the no-access page. **This
-bypasses Entra MFA and is a shared secret: remove the env var and redeploy as
-soon as Microsoft sign-in works** (`vercel env rm TEMP_LOGIN_PASSWORD
-production && vercel deploy --prod`). The custom-domain deployment also pins
-`AUTH_URL=https://kestrel.apps.texco.net.au` so OAuth callbacks are always
-built with the https custom domain.
+### Registering this app
+
+The registration lives at `identity.texco.net.au/applications/12/edit`. Two
+things must be set there:
+
+| | |
+|---|---|
+| **Redirect URI** | `https://kestrel.apps.texco.net.au/api/auth/callback/texco-identity` |
+| **Webhook URL** | `https://kestrel.apps.texco.net.au/api/identity/webhook` |
+
+The redirect URI is derived by Auth.js from `AUTH_URL` and is **not**
+configurable — register exactly that string or identity answers
+`invalid_client`. It must be `https`: production sends HSTS with a two-year
+max-age, so a browser will refuse the `http` form outright.
+`/auth/callback` is also routed to the handler for anything still pointing at
+the Laravel-convention path, but it is not what this app sends.
+
+### Single logout and offboarding
+
+Sessions here are stateless JWTs — there is nothing to delete server-side and
+no way to enumerate the sessions one person holds. Instead each session is
+stamped with an **epoch** at sign-in, and identity's webhooks
+(`user.logged_out`, `user.deactivated`) increment that person's epoch. Every
+session they hold then fails its next request.
+
+The check lives in the `session` callback in `auth.ts` — deliberately not in
+Auth.js's `authorized` callback, because `proxy.ts` wraps `auth()` with its own
+gate and `authorized` is therefore never consulted. Epoch reads are cached for
+`IDENTITY_EPOCH_TTL_MS` (30s) per server instance, so a revocation bites within
+that window rather than costing every request a database round trip.
+
+Deliveries are authenticated by HMAC over `{timestamp}.{raw body}` — the raw
+bytes, because re-serialising the parsed JSON would not reproduce identity's
+own encoding. An unset `IDENTITY_WEBHOOK_SECRET` answers 503: fail closed, never
+"accept anything". Timestamps outside ±300s are refused so a captured delivery
+cannot replay forever.
+
+### Identity vs authorisation
+
+Identity says *who someone is*; `lib/access.ts` still decides *what they may
+see*, keyed by email. Because email is not stable, the m365_id↔email mapping is
+stored (`kestrel:identity:users`), and someone signing in under a new address
+keeps their access — their entry in the database overlay moves with them. A
+code-seeded email that goes stale is logged loudly instead, since changing it
+needs a deploy.
+
+### Temporary password login (being retired)
+
+While identity sign-in is proven, setting `TEMP_LOGIN_PASSWORD` still adds an
+email + password form. **This bypasses Entra MFA and is a shared secret:
+remove the env var and redeploy as soon as SSO is confirmed working**
+(`vercel env rm TEMP_LOGIN_PASSWORD production && vercel deploy --prod`).
 
 ## 3. Adding a user
 

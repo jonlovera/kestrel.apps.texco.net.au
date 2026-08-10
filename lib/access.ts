@@ -8,7 +8,7 @@ import {
   type EffectiveRule,
   type GrantingRule,
 } from "./access-rules";
-import { loadAccessOverlay } from "./store";
+import { loadAccessOverlay, saveAccessOverlay, appendHistory } from "./store";
 
 /**
  * ============================================================================
@@ -106,6 +106,64 @@ export async function scopeForUser(
 export async function isSeeded(email: string): Promise<boolean> {
   const seedAndEnv = effectiveRules(ACCESS, envOverrides(), {});
   return email.toLowerCase() in seedAndEnv;
+}
+
+/**
+ * Carry someone's access across an email change.
+ *
+ * Access here is keyed by email, but identity matches people on `m365_id` —
+ * the stable Entra object id — precisely because email is not stable. When a
+ * known person signs in under a new address, their rule follows them rather
+ * than silently disappearing.
+ *
+ * Only the database overlay can move: the code seed and BONUS_USERS are keyed
+ * by email in source and need a deploy, so a stale one is logged loudly rather
+ * than fixed quietly.
+ */
+export async function adoptNewEmail(
+  oldEmail: string,
+  newEmail: string
+): Promise<boolean> {
+  const from = oldEmail.toLowerCase();
+  const to = newEmail.toLowerCase();
+  if (!from || !to || from === to) return false;
+
+  const overlay = await loadAccessOverlay();
+  const rule = overlay[from];
+
+  if (!rule) {
+    if (await isSeeded(from)) {
+      console.warn(
+        `[access] ${from} signed in as ${to}, but their access is seeded in code — ` +
+          `update lib/access.ts or BONUS_USERS, or they will lose access`
+      );
+    }
+    return false;
+  }
+  // Never overwrite a rule already sitting under the new address: that one was
+  // granted deliberately and is at least as current as the one being moved.
+  if (overlay[to]) {
+    console.warn(
+      `[access] ${from} is now ${to}, which already has its own rule — leaving both alone`
+    );
+    return false;
+  }
+
+  const { [from]: moved, ...rest } = overlay;
+  await saveAccessOverlay({ ...rest, [to]: moved });
+  await appendHistory([
+    {
+      ts: new Date().toISOString(),
+      actor: "texco-identity",
+      kind: "access",
+      summary: `Email changed in identity: access for ${from} now applies to ${to}`,
+      target: to,
+    },
+  ]);
+  console.log(
+    `[audit] access-email-migrated from=${from} to=${to} ts=${new Date().toISOString()}`
+  );
+  return true;
 }
 
 export { AccessRuleSchema, type AccessRule };

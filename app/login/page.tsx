@@ -5,18 +5,48 @@ import { TexcoX, TexcoWordmark } from "@/components/TexcoBrand";
 
 export const metadata = { title: "Sign in — Texco" };
 
+const MESSAGES: Record<string, string> = {
+  AccountDeactivated:
+    "Your Texco account has been deactivated. Contact IT if you believe this is wrong.",
+  CredentialsSignin: "Invalid email or password.",
+};
+
+/**
+ * Not really a login page.
+ *
+ * Signing in happens on Texco Identity, so a guest arriving here is forwarded
+ * straight into the OAuth flow — invisible when they already have an identity
+ * session from another Texco app. This renders only when there is something to
+ * say: an auth error, or a deliberate logout.
+ */
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ callbackUrl?: string; error?: string }>;
+  searchParams: Promise<{
+    callbackUrl?: string;
+    error?: string;
+    logged_out?: string;
+  }>;
 }) {
   const session = await auth();
   if (session?.user?.email) redirect("/");
 
-  const { callbackUrl, error } = await searchParams;
+  const { callbackUrl, error, logged_out: loggedOut } = await searchParams;
   const devLogin =
     process.env.NODE_ENV === "development" && process.env.DEV_LOGIN === "1";
   const passwordLogin = Boolean(process.env.TEMP_LOGIN_PASSWORD);
+
+  // Nothing to show: send them to identity rather than asking them to click a
+  // button that only ever does one thing.
+  if (!error && !loggedOut && !devLogin && !passwordLogin) {
+    redirect(
+      `/auth/redirect${callbackUrl ? `?callbackUrl=${encodeURIComponent(callbackUrl)}` : ""}`
+    );
+  }
+
+  const signInHref = `/auth/redirect${
+    callbackUrl ? `?callbackUrl=${encodeURIComponent(callbackUrl)}` : ""
+  }`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#191919]">
@@ -26,28 +56,24 @@ export default async function LoginPage({
           <TexcoWordmark className="mx-auto mb-1 block w-[200px]" />
         </div>
         <div className="p-8">
-          <form
-            action={async () => {
-              "use server";
-              await signIn("microsoft-entra-id", {
-                redirectTo: callbackUrl ??"/",
-              });
-            }}
-          >
-            <button
-              type="submit"
-              className="w-full bg-[#FC4D0F] px-4 py-3 text-[13px] font-bold text-white transition-colors hover:bg-[#e0440d]"
-            >
-              Sign in with Microsoft
-            </button>
-          </form>
-          {error && (
-            <p className="mt-3 text-center text-[13px] text-[#FC4D0F]">
-              {error === "CredentialsSignin"
-                ? "Invalid email or password."
-                : "Sign-in failed. Please try again or contact IT."}
+          {loggedOut && !error && (
+            <p className="mb-4 text-center text-[13px] text-[#5C5C5C]">
+              You&apos;ve been signed out.
             </p>
           )}
+          {error && (
+            <p className="mb-4 text-center text-[13px] font-semibold text-[#FC4D0F]">
+              {MESSAGES[error] ?? "Sign-in failed. Please try again or contact IT."}
+            </p>
+          )}
+
+          <a
+            href={signInHref}
+            className="block w-full bg-[#FC4D0F] px-4 py-3 text-center text-[13px] font-bold text-white transition-colors hover:bg-[#e0440d]"
+          >
+            Sign in with Texco Identity
+          </a>
+
           {passwordLogin && (
             <form
               className="mt-6 border-t border-neutral-200 pt-5"
@@ -57,12 +83,12 @@ export default async function LoginPage({
                   await signIn("password", {
                     email: String(formData.get("email") ?? ""),
                     password: String(formData.get("password") ?? ""),
-                    redirectTo: callbackUrl ??"/",
+                    redirectTo: callbackUrl ?? "/",
                   });
                 } catch (err) {
                   if (err instanceof AuthError) {
                     redirect(
-`/login?error=CredentialsSignin${
+                      `/login?error=CredentialsSignin${
                         callbackUrl ? `&callbackUrl=${encodeURIComponent(callbackUrl)}` : ""
                       }`
                     );
@@ -71,6 +97,9 @@ export default async function LoginPage({
                 }
               }}
             >
+              <p className="mb-3 text-center text-[11px] text-neutral-400">
+                Temporary sign-in — being retired
+              </p>
               <input
                 name="email"
                 type="email"
@@ -93,6 +122,7 @@ export default async function LoginPage({
               </button>
             </form>
           )}
+
           {devLogin && (
             <form
               className="mt-6 border-t border-neutral-200 pt-4"
@@ -100,7 +130,7 @@ export default async function LoginPage({
                 "use server";
                 await signIn("dev-login", {
                   email: String(formData.get("email") ?? ""),
-                  redirectTo: callbackUrl ??"/",
+                  redirectTo: callbackUrl ?? "/",
                 });
               }}
             >

@@ -25,7 +25,7 @@ export default async function NoAccessPage() {
           <form
             action={async () => {
               "use server";
-              await signOut({ redirectTo:"/login" });
+              await signOut({ redirectTo: "/logout" });
             }}
           >
             <button

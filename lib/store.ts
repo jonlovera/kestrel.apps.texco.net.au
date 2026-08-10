@@ -22,6 +22,7 @@ import {
 } from "./columns";
 import { ParamsSchema, type Params } from "./params-apply";
 import { StoredCopySchema, resolveCopy, type Copy } from "./copy";
+import { IdentityUsersSchema, type IdentityUsers } from "./identity-schema";
 
 /**
  * Persistence: Neon Postgres in production (Vercel Marketplace add-on), a
@@ -356,6 +357,21 @@ export async function loadCopy(): Promise<Copy> {
 
 export function saveCopy(copy: Copy): Promise<void> {
   return saveDoc(COPY_KEY, COPY_FILE, copy);
+}
+
+// ── people who have signed in through Texco Identity ────────────────────────
+// Not a users table: authorisation stays keyed by email (lib/access.ts). This
+// holds only what email can't — the stable m365_id mapping and the session
+// epoch. See lib/identity-users.ts.
+const IDENTITY_USERS_KEY = "kestrel:identity:users";
+const IDENTITY_USERS_FILE = "identity-users.json";
+
+export function loadIdentityUsers(): Promise<IdentityUsers> {
+  return loadDoc(IDENTITY_USERS_KEY, IDENTITY_USERS_FILE, IdentityUsersSchema, {});
+}
+
+export function saveIdentityUsers(users: IdentityUsers): Promise<void> {
+  return saveDoc(IDENTITY_USERS_KEY, IDENTITY_USERS_FILE, users);
 }
 
 // ── snapshots (newest first, capped at 50) ───────────────────────────────────

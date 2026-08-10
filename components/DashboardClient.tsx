@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { signOut } from "next-auth/react";
 import type { DashboardPayload, DisplayRow } from "@/lib/payload-types";
 import { NUMERIC_FIELDS, type NumericField } from "@/lib/access-types";
 import { effectiveColumns, type ColumnConfig } from "@/lib/columns";
@@ -893,13 +892,12 @@ export default function DashboardClient({
               Admin
             </Link>
           )}
-          <button
-            type="button"
-            onClick={() => signOut({ callbackUrl:"/login" })}
+          <a
+            href="/logout"
             className="border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"
           >
             Logout
-          </button>
+          </a>
         </div>
       </div>
 
