@@ -14,9 +14,14 @@ import { takeSnapshot } from "@/lib/snapshots";
 
 function describeRule(rule: z.infer<typeof AccessRuleSchema>): string {
   if (rule.type === "full") return "full access";
-  if (rule.type === "state") return `${rule.states.join(" + ")} read-only`;
+  if (rule.type === "state") return `${rule.states.join(" + ")}`;
+  if (rule.type === "group") {
+    const where = rule.states.length ? rule.states.join(" + ") : "all states";
+    const who = rule.positions.length ? rule.positions.join(", ") : "all roles";
+    return `${where} / ${who}`;
+  }
   if (rule.type === "subset")
-    return `read-only on ${rule.employeeIds.length} selected employee${
+    return `${rule.employeeIds.length} selected employee${
       rule.employeeIds.length === 1 ? "" : "s"
     }`;
   return "no access";
@@ -90,6 +95,20 @@ export async function POST(req: Request) {
     if (bad.length) {
       return noStore(
         NextResponse.json({ error: `Unknown employee ids: ${bad.join(", ")}` }, { status: 400 })
+      );
+    }
+  }
+  // A group naming a position nobody holds would silently grant access to
+  // nothing, which looks identical to a working rule from the access table.
+  if (body.rule.type === "group" && body.rule.positions.length) {
+    const known = new Set((await getDataset()).emp.map((e) => e.pos));
+    const bad = body.rule.positions.filter((p) => !known.has(p));
+    if (bad.length) {
+      return noStore(
+        NextResponse.json(
+          { error: `No such role${bad.length > 1 ? "s" : ""}: ${bad.join(", ")}` },
+          { status: 400 }
+        )
       );
     }
   }

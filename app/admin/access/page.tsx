@@ -22,11 +22,20 @@ export default async function AdminPage() {
     .sort((a, b) => a.email.localeCompare(b.email));
 
   // id + name only — needed for the subset picker (admins are full-access).
-  const employees = (await getDataset()).emp.map((e) => ({
+  const dataset = await getDataset();
+  const employees = dataset.emp.map((e) => ({
     id: e.id,
     name: `${e.gn} ${e.sn}`,
     st: e.st,
+    pos: e.pos,
   }));
+  // roles a group rule can name, with how many people hold each, so "all VIC
+  // site managers" can be picked rather than typed
+  const counts = new Map<string, number>();
+  for (const e of dataset.emp) counts.set(e.pos, (counts.get(e.pos) ?? 0) + 1);
+  const positions = [...counts.entries()]
+    .map(([pos, count]) => ({ pos, count }))
+    .sort((a, b) => b.count - a.count || a.pos.localeCompare(b.pos));
 
   console.log(
     `[audit] pageview page=admin email=${email} ts=${new Date().toISOString()}`
@@ -36,6 +45,7 @@ export default async function AdminPage() {
     <AccessManager
       initialRules={list}
       employees={employees}
+      positions={positions}
       me={email.toLowerCase()}
     />
   );
