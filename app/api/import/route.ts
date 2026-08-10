@@ -10,6 +10,7 @@ import {
   candidateDataset,
   totalPool,
 } from "@/lib/import-parse";
+import { ModelReadError } from "@/lib/import-model";
 import type { Overrides } from "@/lib/schema";
 
 export const dynamic = "force-dynamic";
@@ -35,10 +36,14 @@ export async function POST(req: Request) {
   try {
     rawRows = await parseImportFile(file.name, Buffer.from(await file.arrayBuffer()));
   } catch (err) {
-    return NextResponse.json(
-      { errors: [err instanceof Error ? err.message : "The file couldn't be read."] },
-      { status: 400 }
-    );
+    // The model reader finds many faults at once (a whole column left
+    // uncalculated, say); listing only the first would mean fixing the file
+    // one round-trip at a time.
+    const errors =
+      err instanceof ModelReadError
+        ? err.errors
+        : [err instanceof Error ? err.message : "The file couldn't be read."];
+    return NextResponse.json({ errors }, { status: 400 });
   }
 
   const parsed = rowsToEmployees(rawRows);

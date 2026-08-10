@@ -118,11 +118,19 @@ export function useImportFlow(onApplied?: () => void) {
 /** The expected spreadsheet layout — shown wherever a file can be dropped. */
 export function ExpectedColumns() {
   return (
-    <p className="mt-3 text-[12px] text-neutral-400">
-      Expected columns: ID, Surname, Given name, Position, Department, Manager,
-      Category, State, VIC %, NSW %, Package, Bonus %, IPM %, After IPM, Disc
-      adj, FY25 bonus, Site manager.
-    </p>
+    <div className="mt-3 text-[12px] text-neutral-400">
+      <p>
+        <strong className="font-semibold">The EBS model workbook</strong> is
+        read as it is — its VIC, NSW and Shared sheets for the latest financial
+        year are found automatically, so there is nothing to rearrange first.
+      </p>
+      <p className="mt-1.5">
+        A plain one-row-per-employee file works too, with these columns: ID,
+        Surname, Given name, Position, Department, Manager, Category, State, VIC
+        %, NSW %, Package, Bonus %, IPM %, After IPM, Disc adj, FY25 bonus, Site
+        manager.
+      </p>
+    </div>
   );
 }
 

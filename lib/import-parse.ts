@@ -17,6 +17,7 @@ import {
 } from "./schema";
 import { applyOverrides, computeScalesAndBonuses } from "./calc";
 import { deriveFacets } from "./dataset-edit";
+import { isModelWorkbook, readModelWorkbook } from "./import-model";
 
 /** Header labels accepted in files (case-insensitive), keyed by field. */
 export const FIELD_LABELS: Record<string, string> = {
@@ -111,10 +112,14 @@ export function rowsToEmployees(rawRows: Record<string, unknown>[]): ParseResult
 
   const errors: string[] = [];
   const employees: Employee[] = [];
-  const seen = new Map<string, number>();
+  const seen = new Map<string, string>();
 
   rawRows.forEach((raw, idx) => {
-    const rowNo = idx + 2; // 1-based + header row, matching what she sees in Excel
+    // A flat file's row number matches what she sees in Excel; the model
+    // reader supplies its own sheet-and-row label instead, because its rows
+    // come from three sheets and start well below row 2.
+    const where =
+      typeof raw.__src === "string" ? raw.__src : `Row ${idx + 2}`;
     const candidate: Record<string, unknown> = {};
     for (const [header, field] of headerMap) {
       candidate[field] = coerceCell(field, raw[header]);
@@ -133,18 +138,22 @@ export function rowsToEmployees(rawRows: Record<string, unknown>[]): ParseResult
           issue.code === "invalid_type"
             ? `expected a ${(issue as { expected?: string }).expected ?? "value"}`
             : issue.message.toLowerCase();
-        errors.push(`Row ${rowNo}, '${label}': ${expected}, got ${gotText}`);
+        errors.push(`${where}, '${label}': ${expected}, got ${gotText}`);
       }
       return;
     }
     const dup = seen.get(parsed.data.id);
     if (dup !== undefined) {
       errors.push(
-        `Row ${rowNo}, 'ID': '${parsed.data.id}' also appears on row ${dup} — IDs must be unique`
+        // "…on row 2" for a flat file, "…on 'EBS VIC - FY26' row 9" for the
+        // model — the sheet name keeps its capitals, a bare row number doesn't.
+        `${where}, 'ID': '${parsed.data.id}' also appears on ${
+          dup.startsWith("Row ") ? dup.toLowerCase() : dup
+        } — IDs must be unique`
       );
       return;
     }
-    seen.set(parsed.data.id, rowNo);
+    seen.set(parsed.data.id, where);
     employees.push(parsed.data);
   });
 
@@ -160,6 +169,13 @@ export async function parseImportFile(
   if (/\.(xlsx|xlsm)$/i.test(filename)) {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf as unknown as ArrayBuffer);
+
+    // The EBS model is the file finance actually keeps, so it is read on its
+    // own terms (lib/import-model.ts) rather than being rejected for not
+    // looking like a flat export. Detection is by its per-state FY sheets, so
+    // an ordinary spreadsheet can never take this path by accident.
+    if (isModelWorkbook(wb)) return readModelWorkbook(wb).rows;
+
     const ws = wb.worksheets[0];
     if (!ws) return [];
     const headers: string[] = [];

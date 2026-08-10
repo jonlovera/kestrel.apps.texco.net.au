@@ -29,10 +29,10 @@ export default function ImportPanel() {
         <h1 className="mb-1 text-lg font-bold">Import employee data</h1>
         <p className="mb-4 text-[13px] text-brand-70">
           Drop the spreadsheet anywhere on this page (or choose a file below) —
-          .xlsx or .csv, one row per employee, headers in the first row. Nothing
-          changes until you review the preview and apply. Manager-entered IPMs,
-          discretionary adjustments and locks are kept; a snapshot is taken
-          automatically so an import can be undone.
+          the EBS model workbook as it comes, or a plain .xlsx or .csv with one
+          row per employee. Nothing changes until you review the preview and
+          apply. Manager-entered IPMs, discretionary adjustments and locks are
+          kept; a snapshot is taken automatically so an import can be undone.
         </p>
 
         {fatal && (
