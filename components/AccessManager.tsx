@@ -104,9 +104,13 @@ export default function AccessManager({
 
   function describe(rule: GrantingRule): string {
     if (rule.type === "full") return "Everyone · all fields · can edit";
-    if (rule.type === "state")
-      return `${rule.states.join(" + ")} · read only`;
-    return `${rule.employeeIds.length} employee${rule.employeeIds.length === 1 ? "" : "s"} · read only`;
+    if (rule.type === "state") return `${rule.states.join(" + ")} · can set IPM and Discretionary`;
+    if (rule.type === "group") {
+      const where = rule.states.length ? rule.states.join(" + ") : "all states";
+      const who = rule.positions.length ? rule.positions.join(", ") : "all roles";
+      return `${where} · ${who} · can set IPM and Discretionary`;
+    }
+    return `${rule.employeeIds.length} employee${rule.employeeIds.length === 1 ? "" : "s"} · can set IPM and Discretionary`;
   }
 
   function fieldsOf(rule: GrantingRule): string {

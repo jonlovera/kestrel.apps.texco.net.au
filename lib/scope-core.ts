@@ -10,6 +10,7 @@
  */
 import type { Dataset, Overrides } from "./schema";
 import type { Scope } from "./access";
+import { ruleMatches } from "./access-rules";
 import { NUMERIC_FIELDS } from "./access-types";
 import {
   DEFAULT_COLUMNS,
@@ -89,14 +90,9 @@ export function buildPayloadCore(
   const emps = applyOverrides(data.emp, overrides);
   const pool = computeScalesAndBonuses(emps, data);
 
-  let allowed: CalcEmployee[];
-  if (scope.rule.type === "state") {
-    const states: string[] = scope.rule.states;
-    allowed = emps.filter((e) => states.includes(e.st));
-  } else {
-    const ids = new Set(scope.rule.employeeIds);
-    allowed = emps.filter((e) => ids.has(e.id));
-  }
+  // one definition of "in scope", shared with the write boundary
+  // (lib/write-scope.ts) so the two can never disagree about whose row it is
+  const allowed: CalcEmployee[] = emps.filter((e) => ruleMatches(scope.rule, e));
 
   const fields = new Set(scope.visibleFields);
   const rows: ScopedRow[] = allowed.map((e) => {
