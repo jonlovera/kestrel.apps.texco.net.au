@@ -7,19 +7,26 @@ import { OverridesSchema, type Overrides } from "@/lib/schema";
 import { z } from "zod";
 import { diffOverrides } from "@/lib/history-diff";
 import { takeSnapshot } from "@/lib/snapshots";
-import {
-  applyOverrides,
-  computeScalesAndBonuses,
-  getMaxDA,
-} from "@/lib/calc";
+import { sanitiseOverrideWrite } from "@/lib/write-scope";
+import { applyOverrides, computeScalesAndBonuses, getMaxDA } from "@/lib/calc";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Persist the editors' adjustments. Full-access users only. The client sends
- * the whole overrides doc; the server never trusts client-computed numbers —
- * it re-applies the prototype's input rules and recomputes/refreezes locked
- * finals from the base data before storing.
+ * Commit the allocation. Full access and state leads both, which is the change
+ * this route exists to absorb: it used to refuse anyone without `canEdit`, and
+ * a lead can now set IPM and Discretionary for their own people.
+ *
+ * Two gates, in order:
+ *   1. lib/write-scope.ts — is this row theirs, and is this field theirs?
+ *      Anything else is dropped and the stored value kept.
+ *   2. the scheme's own rules below — site managers take no discretionary
+ *      adjustment, nor does anyone outside the pools, and an adjustment is
+ *      clamped to what the pool can actually absorb.
+ *
+ * The client is never trusted for a figure. It sends what it wants; the server
+ * decides what is true and hands the result back, which is why the dashboard
+ * adopts the response rather than its own optimistic state.
  */
 export async function POST(req: Request) {
   const session = await auth();
@@ -29,21 +36,12 @@ export async function POST(req: Request) {
   if (!email || !scope) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!scope.canEdit) {
-    console.log(
-      `[audit] DENIED state-write email=${email} scope=${scope.rule.type} ts=${new Date().toISOString()}`
-    );
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
 
   let incoming: Overrides;
   let clientVersion: number;
   try {
     const body = z
-      .object({
-        version: z.number().int().min(0),
-        overrides: OverridesSchema,
-      })
+      .object({ version: z.number().int().min(0), overrides: OverridesSchema })
       .parse(await req.json());
     incoming = body.overrides;
     clientVersion = body.version;
@@ -53,25 +51,41 @@ export async function POST(req: Request) {
 
   const data = await getEffectiveDataset();
   const known = new Map(data.emp.map((e) => [e.id, e]));
+  const previous = await loadOverrides();
 
-  // Sanitise: drop unknown ids and clamp ranges. Prototype rules: Bonus%/IPM%
-  // are editable on all rows (site managers included — it changes their fixed
-  // bonus); DA and locks don't apply to site managers or zero-weight rows.
+  // Gate 1: scope. Merges over the stored document, so a lead saving their own
+  // state cannot erase another lead's rows or the admin's locks.
+  const { overrides: scoped, rejected } = sanitiseOverrideWrite(
+    scope,
+    data.emp,
+    incoming,
+    previous
+  );
+  if (rejected.length > 0) {
+    console.log(
+      `[audit] state-write REJECTED email=${email} scope=${scope.rule.type} items=${rejected.length} detail=${rejected.slice(0, 10).join("; ")} ts=${new Date().toISOString()}`
+    );
+  }
+
+  // Gate 2: the scheme's rules, applied to the merged result rather than to
+  // what arrived — a lead's save carries the whole stored document forward.
   const sanitised: Overrides = {};
-  for (const [id, ov] of Object.entries(incoming)) {
+  for (const [id, ov] of Object.entries(scoped)) {
     const emp = known.get(id);
     if (!emp) continue;
-    const clean: Overrides[string] = {};
-    if (ov.bpEdit !== undefined) clean.bpEdit = Math.max(0, ov.bpEdit);
-    if (ov.ipmEdit !== undefined) clean.ipmEdit = Math.max(0, ov.ipmEdit);
-    if (!emp.sm) {
-      if (ov.daEdit !== undefined && emp.vp + emp.np > 0)
-        clean.daEdit = Math.max(0, ov.daEdit);
-      if (ov.locked) {
-        clean.locked = true;
-        clean.lockedFinal = ov.lockedFinal; // recomputed below if absent/bogus
-      }
+    const clean: Overrides[string] = { ...ov };
+    if (clean.ipmEdit !== undefined) clean.ipmEdit = Math.max(0, clean.ipmEdit);
+    if (clean.bpEdit !== undefined) clean.bpEdit = Math.max(0, clean.bpEdit);
+    if (emp.sm || emp.vp + emp.np <= 0) {
+      // a fixed bonus has nothing to adjust, and neither does a row that
+      // draws from no pool
+      delete clean.daEdit;
+      delete clean.locked;
+      delete clean.lockedFinal;
+    } else if (clean.daEdit !== undefined) {
+      clean.daEdit = Math.max(0, clean.daEdit);
     }
+    if (!clean.locked) delete clean.lockedFinal;
     if (Object.keys(clean).length > 0) sanitised[id] = clean;
   }
 
@@ -88,8 +102,7 @@ export async function POST(req: Request) {
     ov.lockedFinal = emps.find((e) => e.id === id)!.calcBonus;
   }
 
-  // Clamp DAs to what the pool (with locks in place) can absorb — the
-  // prototype's updateDA rule.
+  // Clamp adjustments to what the pool (with locks in place) can absorb.
   const emps = applyOverrides(data.emp, sanitised);
   const pool = computeScalesAndBonuses(emps, data);
   const byId = new Map(emps.map((e) => [e.id, e]));
@@ -100,35 +113,34 @@ export async function POST(req: Request) {
     }
   }
 
-  // Snapshot (coalesced for rapid edits), then save with optimistic
-  // concurrency: a stale version means someone else saved since this
-  // client loaded — 409, never silently clobber their changes.
+  // Snapshot, then save with optimistic concurrency: a stale version means
+  // someone else saved since this client loaded — 409, never silently clobber.
   await takeSnapshot(email, "edit");
-  const previous = await loadOverrides();
   const cas = await saveOverridesCas(sanitised, clientVersion);
   if (!cas.ok) {
     console.log(
       `[audit] state-write CONFLICT email=${email} sent=${clientVersion} current=${cas.current} ts=${new Date().toISOString()}`
     );
-    const res = NextResponse.json(
-      { error: "Version conflict — someone else saved changes", current: cas.current },
-      { status: 409 }
+    return noStore(
+      NextResponse.json(
+        { error: "Version conflict — someone else saved changes", current: cas.current },
+        { status: 409 }
+      )
     );
-    res.headers.set("Cache-Control", "no-store, max-age=0");
-    return res;
   }
   await appendHistory(
     diffOverrides(data.emp, previous, sanitised, email, new Date().toISOString())
   );
   console.log(
-    `[audit] state-write email=${email} entries=${Object.keys(sanitised).length} version=${cas.version} ts=${new Date().toISOString()}`
+    `[audit] state-write email=${email} scope=${scope.rule.type} entries=${Object.keys(sanitised).length} version=${cas.version} ts=${new Date().toISOString()}`
   );
 
-  const res = NextResponse.json({
-    ok: true,
-    overrides: sanitised,
-    version: cas.version,
-  });
+  return noStore(
+    NextResponse.json({ ok: true, overrides: sanitised, version: cas.version })
+  );
+}
+
+function noStore(res: NextResponse): NextResponse {
   res.headers.set("Cache-Control", "no-store, max-age=0");
   return res;
 }

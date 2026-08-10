@@ -79,6 +79,12 @@ export interface ReadonlyPayload {
    * total") — no figures, but it advertises views that aren't theirs.
    */
   copy: Omit<Copy, "poolTitles">;
+  /**
+   * Table columns this user may type into — IPM and Discretionary for a state
+   * lead, empty for anyone purely read-only. Presentation only: the server
+   * decides again on every write (lib/write-scope.ts).
+   */
+  canEditFields: string[];
   showStateColumn: boolean;
   poolCards: StatePoolCard[];
   cats: string[];

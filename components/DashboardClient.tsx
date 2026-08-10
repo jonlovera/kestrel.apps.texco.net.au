@@ -58,11 +58,13 @@ export default function DashboardClient({
 }) {
   const isEditor = payload.mode === "editor";
   /**
-   * Whether this person can change anything at all. Today that means an admin;
-   * state leads join them once the scoped-write path lands, which is why the
-   * save controls key off this rather than off `isEditor` directly.
+   * Which table columns this person may type into. An admin gets the full set;
+   * a state lead gets IPM and Discretionary for their own rows, decided
+   * server-side and handed over on the payload. The server checks again on
+   * every write — this only governs which cells look typeable.
    */
-  const canEditAnything = isEditor;
+  const canEditFields = isEditor ? OVERRIDE_EDITABLE : payload.canEditFields;
+  const canEditAnything = canEditFields.length > 0;
 
   // ── editor state: the SOURCE dataset, persisted per-change to /api/dataset ─
   // Held in state (not read straight off the payload) so an inline edit
@@ -118,6 +120,17 @@ export default function DashboardClient({
   const [overrides, setOverrides] = useState<Overrides>(
     isEditor ? payload.overrides : {}
   );
+  /**
+   * A lead's figures are computed server-side and arrive already scoped, so
+   * a what-if means asking the server again rather than recalculating here —
+   * their browser is never given the pool it would need to do the maths.
+   */
+  const [scopedRows, setScopedRows] = useState<DisplayRow[]>(
+    isEditor ? [] : payload.rows
+  );
+  const [scopedCards, setScopedCards] = useState(
+    isEditor ? [] : payload.poolCards
+  );
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   // optimistic-concurrency token; a stale save gets a 409 instead of
   // silently overwriting a colleague's changes
@@ -151,6 +164,29 @@ export default function DashboardClient({
     }
     return n;
   }, [overrides, savedOverrides]);
+
+  // A lead's what-if: send the scratch overrides, get their own rows back
+  // recalculated. Debounced, because it runs while they type.
+  useEffect(() => {
+    if (isEditor || !canEditAnything || !dirty) return;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ overrides }),
+        });
+        if (!res.ok) return;
+        const body = await res.json();
+        setScopedRows(body.rows ?? []);
+        setScopedCards(body.poolCards ?? []);
+      } catch {
+        // a failed preview just leaves the last figures on screen; the Save
+        // button is what actually matters and it reports its own errors
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [overrides, isEditor, canEditAnything, dirty]);
 
   // Losing an afternoon of what-ifs to a stray tab close is worse than a prompt
   useEffect(() => {
@@ -410,7 +446,7 @@ export default function DashboardClient({
 
   // ── rows in display shape ──
   const allRows: DisplayRow[] = useMemo(() => {
-    if (!isEditor) return payload.rows;
+    if (!isEditor) return scopedRows;
     return emps.map((e) => ({
       id: e.id,
       name: `${e.gn} ${e.sn}`,
@@ -436,7 +472,7 @@ export default function DashboardClient({
       yoy: e.finalBonus - e.f25,
       final: e.finalBonus,
     }));
-  }, [isEditor, payload, emps]);
+  }, [isEditor, scopedRows, emps]);
 
   // ── columns ──
   // Every column now comes from the server payload: presentation-config
@@ -453,7 +489,7 @@ export default function DashboardClient({
       key: c.key,
       label: c.label,
       num: !c.identity,
-      editable: isEditor && OVERRIDE_EDITABLE.includes(c.key),
+      editable: canEditFields.includes(c.key),
       dsEditable: isEditor && DATASET_EDITABLE.includes(c.key),
       format: c.format,
       decimals: c.decimals,
@@ -467,7 +503,7 @@ export default function DashboardClient({
       ]
       : [];
     return [...configured, ...tools];
-  }, [isEditor, editing, columnConfig, payload]);
+  }, [isEditor, editing, columnConfig, payload, canEditFields]);
 
   // ── filtering + sorting (prototype getVisibleEmployees) ──
   const visibleRows = useMemo(() => {
@@ -637,7 +673,7 @@ export default function DashboardClient({
     if (!isEditor) {
       // A state lead sees their own pool and nothing wider: no group total, no
       // other state, no shared-services breakdown.
-      return payload.poolCards.map((c) => {
+      return scopedCards.map((c) => {
         const remaining = c.available - c.stateBonuses;
         return (
           <PoolCard
@@ -820,7 +856,7 @@ export default function DashboardClient({
               {showAll ? "Hide everything" : "Show everything"}
             </button>
           )}
-          {isEditor && (
+          {canEditAnything && (
             <button
               type="button"
               onClick={toggleEditing}
@@ -832,7 +868,9 @@ export default function DashboardClient({
               title={
                 editing
                   ? "Finish editing and go back to the clean view"
-                  : "Edit figures, names, columns and headings in place"
+                  : isEditor
+                    ? "Edit the allocation, columns and headings in place"
+                    : "Set IPM and Discretionary for your people"
               }
             >
               {editing ? "Done editing" : "Edit mode"}
@@ -895,7 +933,7 @@ export default function DashboardClient({
                 key={t}
                 type="button"
                 onClick={() => openTab(t)}
-                className={`-md px-5 py-2 text-xs font-bold tracking-wide transition-colors ${activeTab === t
+                className={`px-5 py-2 text-xs font-bold tracking-wide transition-colors ${activeTab === t
                     ? "bg-[#FC4D0F] text-white"
                     : "bg-neutral-200 text-[#5C5C5C] hover:bg-neutral-300"
                   }`}

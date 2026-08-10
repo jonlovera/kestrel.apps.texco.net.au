@@ -59,6 +59,26 @@ export function writableEmployeeIds(
   );
 }
 
+/** Column keys matching the writable override fields, for the table to key off. */
+const COLUMN_FOR_FIELD: Partial<Record<WritableField, string>> = {
+  ipmEdit: "ipm",
+  daEdit: "da",
+};
+
+/**
+ * Which table columns this scope may type into.
+ *
+ * Intersected with what they can actually see: a field they were never sent
+ * can't be edited, and offering the cell would be a lie. Presentation only —
+ * sanitiseOverrideWrite decides again on every write.
+ */
+export function editableColumns(scope: Scope): string[] {
+  const visible = new Set<string>(scope.visibleFields);
+  return writableFields(scope)
+    .map((f) => COLUMN_FOR_FIELD[f])
+    .filter((c): c is string => !!c && visible.has(c));
+}
+
 export interface SanitisedWrite {
   /** the stored document with only the permitted changes applied */
   overrides: Overrides;

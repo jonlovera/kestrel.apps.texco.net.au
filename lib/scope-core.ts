@@ -11,6 +11,7 @@
 import type { Dataset, Overrides } from "./schema";
 import type { Scope } from "./access";
 import { ruleMatches } from "./access-rules";
+import { editableColumns } from "./write-scope";
 import { NUMERIC_FIELDS } from "./access-types";
 import {
   DEFAULT_COLUMNS,
@@ -122,9 +123,16 @@ export function buildPayloadCore(
 
   // Pool cards: state users get their state card(s) like the prototype's
   // state views (pool available, total allocated, remaining). Subset users get none.
+  // Which pools this user is entitled to a summary of. A group rule scoped to
+  // a state gets that state's card, the same as a plain state rule — a subset
+  // rule gets none, because an arbitrary list of people has no pool of its own.
+  const cardStates =
+    scope.rule.type === "state" || scope.rule.type === "group"
+      ? scope.rule.states
+      : [];
   const poolCards: StatePoolCard[] = [];
-  if (scope.rule.type === "state") {
-    for (const st of scope.rule.states) {
+  {
+    for (const st of cardStates) {
       if (st === "SHARED") continue;
       const stateEmps = allowed.filter((e) => e.st === st);
       const stateBonuses = stateEmps.reduce(
@@ -160,6 +168,7 @@ export function buildPayloadCore(
     rows,
     visibleFields: scope.visibleFields,
     columns,
+    canEditFields: editableColumns(scope),
     // pool titles are already baked into poolCards[].title above; sending the
     // map too would name the pools this user has no business seeing
     copy: {

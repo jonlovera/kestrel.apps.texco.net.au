@@ -19,7 +19,7 @@ export default function AdminNav() {
         <Link
           key={t.href}
           href={t.href}
-          className={`-md px-5 py-2 text-xs font-bold tracking-wide transition-colors ${
+          className={`px-5 py-2 text-xs font-bold tracking-wide transition-colors ${
             pathname.startsWith(t.href)
               ? "bg-[#FC4D0F] text-white"
               : "bg-neutral-200 text-[#5C5C5C] hover:bg-neutral-300"
