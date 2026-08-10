@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { auth } from "@/auth";
-import { scopeForUser } from "@/lib/access";
+import { requireWriter } from "@/lib/api-guard";
 import { getDataset } from "@/lib/data";
 import {
   loadOverrides,
@@ -29,13 +28,9 @@ const ApplySchema = z.object({
  * validation re-runs here.
  */
 export async function POST(req: Request) {
-  const session = await auth();
-  const email = session?.user?.email;
-  const scope = await scopeForUser(email);
-  if (!email || !scope)
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!scope.canEdit)
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const guard = await requireWriter("import-apply");
+  if ("response" in guard) return guard.response;
+  const { email } = guard;
 
   let body: z.infer<typeof ApplySchema>;
   try {

@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { saveColumnConfig, appendHistory } from "@/lib/store";
 import { takeSnapshot } from "@/lib/snapshots";
 import { ColumnConfigSchema, normalizeConfig } from "@/lib/columns";
-import { requireEditor, noStore } from "@/lib/api-guard";
+import { requireWriter, noStore } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
  * update would cost money rather than a column order.
  */
 export async function POST(req: Request) {
-  const guard = await requireEditor("columns-write");
+  const guard = await requireWriter("columns-write");
   if ("response" in guard) return guard.response;
   const { email } = guard;
 

@@ -5,7 +5,7 @@ import { getParams } from "@/lib/data";
 import { takeSnapshot } from "@/lib/snapshots";
 import { ParamsSchema } from "@/lib/params-apply";
 import { fmt } from "@/lib/fmt";
-import { requireEditor, noStore } from "@/lib/api-guard";
+import { requireWriter, noStore } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
  * number is typed. `/admin/params` used to do that in a separate panel.
  */
 export async function POST(req: Request) {
-  const guard = await requireEditor("params-write");
+  const guard = await requireWriter("params-write");
   if ("response" in guard) return guard.response;
   const { email } = guard;
 

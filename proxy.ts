@@ -68,6 +68,13 @@ export default auth((req) => {
 });
 
 export const config = {
-  // Everything except Next internals and static assets
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|svg|ico)$).*)"],
+  // Everything except Next internals and static assets.
+  //
+  // Fonts have to be here: they are requested by the login page itself, which
+  // a signed-out visitor sees, so gating them would redirect the request to
+  // /login and the brand type would silently fall back to Arial for exactly
+  // the people who aren't signed in yet.
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|fonts/|.*\\.(?:png|svg|ico|woff2?)$).*)",
+  ],
 };

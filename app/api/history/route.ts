@@ -1,15 +1,12 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
-import { scopeForUser } from "@/lib/access";
+import { resolveViewer } from "@/lib/view-as";
 import { loadHistory } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
 /** Change history — full-access users only. */
 export async function GET() {
-  const session = await auth();
-  const email = session?.user?.email;
-  const scope = await scopeForUser(email);
+  const { actor: email, scope } = await resolveViewer();
 
   if (!email || !scope) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

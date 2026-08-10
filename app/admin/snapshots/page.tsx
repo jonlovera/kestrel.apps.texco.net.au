@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { auth } from "@/auth";
-import { scopeForUser } from "@/lib/access";
+import { resolveViewer } from "@/lib/view-as";
 import { loadSnapshots } from "@/lib/store";
 import { restoreSnapshot } from "@/lib/snapshots";
 import SnapshotList from "@/components/SnapshotList";
@@ -10,13 +9,11 @@ export const metadata = { title: "Texco" };
 export const dynamic = "force-dynamic";
 
 async function requireAdminPage() {
-  const session = await auth();
-  const email = session?.user?.email;
-  if (!email) redirect("/login");
-  const scope = await scopeForUser(email);
+  const { actor, scope } = await resolveViewer();
+  if (!actor) redirect("/login");
   if (!scope) redirect("/no-access");
   if (!scope.canEdit) redirect("/");
-  return email;
+  return actor;
 }
 
 export default async function SnapshotsPage() {

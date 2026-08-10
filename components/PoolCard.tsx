@@ -33,8 +33,8 @@ export function PoolCard({
   const pct = Math.min(utilPct * 100, 100);
   const over = utilPct > 1;
   return (
-    <div className="min-w-[280px] flex-1 border-t-4 border-[#FC4D0F] bg-white p-5 shadow-sm">
-      <h3 className="mb-3 text-[13px] font-bold text-[#191919]">
+    <div className="min-w-[280px] flex-1 border-t-4 border-brand-orange bg-white p-5 shadow-sm">
+      <h3 className="mb-3 text-[13px] font-bold text-brand-95">
         {titleNode ?? title}
       </h3>
       {metrics.map((m) => (
@@ -42,7 +42,7 @@ export function PoolCard({
           key={m.label}
           className="flex items-center justify-between border-b border-neutral-100 py-[5px] text-[13px] last:border-b-0"
         >
-          <span className="text-[#5C5C5C]">{m.label}</span>
+          <span className="text-brand-70">{m.label}</span>
           {m.onEdit ? (
             <input
               key={`${m.label}-${m.editValue}`}
@@ -60,11 +60,11 @@ export function PoolCard({
                   el.blur();
                 }
               }}
-              className="w-[120px] border border-neutral-300 px-1.5 py-0.5 text-right text-[13px] font-bold tabular-nums outline-none focus:border-[#FC4D0F] disabled:opacity-50"
+              className="w-[120px] border border-neutral-300 px-1.5 py-0.5 text-right text-[13px] font-bold tabular-nums outline-none focus:border-brand-orange disabled:opacity-50"
             />
           ) : (
             <span
-              className={`font-bold ${m.negative ? "text-[#FC4D0F]" : "text-[#191919]"} ${
+              className={`font-bold ${m.negative ? "text-brand-orange" : "text-brand-95"} ${
                 m.bold ? "text-sm" : ""
               }`}
             >
@@ -75,7 +75,7 @@ export function PoolCard({
       ))}
       <div className="mt-2.5 h-2 overflow-hidden bg-neutral-200">
         <div
-          className={`h-full transition-all ${over ? "bg-[#191919]" : "bg-[#FC4D0F]"}`}
+          className={`h-full transition-all ${over ? "bg-brand-95" : "bg-brand-orange"}`}
           style={{ width: `${pct}%` }}
         />
       </div>

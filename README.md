@@ -133,13 +133,6 @@ keeps their access — their entry in the database overlay moves with them. A
 code-seeded email that goes stale is logged loudly instead, since changing it
 needs a deploy.
 
-### Temporary password login (being retired)
-
-While identity sign-in is proven, setting `TEMP_LOGIN_PASSWORD` still adds an
-email + password form. **This bypasses Entra MFA and is a shared secret:
-remove the env var and redeploy as soon as SSO is confirmed working**
-(`vercel env rm TEMP_LOGIN_PASSWORD production && vercel deploy --prod`).
-
 ## 3. Adding a user
 
 Authentication only proves someone works at Texco; they see **nothing** until

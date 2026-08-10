@@ -86,7 +86,7 @@ export default function Dropzone({
   if (rejected) {
     return (
       <div className="fixed inset-x-0 top-0 z-[60] flex justify-center px-4 pt-4">
-        <div className="flex items-center gap-4 border-2 border-[#FC4D0F] bg-[#FED9CC] px-4 py-2.5 text-[13px] font-semibold shadow-lg">
+        <div className="flex items-center gap-4 border-2 border-error bg-error-tint px-4 py-2.5 text-[13px] font-semibold shadow-lg">
           That file type can&apos;t be imported — use .xlsx, .xlsm or .csv.
           <button
             type="button"
@@ -103,12 +103,12 @@ export default function Dropzone({
   if (!dragging) return null;
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-[60] flex items-center justify-center bg-[#191919]/70 p-8">
-      <div className="border-4 border-dashed border-[#FC4D0F] bg-white px-12 py-10 text-center shadow-2xl">
-        <p className="text-[15px] font-bold text-[#191919]">
+    <div className="pointer-events-none fixed inset-0 z-[60] flex items-center justify-center bg-brand-95/70 p-8">
+      <div className="border-4 border-dashed border-brand-orange bg-white px-12 py-10 text-center shadow-2xl">
+        <p className="text-[15px] font-bold text-brand-95">
           {label}
         </p>
-        <p className="mt-2 text-[13px] text-[#5C5C5C]">
+        <p className="mt-2 text-[13px] text-brand-70">
           .xlsx, .xlsm or .csv — you&apos;ll see a preview before anything changes.
         </p>
       </div>

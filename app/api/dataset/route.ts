@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getDataset, getParams } from "@/lib/data";
-import { requireEditor, noStore } from "@/lib/api-guard";
+import { requireWriter, noStore } from "@/lib/api-guard";
 import { saveStoredDatasetCas, appendHistory } from "@/lib/store";
 import { takeSnapshot } from "@/lib/snapshots";
 import { applyDatasetPatch, DatasetPatchSchema } from "@/lib/dataset-edit";
@@ -29,7 +29,7 @@ const BodySchema = z.object({
  * while the modifier is 1, which is today's default.)
  */
 export async function POST(req: Request) {
-  const guard = await requireEditor("dataset-write");
+  const guard = await requireWriter("dataset-write");
   if ("response" in guard) return guard.response;
   const { email } = guard;
 

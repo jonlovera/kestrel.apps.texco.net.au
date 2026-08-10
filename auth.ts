@@ -15,26 +15,6 @@ import { texcoIdentity, IDENTITY_PROVIDER_ID } from "@/lib/identity";
  */
 const providers: Provider[] = [texcoIdentity()];
 
-// Temporary shared-password login, kept only until identity sign-in is proven
-// in production. It bypasses Entra MFA and is a shared secret: remove the env
-// var and redeploy once the SSO round trip is confirmed.
-if (process.env.TEMP_LOGIN_PASSWORD) {
-  providers.push(
-    Credentials({
-      id: "password",
-      name: "Email and password",
-      credentials: { email: { label: "Email" }, password: { label: "Password" } },
-      authorize: (creds) => {
-        const email =
-          typeof creds?.email === "string" ? creds.email.trim().toLowerCase() : "";
-        const password = typeof creds?.password === "string" ? creds.password : "";
-        if (!email.includes("@")) return null;
-        if (!password || password !== process.env.TEMP_LOGIN_PASSWORD) return null;
-        return { email, name: email.split("@")[0] };
-      },
-    })
-  );
-}
 
 // Local-only dev backdoor, so the app can be worked on without an identity
 // server running. Never registered outside `next dev`.

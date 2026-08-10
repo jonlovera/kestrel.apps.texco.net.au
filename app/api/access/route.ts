@@ -1,12 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/auth";
-import {
-  scopeForUser,
-  allRules,
-  isSeeded,
-  AccessRuleSchema,
-} from "@/lib/access";
+import { allRules, isSeeded, AccessRuleSchema } from "@/lib/access";
+import { requireWriter } from "@/lib/api-guard";
 import { OWNER_EMAIL } from "@/lib/access-rules";
 import { loadAccessOverlay, saveAccessOverlay, appendHistory } from "@/lib/store";
 import { getDataset } from "@/lib/data";
@@ -36,18 +31,12 @@ const EmailSchema = z
   .email()
   .max(254);
 
-async function requireAdmin() {
-  const session = await auth();
-  const email = session?.user?.email;
-  const scope = await scopeForUser(email);
-  if (!email || !scope) return { error: 401 as const };
-  if (!scope.canEdit) {
-    console.log(
-      `[audit] DENIED access-manage email=${email} ts=${new Date().toISOString()}`
-    );
-    return { error: 403 as const };
-  }
-  return { email };
+async function requireAdmin(): Promise<
+  { email: string } | { error: NextResponse }
+> {
+  const guard = await requireWriter("access-manage");
+  if ("response" in guard) return { error: guard.response };
+  return { email: guard.email };
 }
 
 function noStore<T extends NextResponse>(res: T): T {
@@ -57,8 +46,7 @@ function noStore<T extends NextResponse>(res: T): T {
 
 export async function GET() {
   const admin = await requireAdmin();
-  if ("error" in admin)
-    return noStore(NextResponse.json({ error: "Denied" }, { status: admin.error }));
+  if ("error" in admin) return noStore(admin.error);
 
   const rules = await allRules();
   const list = Object.entries(rules)
@@ -69,8 +57,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const admin = await requireAdmin();
-  if ("error" in admin)
-    return noStore(NextResponse.json({ error: "Denied" }, { status: admin.error }));
+  if ("error" in admin) return noStore(admin.error);
 
   let body: { email: string; rule: z.infer<typeof AccessRuleSchema> };
   try {
@@ -136,8 +123,7 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   const admin = await requireAdmin();
-  if ("error" in admin)
-    return noStore(NextResponse.json({ error: "Denied" }, { status: admin.error }));
+  if ("error" in admin) return noStore(admin.error);
 
   let email: string;
   try {

@@ -129,7 +129,7 @@ export function ExpectedColumns() {
 export function ImportErrors({ errors }: { errors: string[] }) {
   return (
     <div className="bg-white p-5 shadow-sm">
-      <h2 className="mb-2 text-[13px] font-bold text-[#FC4D0F]">
+      <h2 className="mb-2 text-[13px] font-bold text-error">
         The file can&apos;t be imported — nothing was changed
       </h2>
       <ul className="list-inside list-disc text-[13px] leading-6">
@@ -171,20 +171,20 @@ export function ImportPreview({
           <strong>
             {fmt(preview.totalBefore)} → {fmt(preview.totalAfter)}
           </strong>{""}
-          <span className="text-[#5C5C5C]">(reconcile against your spreadsheet)</span>
+          <span className="text-brand-70">(reconcile against your spreadsheet)</span>
         </div>
         <div>
           Added ({preview.added.length}):{""}
-          <span className="text-[#5C5C5C]">{preview.added.join(", ") || "none"}</span>
+          <span className="text-brand-70">{preview.added.join(", ") || "none"}</span>
         </div>
         <div>
           Removed ({preview.removed.length}):{""}
-          <span className="text-[#5C5C5C]">{preview.removed.join(", ") || "none"}</span>
+          <span className="text-brand-70">{preview.removed.join(", ") || "none"}</span>
         </div>
       </div>
 
       {needsConfirm && (
-        <div className="mb-3 border-2 border-[#FC4D0F] bg-[#FED9CC] p-3 text-[13px]">
+        <div className="mb-3 border-2 border-error bg-error-tint p-3 text-[13px]">
           <strong>
             These employees have manager-entered figures that will be deleted
             with them:
@@ -193,7 +193,7 @@ export function ImportPreview({
           <label className="mt-2 flex items-center gap-2 font-semibold">
             <input
               type="checkbox"
-              className="h-4 w-4 accent-[#FC4D0F]"
+              className="h-4 w-4 accent-brand-orange"
               checked={confirm}
               onChange={(e) => setConfirm(e.target.checked)}
             />
@@ -207,7 +207,7 @@ export function ImportPreview({
           type="button"
           disabled={busy || (needsConfirm && !confirm)}
           onClick={onApply}
-          className="bg-[#FC4D0F] px-6 py-2.5 text-[12px] font-bold text-white transition-colors hover:bg-[#e0440d] disabled:opacity-50"
+          className="bg-brand-orange px-6 py-2.5 text-[12px] font-bold text-white transition-colors hover:bg-brand-orange-hover disabled:opacity-50"
         >
           {busy ? "Importing…" : "Apply import"}
         </button>

@@ -68,21 +68,21 @@ export default function ColumnMenu({
 
   const shown = config.filter((c) => c.visible).length;
   const inputCls =
-    "border border-neutral-300 px-1.5 py-1 text-[12px] outline-none focus:border-[#FC4D0F]";
+    "border border-neutral-300 px-1.5 py-1 text-[12px] outline-none focus:border-brand-orange";
 
   return (
     <div className="relative" ref={box}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="border-2 border-neutral-300 px-3.5 py-1.5 text-[11px] font-bold tracking-wide text-[#5C5C5C] transition-colors hover:border-[#FC4D0F] hover:text-[#FC4D0F]"
+        className="border-2 border-neutral-300 px-3.5 py-1.5 text-[11px] font-bold tracking-wide text-brand-70 transition-colors hover:border-brand-orange hover:text-brand-orange"
       >
         Columns ({shown}) ▾
       </button>
 
       {open && (
         <div className="absolute right-0 z-50 mt-1 max-h-[70vh] w-[440px] overflow-auto border border-neutral-200 bg-white p-3 shadow-2xl">
-          <p className="mb-2 text-[12px] text-[#5C5C5C]">
+          <p className="mb-2 text-[12px] text-brand-70">
             Tick to show, arrows to reorder, and type over a heading to rename
             it. Changes are display only — they never alter a figure or who can
             see one.
@@ -94,7 +94,7 @@ export default function ColumnMenu({
                   <td className="py-1 pr-1">
                     <input
                       type="checkbox"
-                      className="h-4 w-4 accent-[#FC4D0F]"
+                      className="h-4 w-4 accent-brand-orange"
                       checked={c.visible}
                       disabled={busy}
                       onChange={(e) => update(i, { visible: e.target.checked })}

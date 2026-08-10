@@ -1,20 +1,113 @@
 @import "tailwindcss";
 
-/* Prototype look: Power Grotesk if installed locally, Arial fallback. */
+/* ─────────────────────────────────────────────────────────────────────────
+   Texco Brand Pack 2026 — values and names taken from ~/Sites/tools, which
+   is where the brand system is documented. Kept in step with it deliberately:
+   two Texco apps drifting apart on the orange is worse than either being
+   slightly wrong.
+
+   The fonts are SELF-HOSTED. They used to be declared with local() sources
+   only, which meant Power Grotesk rendered for whoever happened to have it
+   installed and silently fell back to Arial for everyone else — including
+   anyone opening this on a phone. local() is kept as the first source so an
+   installed copy is still preferred over a download.
+   ───────────────────────────────────────────────────────────────────────── */
+
 @font-face {
   font-family: "Power Grotesk";
-  src: local("Power Grotesk"), local("PowerGrotesk-Regular");
+  src: local("Power Grotesk Light"), url("/fonts/PowerGrotesk-Light.woff2") format("woff2");
+  font-weight: 300;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Power Grotesk";
+  src: local("Power Grotesk"), local("PowerGrotesk-Regular"),
+    url("/fonts/PowerGrotesk-Regular.woff2") format("woff2");
   font-weight: 400;
+  font-display: swap;
 }
 @font-face {
   font-family: "Power Grotesk";
-  src: local("Power Grotesk Med"), local("PowerGrotesk-Medium");
+  src: local("Power Grotesk Med"), local("PowerGrotesk-Medium"),
+    url("/fonts/PowerGrotesk-Medium.woff2") format("woff2");
   font-weight: 500;
+  font-display: swap;
 }
 @font-face {
   font-family: "Power Grotesk";
-  src: local("Power Grotesk Bold"), local("PowerGrotesk-Bold");
+  src: local("Power Grotesk Bold"), local("PowerGrotesk-Bold"),
+    url("/fonts/PowerGrotesk-Bold.woff2") format("woff2");
   font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Power Grotesk";
+  src: local("Power Grotesk Italic"), url("/fonts/PowerGrotesk-Italic.woff2") format("woff2");
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Aptos";
+  src: local("Aptos"), url("/fonts/Aptos.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Aptos";
+  src: local("Aptos SemiBold"), url("/fonts/Aptos-SemiBold.woff2") format("woff2");
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Aptos";
+  src: local("Aptos Bold"), url("/fonts/Aptos-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Aptos";
+  src: local("Aptos Italic"), url("/fonts/Aptos-Italic.woff2") format("woff2");
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@theme {
+  /* ── Brand core ──────────────────────────────────────────────────────── */
+  --color-brand-orange: #fc4d0f;        /* Pantone 1655C · hero accent */
+  --color-brand-orange-hover: #fd6526;
+  --color-brand-95: #191919;            /* hero dark · primary body text */
+  --color-brand-90: #323232;
+  --color-brand-80: #4f4f4f;
+  --color-brand-70: #6d6d6d;
+  --color-brand-light-grey: #d9d9d9;
+
+  /* Orange tints, for state badges and text on the dark header. Not in the
+     pack — derived here, and deliberately never used to mean "error". */
+  --color-brand-orange-tint: #fed9cc;
+  --color-brand-orange-mid: #fda478;
+  --color-brand-orange-soft: #f79470;
+
+  /* People & Performance — this tool's own category */
+  --color-brand-lavender: #d4b9fa;
+
+  /* ── Semantic ────────────────────────────────────────────────────────── */
+  --color-ink: var(--color-brand-95);
+  --color-ink-muted: var(--color-brand-80);
+  --color-ink-faint: var(--color-brand-70);
+  --color-surface: #ffffff;
+  --color-surface-sunken: #f5f5f5;
+  --color-error: #c92a2a;
+  --color-error-tint: #ffe3e3;
+  --color-success: #2d7a3a;
+
+  /* ── Type ────────────────────────────────────────────────────────────── */
+  --font-display: "Power Grotesk", "Aptos", "Inter", "Helvetica Neue", Arial,
+    sans-serif;
+  --font-sans: "Aptos", "Inter", "Helvetica Neue", Arial, ui-sans-serif,
+    system-ui, sans-serif;
 }
 
 :root {
@@ -22,7 +115,9 @@
 }
 
 body {
-  font-family: "Power Grotesk", Arial, sans-serif;
+  font-family: var(--font-display);
+  background: var(--color-surface-sunken);
+  color: var(--color-ink);
 }
 
 .tabular-nums {

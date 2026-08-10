@@ -128,7 +128,7 @@ export default function EmailCombobox({
       {showList && (
         <ul id="directory-matches" className="absolute z-50 mt-1 max-h-[280px] w-[360px] overflow-auto border border-neutral-200 bg-white shadow-2xl">
           {loading && matches.length === 0 && (
-            <li className="px-3 py-2 text-[12px] text-[#5C5C5C]">Searching…</li>
+            <li className="px-3 py-2 text-[12px] text-brand-70">Searching…</li>
           )}
           {matches.map((p, i) => (
             <li key={p.id}>
@@ -137,12 +137,12 @@ export default function EmailCombobox({
                 onMouseEnter={() => setHighlight(i)}
                 onClick={() => choose(p)}
                 className={`block w-full px-3 py-2 text-left text-[13px] ${
-                  i === highlight ? "bg-[#FED9CC]" : "hover:bg-neutral-50"
+                  i === highlight ? "bg-brand-orange-tint" : "hover:bg-neutral-50"
                 }`}
               >
                 <span className="font-semibold">{p.name}</span>
                 <br />
-                <span className="text-[12px] text-[#5C5C5C]">
+                <span className="text-[12px] text-brand-70">
                   {p.email}
                   {p.jobTitle ? ` · ${p.jobTitle}` : ""}
                 </span>
@@ -153,7 +153,7 @@ export default function EmailCombobox({
       )}
 
       {unavailable && (
-        <p className="mt-1 max-w-[420px] text-[11px] leading-4 text-[#5C5C5C]">
+        <p className="mt-1 max-w-[420px] text-[11px] leading-4 text-brand-70">
           {unavailable}
         </p>
       )}

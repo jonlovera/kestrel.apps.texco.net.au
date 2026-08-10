@@ -21,8 +21,8 @@ export default function AdminNav() {
           href={t.href}
           className={`px-5 py-2 text-xs font-bold tracking-wide transition-colors ${
             pathname.startsWith(t.href)
-              ? "bg-[#FC4D0F] text-white"
-              : "bg-neutral-200 text-[#5C5C5C] hover:bg-neutral-300"
+              ? "bg-brand-orange text-white"
+              : "bg-neutral-200 text-brand-70 hover:bg-neutral-300"
           }`}
         >
           {t.label}

@@ -32,7 +32,7 @@ export default function SnapshotList({
     <div>
       <div className="mx-auto w-full max-w-[1100px] flex-1 px-5 py-6">
         <h1 className="mb-1 text-lg font-bold">Snapshots</h1>
-        <p className="mb-4 text-[13px] text-[#5C5C5C]">
+        <p className="mb-4 text-[13px] text-brand-70">
           A full copy of the data, edits, parameters and column settings is
           taken automatically before every change. Restoring puts everything
           back exactly as it was — and takes its own snapshot first, so a
@@ -47,7 +47,7 @@ export default function SnapshotList({
                 {["When", "Who", "Why", "Contents", "", ""].map((h, i) => (
                   <th
                     key={i}
-                    className="whitespace-nowrap bg-[#191919] px-3 py-2.5 text-left text-[11px] tracking-wide text-white"
+                    className="whitespace-nowrap bg-brand-95 px-3 py-2.5 text-left text-[11px] tracking-wide text-white"
                   >
                     {h}
                   </th>
@@ -57,7 +57,7 @@ export default function SnapshotList({
             <tbody>
               {snapshots.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-3 py-8 text-center text-[#5C5C5C]">
+                  <td colSpan={6} className="px-3 py-8 text-center text-brand-70">
                     No snapshots yet — one is taken before every change.
                   </td>
                 </tr>
@@ -78,14 +78,14 @@ export default function SnapshotList({
                   <td className="whitespace-nowrap px-3 py-2">
                     {REASON_LABELS[s.reason] ?? s.reason}
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2 text-[#5C5C5C]">
+                  <td className="whitespace-nowrap px-3 py-2 text-brand-70">
                     {s.employees} employees · {s.overrides} edited
                   </td>
                   <td className="px-3 py-2">
                     <a
                       href={`/api/export?ts=${encodeURIComponent(s.ts)}`}
                       title="Download this version as an Excel workbook"
-                      className="border border-neutral-300 px-3 py-1 text-[11px] font-semibold text-[#5C5C5C] transition-colors hover:border-[#FC4D0F] hover:text-[#FC4D0F]"
+                      className="border border-neutral-300 px-3 py-1 text-[11px] font-semibold text-brand-70 transition-colors hover:border-brand-orange hover:text-brand-orange"
                     >
                       Excel
                     </a>
@@ -106,7 +106,7 @@ export default function SnapshotList({
                       <button
                         type="submit"
                         disabled={pending}
-                        className="bg-[#FC4D0F] px-3 py-1 text-[11px] font-bold text-white transition-colors hover:bg-[#e0440d] disabled:opacity-50"
+                        className="bg-brand-orange px-3 py-1 text-[11px] font-bold text-white transition-colors hover:bg-brand-orange-hover disabled:opacity-50"
                       >
                         {pending ? "Restoring…" : "Restore"}
                       </button>

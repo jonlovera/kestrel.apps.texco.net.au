@@ -28,6 +28,7 @@ import EmployeeTable, { type TableColumn } from "./EmployeeTable";
 import ColumnMenu from "./ColumnMenu";
 import EditableText from "./EditableText";
 import Dropzone from "./Dropzone";
+import { ViewAsBanner, ViewAsPicker, type ViewAsState } from "./ViewAsBar";
 import {
   useImportFlow,
   ImportErrors,
@@ -52,17 +53,27 @@ const DATASET_EDITABLE = ["bipm"];
 
 export default function DashboardClient({
   payload,
+  viewAs,
 }: {
   payload: DashboardPayload;
+  viewAs?: ViewAsState;
 }) {
   const isEditor = payload.mode === "editor";
+  // While viewing as someone else nothing may be written, so every edit
+  // affordance is hidden — the controls match what the server would allow
+  // rather than failing on save.
+  const viewingAs = viewAs?.viewingAs ?? null;
   /**
    * Which table columns this person may type into. An admin gets the full set;
    * a state lead gets IPM and Discretionary for their own rows, decided
    * server-side and handed over on the payload. The server checks again on
    * every write — this only governs which cells look typeable.
    */
-  const canEditFields = isEditor ? OVERRIDE_EDITABLE : payload.canEditFields;
+  const canEditFields = useMemo(
+    () =>
+      viewingAs ? [] : isEditor ? OVERRIDE_EDITABLE : payload.canEditFields,
+    [viewingAs, isEditor, payload]
+  );
   const canEditAnything = canEditFields.length > 0;
 
   // ── editor state: the SOURCE dataset, persisted per-change to /api/dataset ─
@@ -783,24 +794,24 @@ export default function DashboardClient({
   return (
     <div className="flex min-h-screen flex-col">
       {/* Top bar */}
-      <div className="sticky top-0 z-40 flex items-center justify-between bg-[#191919] px-6 py-3">
+      <div className="sticky top-0 z-40 flex items-center justify-between bg-brand-95 px-6 py-3">
         <div className="flex items-center">
-          <TexcoX className="mr-2.5 h-[22px] w-[22px] shrink-0" />
-          <TexcoWordmark className="mr-4 h-[18px] w-auto shrink-0" />
+          <TexcoX className="mr-2.5 h-[22px] w-[22px] shrink-0 text-brand-orange" />
+          <TexcoWordmark className="mr-4 h-[18px] w-auto shrink-0 text-white" />
           <EditableText
             value={copy.schemeName}
             editing={editing}
             disabled={dsBusy}
             label="Scheme name"
             onCommit={(schemeName) => updateCopy({ schemeName })}
-            className="hidden text-xs font-medium text-[#FC4D0F] sm:inline"
+            className="hidden text-xs font-medium text-brand-orange sm:inline"
             inputClassName="w-[280px]"
           />
         </div>
         <div className="flex items-center gap-3">
           {canEditAnything && (
             <>
-              <span className="text-[11px] text-[#F79470]">
+              <span className="text-[11px] text-brand-orange-soft">
                 {saveStatus === "saving"
                   ? "Saving…"
                   : saveStatus === "error"
@@ -816,7 +827,7 @@ export default function DashboardClient({
                   type="button"
                   onClick={discard}
                   disabled={saveStatus === "saving"}
-                  className="border border-[#FC4D0F]/50 px-3 py-1.5 text-[11px] font-semibold text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white disabled:opacity-40"
+                  className="border border-brand-orange/50 px-3 py-1.5 text-[11px] font-semibold text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white disabled:opacity-40"
                 >
                   Discard
                 </button>
@@ -830,7 +841,7 @@ export default function DashboardClient({
                     ? "Commit these figures and publish them to everyone with access"
                     : "Nothing to save"
                 }
-                className="bg-[#FC4D0F] px-3.5 py-1.5 text-[11px] font-bold text-white transition-colors hover:bg-[#e0440d] disabled:bg-transparent disabled:text-[#F79470]/50"
+                className="bg-brand-orange px-3.5 py-1.5 text-[11px] font-bold text-white transition-colors hover:bg-brand-orange-hover disabled:bg-transparent disabled:text-brand-orange-soft/50"
               >
                 {saveStatus === "saving"
                   ? "Saving…"
@@ -840,7 +851,7 @@ export default function DashboardClient({
               </button>
             </>
           )}
-          <span className="text-right text-xs leading-tight text-[#F79470]">
+          <span className="text-right text-xs leading-tight text-brand-orange-soft">
             {payload.user.name}
             <br />
             <span className="text-[10px] opacity-80">{payload.user.scopeLabel}</span>
@@ -849,7 +860,7 @@ export default function DashboardClient({
             <button
               type="button"
               onClick={toggleShowAll}
-              className="border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"
+              className="border border-brand-orange/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white"
               title="Or press Space"
             >
               {showAll ? "Hide everything" : "Show everything"}
@@ -861,8 +872,8 @@ export default function DashboardClient({
               onClick={toggleEditing}
               className={`px-3.5 py-1.5 text-[11px] font-bold tracking-wide transition-colors ${
                 editing
-                  ? "bg-[#FC4D0F] text-white hover:bg-[#e0440d]"
-                  : "border border-[#FC4D0F]/50 text-[#F79470] hover:bg-[#FC4D0F] hover:text-white"
+                  ? "bg-brand-orange text-white hover:bg-brand-orange-hover"
+                  : "border border-brand-orange/50 text-brand-orange-soft hover:bg-brand-orange hover:text-white"
               }`}
               title={
                 editing
@@ -875,37 +886,40 @@ export default function DashboardClient({
               {editing ? "Done editing" : "Edit mode"}
             </button>
           )}
-          {isEditor && !editing && (
+          {viewAs && !viewingAs && <ViewAsPicker candidates={viewAs.candidates} />}
+          {isEditor && !editing && !viewingAs && (
             <a
               href="/api/export"
               title="Download the current figures as an Excel workbook, for the HR folder"
-              className="border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"
+              className="border border-brand-orange/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white"
             >
               Export
             </a>
           )}
-          {isEditor && !editing && (
+          {isEditor && !editing && !viewingAs && (
             <Link
               href="/admin"
-              className="border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"
+              className="border border-brand-orange/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white"
             >
               Admin
             </Link>
           )}
           <a
             href="/logout"
-            className="border border-[#FC4D0F]/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-[#F79470] transition-colors hover:bg-[#FC4D0F] hover:text-white"
+            className="border border-brand-orange/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white"
           >
             Logout
           </a>
         </div>
       </div>
 
+      {viewAs && <ViewAsBanner {...viewAs} />}
+
       {/* Status banner — editable in place, and switchable off once final */}
       {(copy.bannerVisible || editing) && (
         <div
           className={`px-6 py-1.5 text-center text-xs font-bold text-white ${
-            copy.bannerVisible ? "bg-[#FC4D0F]" : "bg-neutral-400"
+            copy.bannerVisible ? "bg-brand-orange" : "bg-neutral-400"
           }`}
         >
           <EditableText
@@ -941,8 +955,8 @@ export default function DashboardClient({
                 type="button"
                 onClick={() => openTab(t)}
                 className={`px-5 py-2 text-xs font-bold tracking-wide transition-colors ${activeTab === t
-                    ? "bg-[#FC4D0F] text-white"
-                    : "bg-neutral-200 text-[#5C5C5C] hover:bg-neutral-300"
+                    ? "bg-brand-orange text-white"
+                    : "bg-neutral-200 text-brand-70 hover:bg-neutral-300"
                   }`}
               >
                 {t === "ALL" ? "All" : t === "SHARED" ? "Shared" : t === "HISTORY" ? "History" : t}
@@ -961,18 +975,18 @@ export default function DashboardClient({
                 type="button"
                 disabled={historyLoading}
                 onClick={fetchHistory}
-                className="border border-neutral-300 px-3 py-1 text-[11px] font-semibold text-[#5C5C5C] transition-colors hover:border-[#FC4D0F] hover:text-[#FC4D0F] disabled:opacity-40"
+                className="border border-neutral-300 px-3 py-1 text-[11px] font-semibold text-brand-70 transition-colors hover:border-brand-orange hover:text-brand-orange disabled:opacity-40"
               >
                 {historyLoading ? "Loading…" : "Refresh"}
               </button>
             </div>
             <div className="max-h-[calc(100vh-240px)] overflow-auto">
               {history === null || historyLoading ? (
-                <div className="px-4 py-8 text-center text-[13px] text-[#5C5C5C]">
+                <div className="px-4 py-8 text-center text-[13px] text-brand-70">
                   Loading…
                 </div>
               ) : history.length === 0 ? (
-                <div className="px-4 py-8 text-center text-[13px] text-[#5C5C5C]">
+                <div className="px-4 py-8 text-center text-[13px] text-brand-70">
                   No changes recorded yet.
                 </div>
               ) : (
@@ -982,7 +996,7 @@ export default function DashboardClient({
                       {["When", "Who", "What"].map((h) => (
                         <th
                           key={h}
-                          className="sticky top-0 whitespace-nowrap bg-[#191919] px-3 py-2.5 text-left text-[11px] tracking-wide text-white"
+                          className="sticky top-0 whitespace-nowrap bg-brand-95 px-3 py-2.5 text-left text-[11px] tracking-wide text-white"
                         >
                           {h}
                         </th>
@@ -992,7 +1006,7 @@ export default function DashboardClient({
                   <tbody>
                     {history.map((h, i) => (
                       <tr key={i} className="border-b border-neutral-100 hover:bg-neutral-50">
-                        <td className="whitespace-nowrap px-3 py-2 tabular-nums text-[#5C5C5C]">
+                        <td className="whitespace-nowrap px-3 py-2 tabular-nums text-brand-70">
                           {new Date(h.ts).toLocaleString("en-AU", {
                             day: "2-digit",
                             month: "short",
@@ -1022,7 +1036,7 @@ export default function DashboardClient({
             {/* A rejected inline edit explains itself here; the cell has already
             snapped back to the stored figure. */}
             {isEditor && dsError  && (
-              <div className="mb-4 flex items-start justify-between gap-4 border-2 border-[#FC4D0F] bg-[#FED9CC] px-4 py-2 text-[13px] font-semibold">
+              <div className="mb-4 flex items-start justify-between gap-4 border-2 border-error bg-error-tint px-4 py-2 text-[13px] font-semibold">
                 <span>{dsError}</span>
                 <button
                   type="button"
@@ -1038,7 +1052,7 @@ export default function DashboardClient({
                 screen while the employee list scrolls underneath it. The
                 offset clears the sticky top bar, plus the banner when shown. */}
             <div
-              className="sticky z-30 -mx-5 mb-4 flex flex-wrap gap-4 bg-[#f5f5f5] px-5 pb-4 pt-1"
+              className="sticky z-30 -mx-5 mb-4 flex flex-wrap gap-4 bg-surface-sunken px-5 pb-4 pt-1"
               style={{ top: copy.bannerVisible ? 78 : 52 }}
             >
               {poolCardEls}
@@ -1051,7 +1065,7 @@ export default function DashboardClient({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search employees..."
-                className="w-full border-2 border-neutral-200 px-3.5 py-2 text-[13px] outline-none focus:border-[#FC4D0F] sm:w-[220px]"
+                className="w-full border-2 border-neutral-200 px-3.5 py-2 text-[13px] outline-none focus:border-brand-orange sm:w-[220px]"
               />
               <MultiSelect label="Roles" items={facets.cats} selected={selCats} onChange={setSelCats} />
               <MultiSelect label="Departments" items={facets.depts} selected={selDepts} onChange={setSelDepts} />
@@ -1065,7 +1079,7 @@ export default function DashboardClient({
                   />
                   {/* Bulk IPM: set the whole visible list at once, then bring
                       individuals down. */}
-                  <div className="flex items-center gap-1.5 border-2 border-neutral-200 px-2.5 py-1 text-[11px] font-semibold text-[#5C5C5C]">
+                  <div className="flex items-center gap-1.5 border-2 border-neutral-200 px-2.5 py-1 text-[11px] font-semibold text-brand-70">
                     Set IPM for the {visibleRows.length} shown
                     <input
                       type="text"
@@ -1074,14 +1088,14 @@ export default function DashboardClient({
                       aria-label="Bulk IPM percentage"
                       onChange={(e) => setBulkIpm(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && applyBulkIpm()}
-                      className="w-[52px] border border-neutral-300 px-1.5 py-1 text-right tabular-nums outline-none focus:border-[#FC4D0F]"
+                      className="w-[52px] border border-neutral-300 px-1.5 py-1 text-right tabular-nums outline-none focus:border-brand-orange"
                     />
                     %
                     <button
                       type="button"
                       disabled={dsBusy}
                       onClick={applyBulkIpm}
-                      className="ml-1 bg-[#FC4D0F] px-2.5 py-1 font-bold text-white transition-colors hover:bg-[#e0440d] disabled:opacity-40"
+                      className="ml-1 bg-brand-orange px-2.5 py-1 font-bold text-white transition-colors hover:bg-brand-orange-hover disabled:opacity-40"
                     >
                       Apply
                     </button>
@@ -1090,17 +1104,17 @@ export default function DashboardClient({
                       After-IPM figure, so it is not something to nudge from
                       here. It changes with the scheme, not with an allocation. */}
                   <span
-                    className="flex items-center gap-1.5 border-2 border-neutral-200 px-2.5 py-1 text-[11px] font-semibold text-[#5C5C5C]"
+                    className="flex items-center gap-1.5 border-2 border-neutral-200 px-2.5 py-1 text-[11px] font-semibold text-brand-70"
                     title="Scales every After-IPM figure. 1 = no change."
                   >
                     Company modifier
-                    <span className="tabular-nums text-[#191919]">
+                    <span className="tabular-nums text-brand-95">
                       {params.companyModifier}
                     </span>
                   </span>
                 </>
               )}
-              <div className="ml-auto flex items-center gap-3 text-xs text-[#5C5C5C]">
+              <div className="ml-auto flex items-center gap-3 text-xs text-brand-70">
                 <span className="bg-neutral-100 px-2.5 py-1">
                   Showing: {visibleRows.length} / {allRows.length}
                 </span>
@@ -1136,7 +1150,7 @@ export default function DashboardClient({
         )}
       </div>
 
-      <footer className="border-t-2 border-[#FC4D0F] bg-white px-6 py-3.5 text-center text-[11px] tracking-wide text-[#5C5C5C]">
+      <footer className="border-t-2 border-brand-orange bg-white px-6 py-3.5 text-center text-[11px] tracking-wide text-brand-70">
         <EditableText
           value={copy.footerText}
           editing={editing}
@@ -1156,7 +1170,7 @@ export default function DashboardClient({
             setImportOpen(true);
             void importFlow.check(file);
           }}
-          disabled={importOpen || dsBusy}
+          disabled={importOpen || dsBusy || viewingAs !== null}
           label="Drop the spreadsheet to update the figures"
         />
       )}
@@ -1181,13 +1195,13 @@ export default function DashboardClient({
           </div>
 
           {importFlow.fatal && (
-            <div className="mb-3 border-2 border-[#FC4D0F] bg-[#FED9CC] px-4 py-2 text-[13px] font-semibold">
+            <div className="mb-3 border-2 border-error bg-error-tint px-4 py-2 text-[13px] font-semibold">
               {importFlow.fatal}
             </div>
           )}
 
           {importFlow.stage.step === "checking" && (
-            <div className="bg-white px-5 py-8 text-center text-[13px] text-[#5C5C5C] shadow-sm">
+            <div className="bg-white px-5 py-8 text-center text-[13px] text-brand-70 shadow-sm">
               Checking the file…
             </div>
           )}
@@ -1205,7 +1219,7 @@ export default function DashboardClient({
             />
           )}
           {importFlow.stage.step === "done" && (
-            <div className="border-t-4 border-[#FC4D0F] bg-white p-5 shadow-sm">
+            <div className="border-t-4 border-brand-orange bg-white p-5 shadow-sm">
               <h3 className="mb-2 text-[13px] font-bold">
                 Import applied
               </h3>
@@ -1214,7 +1228,7 @@ export default function DashboardClient({
                 {importFlow.stage.preview.added.length} added,{""}
                 {importFlow.stage.preview.removed.length} removed). Total pool:{""}
                 {fmt(importFlow.stage.preview.totalAfter)}. It can be undone from{""}
-                <Link href="/admin/snapshots" className="font-semibold text-[#FC4D0F] underline">
+                <Link href="/admin/snapshots" className="font-semibold text-brand-orange underline">
                   Snapshots
                 </Link>
                 .
@@ -1222,7 +1236,7 @@ export default function DashboardClient({
               <button
                 type="button"
                 onClick={closeImport}
-                className="bg-[#FC4D0F] px-6 py-2.5 text-[12px] font-bold text-white hover:bg-[#e0440d]"
+                className="bg-brand-orange px-6 py-2.5 text-[12px] font-bold text-white hover:bg-brand-orange-hover"
               >
                 Show updated figures
               </button>

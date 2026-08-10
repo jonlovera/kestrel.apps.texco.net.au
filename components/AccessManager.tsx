@@ -194,13 +194,13 @@ export default function AccessManager({
   );
 
   const inputCls =
-    " border-2 border-neutral-200 px-3 py-2 text-[13px] outline-none focus:border-[#FC4D0F]";
+    " border-2 border-neutral-200 px-3 py-2 text-[13px] outline-none focus:border-brand-orange";
 
   return (
     <div>
       <div className="mx-auto w-full max-w-[1100px] flex-1 px-5 py-6">
         <h1 className="mb-1 text-lg font-bold">Who can sign in</h1>
-        <p className="mb-4 text-[13px] text-[#5C5C5C]">
+        <p className="mb-4 text-[13px] text-brand-70">
           People sign in with their Texco Microsoft account; they see nothing
           unless listed here. Start typing a name below and pick them from the
           directory, or type any address in full — access can be granted to
@@ -214,7 +214,7 @@ export default function AccessManager({
         </p>
 
         {error && (
-          <div className="mb-4 border-2 border-[#FC4D0F] bg-[#FED9CC] px-4 py-2 text-[13px] font-semibold text-[#191919]">
+          <div className="mb-4 border-2 border-error bg-error-tint px-4 py-2 text-[13px] font-semibold text-brand-95">
             {error}
           </div>
         )}
@@ -226,7 +226,7 @@ export default function AccessManager({
                 {["Email", "Access", "Visible fields", "Source", ""].map((h) => (
                   <th
                     key={h}
-                    className="whitespace-nowrap bg-[#191919] px-3 py-2.5 text-left text-[11px] tracking-wide text-white"
+                    className="whitespace-nowrap bg-brand-95 px-3 py-2.5 text-left text-[11px] tracking-wide text-white"
                   >
                     {h}
                   </th>
@@ -238,14 +238,14 @@ export default function AccessManager({
                 <tr key={r.email} className="border-b border-neutral-100 hover:bg-neutral-50">
                   <td className="px-3 py-2 font-semibold">{r.email}</td>
                   <td className="px-3 py-2">{describe(r.rule)}</td>
-                  <td className="max-w-[320px] truncate px-3 py-2 text-[#5C5C5C]" title={fieldsOf(r.rule)}>
+                  <td className="max-w-[320px] truncate px-3 py-2 text-brand-70" title={fieldsOf(r.rule)}>
                     {fieldsOf(r.rule)}
                   </td>
                   <td className="px-3 py-2">
                     <span
                       className={`inline-block px-2 py-0.5 text-[11px] font-bold ${
                         r.source === "db"
-                          ? "bg-[#FED9CC] text-[#FC4D0F]"
+                          ? "bg-brand-orange-tint text-brand-orange"
                           : "bg-neutral-200 text-neutral-600"
                       }`}
                     >
@@ -257,7 +257,7 @@ export default function AccessManager({
                       type="button"
                       disabled={busy}
                       onClick={() => edit(r)}
-                      className="mr-1 border border-neutral-300 px-3 py-1 text-[11px] font-semibold text-[#5C5C5C] transition-colors hover:border-[#FC4D0F] hover:text-[#FC4D0F] disabled:opacity-40"
+                      className="mr-1 border border-neutral-300 px-3 py-1 text-[11px] font-semibold text-brand-70 transition-colors hover:border-brand-orange hover:text-brand-orange disabled:opacity-40"
                     >
                       Edit
                     </button>
@@ -269,7 +269,7 @@ export default function AccessManager({
                         if (confirm(`Remove all access for ${r.email}?`))
                           call("DELETE", { email: r.email });
                       }}
-                      className="border border-neutral-300 px-3 py-1 text-[11px] font-semibold text-[#5C5C5C] transition-colors hover:border-[#FC4D0F] hover:text-[#FC4D0F] disabled:cursor-not-allowed disabled:opacity-40"
+                      className="border border-neutral-300 px-3 py-1 text-[11px] font-semibold text-brand-70 transition-colors hover:border-brand-orange hover:text-brand-orange disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       Remove
                     </button>
@@ -280,14 +280,14 @@ export default function AccessManager({
           </table>
         </div>
 
-        <div className="border-t-4 border-[#FC4D0F] bg-white p-5 shadow-sm">
+        <div className="border-t-4 border-brand-orange bg-white p-5 shadow-sm">
           <h2 className="mb-3 flex items-center gap-3 text-[13px] font-bold">
             {editingEmail ? `Editing ${editingEmail}` : "Add or update a person"}
             {editingEmail && (
               <button
                 type="button"
                 onClick={resetForm}
-                className="border border-neutral-300 px-2.5 py-0.5 text-[11px] font-semibold text-[#5C5C5C] hover:border-[#FC4D0F] hover:text-[#FC4D0F]"
+                className="border border-neutral-300 px-2.5 py-0.5 text-[11px] font-semibold text-brand-70 hover:border-brand-orange hover:text-brand-orange"
               >
                 Cancel
               </button>
@@ -315,7 +315,7 @@ export default function AccessManager({
                 <label key={s} className="flex items-center gap-1.5 text-[13px]">
                   <input
                     type="checkbox"
-                    className="h-3.5 w-3.5 accent-[#FC4D0F]"
+                    className="h-3.5 w-3.5 accent-brand-orange"
                     checked={states.includes(s)}
                     onChange={() => toggle(states, s, setStates)}
                   />
@@ -326,7 +326,7 @@ export default function AccessManager({
 
           {type === "group" && (
             <div className="mb-3">
-              <div className="mb-1 text-[11px] font-semibold tracking-wide text-[#5C5C5C]">
+              <div className="mb-1 text-[11px] font-semibold tracking-wide text-brand-70">
                 Roles {roles.length > 0 && `(${roles.length} picked)`}
               </div>
               <div className="max-h-[180px] overflow-y-auto border-2 border-neutral-200 p-2">
@@ -337,7 +337,7 @@ export default function AccessManager({
                   >
                     <input
                       type="checkbox"
-                      className="h-3.5 w-3.5 accent-[#FC4D0F]"
+                      className="h-3.5 w-3.5 accent-brand-orange"
                       checked={roles.includes(p.pos)}
                       onChange={() => toggle(roles, p.pos, setRoles)}
                     />
@@ -346,7 +346,7 @@ export default function AccessManager({
                   </label>
                 ))}
               </div>
-              <p className="mt-1 text-[12px] text-[#5C5C5C]">
+              <p className="mt-1 text-[12px] text-brand-70">
                 {groupMatchCount === null
                   ? "Leave roles empty for everyone in the chosen states."
                   : `Matches ${groupMatchCount} ${groupMatchCount === 1 ? "person" : "people"} right now — and keeps matching as people come and go.`}
@@ -371,7 +371,7 @@ export default function AccessManager({
                   >
                     <input
                       type="checkbox"
-                      className="h-3.5 w-3.5 accent-[#FC4D0F]"
+                      className="h-3.5 w-3.5 accent-brand-orange"
                       checked={ids.includes(e.id)}
                       onChange={() => toggle(ids, e.id, setIds)}
                     />
@@ -382,13 +382,13 @@ export default function AccessManager({
                   </label>
                 ))}
               </div>
-              <div className="mt-1 text-[11px] text-[#5C5C5C]">{ids.length} selected</div>
+              <div className="mt-1 text-[11px] text-brand-70">{ids.length} selected</div>
             </div>
           )}
 
           {type !== "full" && (
             <div className="mb-4">
-              <div className="mb-1 text-[11px] font-semibold tracking-wide text-[#5C5C5C]">
+              <div className="mb-1 text-[11px] font-semibold tracking-wide text-brand-70">
                 Visible fields
               </div>
               <div className="flex flex-wrap gap-3">
@@ -396,13 +396,13 @@ export default function AccessManager({
                   <label key={f} className="flex items-center gap-1.5 text-[13px]">
                     <input
                       type="checkbox"
-                      className="h-3.5 w-3.5 accent-[#FC4D0F]"
+                      className="h-3.5 w-3.5 accent-brand-orange"
                       checked={fields.includes(f)}
                       onChange={() => toggle(fields, f, setFields)}
                     />
                     {FIELD_LABELS[f]}
                     {SENSITIVE.includes(f) && (
-                      <span className="bg-[#FED9CC] px-1.5 py-px text-[10px] font-bold text-[#FC4D0F]">
+                      <span className="bg-brand-orange-tint px-1.5 py-px text-[10px] font-bold text-brand-orange">
                         salary
                       </span>
                     )}
@@ -416,7 +416,7 @@ export default function AccessManager({
             type="button"
             disabled={busy}
             onClick={submit}
-            className="bg-[#FC4D0F] px-6 py-2.5 text-[12px] font-bold text-white transition-colors hover:bg-[#e0440d] disabled:opacity-50"
+            className="bg-brand-orange px-6 py-2.5 text-[12px] font-bold text-white transition-colors hover:bg-brand-orange-hover disabled:opacity-50"
           >
             {busy ? "Saving…" : editingEmail ? "Save changes" : "Grant access"}
           </button>

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
-import { scopeForUser } from "@/lib/access";
+import { requireWriter } from "@/lib/api-guard";
 import { getDataset, getParams } from "@/lib/data";
 import { loadOverrides } from "@/lib/store";
 import { applyParams } from "@/lib/params-apply";
@@ -15,23 +14,13 @@ import type { Overrides } from "@/lib/schema";
 
 export const dynamic = "force-dynamic";
 
-async function requireAdmin() {
-  const session = await auth();
-  const email = session?.user?.email;
-  const scope = await scopeForUser(email);
-  if (!email || !scope) return { error: 401 as const };
-  if (!scope.canEdit) return { error: 403 as const };
-  return { email };
-}
-
 /**
  * Upload → parse → validate → preview. Nothing is written; the client shows
  * the preview and calls /api/import/apply to commit.
  */
 export async function POST(req: Request) {
-  const admin = await requireAdmin();
-  if ("error" in admin)
-    return NextResponse.json({ error: "Denied" }, { status: admin.error });
+  const guard = await requireWriter("import-check");
+  if ("response" in guard) return guard.response;
 
   const form = await req.formData();
   const file = form.get("file");
@@ -76,7 +65,7 @@ export async function POST(req: Request) {
   const totalAfter = totalPool(effAfter, survivingOverrides);
 
   console.log(
-    `[audit] import-preview email=${admin.email} rows=${preview.rowCount} added=${preview.added.length} removed=${preview.removed.length} ts=${new Date().toISOString()}`
+    `[audit] import-preview email=${guard.email} rows=${preview.rowCount} added=${preview.added.length} removed=${preview.removed.length} ts=${new Date().toISOString()}`
   );
 
   const res = NextResponse.json({

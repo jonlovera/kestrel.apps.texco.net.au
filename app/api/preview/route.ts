@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
-import { scopeForUser } from "@/lib/access";
+import { resolveViewer } from "@/lib/view-as";
 import { getEffectiveDataset, getParams } from "@/lib/data";
 import { loadOverrides, loadColumnConfig, loadCopy } from "@/lib/store";
 import { buildPayloadCore } from "@/lib/scope-core";
@@ -26,13 +25,13 @@ export const dynamic = "force-dynamic";
  * but they're allowed through so there is one code path to reason about.
  */
 export async function POST(req: Request) {
-  const session = await auth();
-  const email = session?.user?.email;
-  const scope = await scopeForUser(email);
-
-  if (!email || !scope) {
+  // Through the view-as layer, so an admin checking a lead's view sees that
+  // lead's what-if rather than an editor payload with no rows in it.
+  const { actor, scope } = await resolveViewer();
+  if (!actor || !scope) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const email = actor;
 
   let incoming: Overrides;
   try {

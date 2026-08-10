@@ -36,7 +36,7 @@ export function MultiSelect({
     ) : (
       <>
         {label}{""}
-        <span className="ml-1 inline-block bg-[#FC4D0F] px-1.5 py-px text-[10px] font-bold text-white">
+        <span className="ml-1 inline-block bg-brand-orange px-1.5 py-px text-[10px] font-bold text-white">
           {selected.length}
         </span>
       </>
@@ -48,7 +48,7 @@ export function MultiSelect({
         type="button"
         onClick={() => setOpen((o) => !o)}
         className={`flex w-full min-w-[160px] items-center justify-between gap-1.5 border-2 bg-white px-3.5 py-2 text-left text-[13px] outline-none ${
-          open ? "border-[#FC4D0F]" : "border-neutral-200"
+          open ? "border-brand-orange" : "border-neutral-200"
         }`}
       >
         <span>{btnLabel}</span>
@@ -59,7 +59,7 @@ export function MultiSelect({
           <label className="flex cursor-pointer items-center gap-2 border-b border-neutral-100 px-3 py-1.5 text-[13px] font-semibold hover:bg-neutral-100">
             <input
               type="checkbox"
-              className="h-3.5 w-3.5 accent-[#FC4D0F]"
+              className="h-3.5 w-3.5 accent-brand-orange"
               checked={allSelected}
               onChange={(e) => onChange(e.target.checked ? [...items] : [])}
             />
@@ -72,7 +72,7 @@ export function MultiSelect({
             >
               <input
                 type="checkbox"
-                className="h-3.5 w-3.5 accent-[#FC4D0F]"
+                className="h-3.5 w-3.5 accent-brand-orange"
                 checked={selected.includes(item)}
                 onChange={(e) =>
                   onChange(

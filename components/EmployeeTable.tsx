@@ -52,7 +52,7 @@ interface Props {
 }
 
 const cellInput =
-  "border border-neutral-300 px-1.5 py-1 text-xs outline-none focus:border-[#FC4D0F] disabled:opacity-50";
+  "border border-neutral-300 px-1.5 py-1 text-xs outline-none focus:border-brand-orange disabled:opacity-50";
 
 /**
  * Enter moves down a column, Shift+Enter up, Escape abandons the edit. Tab is
@@ -130,10 +130,10 @@ export default function EmployeeTable({
       case "state": {
         const cls =
           r.st === "VIC"
-            ? "bg-[#FED9CC] text-[#FC4D0F]"
+            ? "bg-brand-orange-tint text-brand-orange"
             : r.st === "NSW"
-              ? "bg-[#3D3D3D] text-white"
-              : "bg-[#FDA478] text-white";
+              ? "bg-brand-90 text-white"
+              : "bg-brand-orange-mid text-white";
         return (
           <span className={`inline-block px-2 py-0.5 text-[11px] font-bold ${cls}`}>
             {r.st}
@@ -202,7 +202,7 @@ export default function EmployeeTable({
       }
       case "yoy": {
         const v = r.yoy!;
-        const color = v > 0 ? "text-[#191919]" : v < 0 ? "text-[#FC4D0F]" : "";
+        const color = v > 0 ? "text-brand-95" : v < 0 ? "text-brand-orange" : "";
         return <span className={color}>{show(c, v)}</span>;
       }
       case "final":
@@ -224,8 +224,8 @@ export default function EmployeeTable({
             onClick={() => handlers.toggleLock(r.id)}
             className={`h-7 w-7 border-[1.5px] text-sm transition-colors ${
               r.locked
-                ? "border-[#FC4D0F] bg-[#FC4D0F]"
-                : "border-neutral-300 bg-transparent hover:border-[#FC4D0F]"
+                ? "border-brand-orange bg-brand-orange"
+                : "border-neutral-300 bg-transparent hover:border-brand-orange"
             }`}
           >
             {r.locked ? "🔒" : "🔓"}
@@ -256,7 +256,7 @@ export default function EmployeeTable({
                     : undefined
                 }
                 title={editing && !c.noSort ? "Double-click to rename" : undefined}
-                className={`sticky top-0 z-10 whitespace-nowrap bg-[#191919] px-2 py-2.5 text-left text-[11px] tracking-wide text-white select-none ${
+                className={`sticky top-0 z-10 whitespace-nowrap bg-brand-95 px-2 py-2.5 text-left text-[11px] tracking-wide text-white select-none ${
                   c.noSort ? "" : "cursor-pointer hover:bg-[#333]"
                 } ${c.num ? "text-right" : ""}`}
               >
@@ -285,7 +285,7 @@ export default function EmployeeTable({
                   key={c.key}
                   className={`whitespace-nowrap border-b border-neutral-100 px-2 py-2 group-hover:bg-neutral-50 ${
                     c.num ? "text-right tabular-nums" : ""
-                  } ${c.key === "final" ? "bg-[#D4B9FA]" : c.key === "f25" ? "bg-[#f7f7f7]" : ""}`}
+                  } ${c.key === "final" ? "bg-brand-lavender" : c.key === "f25" ? "bg-surface-sunken" : ""}`}
                 >
                   {cell(r, c, rowIdx)}
                 </td>
@@ -312,7 +312,7 @@ export default function EmployeeTable({
                   key={c.key}
                   className={`whitespace-nowrap px-2 py-2 text-[13px] font-bold text-white ${
                     c.num ? "text-right tabular-nums" : ""
-                  } ${c.key === "final" ? "bg-[#D4B9FA]" : "bg-[#FC4D0F]"}`}
+                  } ${c.key === "final" ? "bg-brand-lavender" : "bg-brand-orange"}`}
                 >
                   {v}
                 </td>

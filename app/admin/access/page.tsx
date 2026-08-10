@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
-import { scopeForUser, allRules } from "@/lib/access";
+import { allRules } from "@/lib/access";
+import { resolveViewer } from "@/lib/view-as";
 import { getDataset } from "@/lib/data";
 import AccessManager from "@/components/AccessManager";
 
@@ -8,13 +8,11 @@ export const metadata = { title: "Texco" };
 export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
-  const session = await auth();
-  const email = session?.user?.email;
-  if (!email) redirect("/login");
-
-  const scope = await scopeForUser(email);
+  const { actor, scope } = await resolveViewer();
+  if (!actor) redirect("/login");
   if (!scope) redirect("/no-access");
   if (!scope.canEdit) redirect("/");
+  const email = actor;
 
   const rules = await allRules();
   const list = Object.entries(rules)
