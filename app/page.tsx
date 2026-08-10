@@ -38,6 +38,24 @@ export default async function DashboardPage() {
 
   return (
     <DashboardClient
+      /**
+       * Not redundant: this key is what makes View as work.
+       *
+       * Starting or stopping a view is a server-action redirect, which is a
+       * soft navigation, so React would otherwise reconcile the existing
+       * DashboardClient rather than remount it and every piece of its state
+       * would survive the switch. Nearly all of that state is seeded by
+       * useState initialisers that branch on `payload.mode`, and those run
+       * only at mount: an admin's editor mount seeds the read-only rows and
+       * pool cards to [], so a lead's view rendered on that same instance
+       * came out empty while its header, columns and banner (read straight
+       * off the payload) looked perfectly correct.
+       *
+       * Changing the key when the viewer or the mode changes forces a clean
+       * mount, so the initialisers re-run against the payload in hand. Both
+       * parts are stable within a session, so this costs no extra remounts.
+       */
+      key={`${viewingAs ?? actor}:${payload.mode}`}
       payload={payload}
       viewAs={{
         actor,
