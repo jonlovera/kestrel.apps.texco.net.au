@@ -79,6 +79,44 @@ export function editableColumns(scope: Scope): string[] {
     .filter((c): c is string => !!c && visible.has(c));
 }
 
+/**
+ * How much authority a writing route demands.
+ *
+ * "admin" is the default and covers everything with no per-row boundary of
+ * its own: the dataset, the caps, the presentation, imports, the access list.
+ * "scoped" is /api/state alone, which takes writes from state leads because
+ * sanitiseOverrideWrite below decides afterwards which rows and fields were
+ * actually theirs.
+ */
+export type WriteLevel = "admin" | "scoped";
+
+export type WriteVerdict = "ok" | "unauthenticated" | "viewing-as" | "forbidden";
+
+/**
+ * The whole write gate, as a pure function, so it can be tested.
+ *
+ * It is separate from lib/api-guard.ts because that module is `server-only`
+ * and therefore unreachable from the suite. That is not a theoretical concern:
+ * the admin routes spent their whole life accepting writes from state leads
+ * because the guard's `canEdit` check was described in its comment and never
+ * written, and no test could see it. This encodes the rule where a test can.
+ *
+ * Order matters. Viewing as is refused before the scope is judged, because
+ * while a view is active `scope` is the TARGET's, so an admin viewing another
+ * admin would otherwise pass on someone else's authority.
+ */
+export function writeVerdict(
+  level: WriteLevel,
+  actor: string | null,
+  scope: Scope | null,
+  viewingAs: string | null
+): WriteVerdict {
+  if (!actor || !scope) return "unauthenticated";
+  if (viewingAs) return "viewing-as";
+  if (level === "admin" && !scope.canEdit) return "forbidden";
+  return "ok";
+}
+
 export interface SanitisedWrite {
   /** the stored document with only the permitted changes applied */
   overrides: Overrides;

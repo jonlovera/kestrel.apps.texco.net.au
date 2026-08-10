@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getEffectiveDataset } from "@/lib/data";
-import { requireWriter } from "@/lib/api-guard";
+import { requireScopedWriter } from "@/lib/api-guard";
 import { saveOverridesCas, loadOverrides, appendHistory } from "@/lib/store";
 import { OverridesSchema, type Overrides } from "@/lib/schema";
 import { z } from "zod";
@@ -28,10 +28,10 @@ export const dynamic = "force-dynamic";
  * adopts the response rather than its own optimistic state.
  */
 export async function POST(req: Request) {
-  // requireWriter rather than a scope check: a lead may legitimately write
-  // here, so this is the route where "not while viewing as someone" has to be
-  // said out loud rather than falling out of the scope test.
-  const guard = await requireWriter("state-write");
+  // The one route that takes writes from people without full access, so it
+  // uses the weaker guard: it settles only "a real user, as themselves". Which
+  // rows and fields they may touch is sanitiseOverrideWrite's call, below.
+  const guard = await requireScopedWriter("state-write");
   if ("response" in guard) return guard.response;
   const { email, scope } = guard;
 

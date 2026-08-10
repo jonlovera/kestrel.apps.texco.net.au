@@ -13,6 +13,7 @@ import {
   sanitiseOverrideWrite,
   writableEmployeeIds,
   writableFields,
+  writeVerdict,
   WRITABLE_BY_ADMIN,
   WRITABLE_BY_LEAD,
 } from "./write-scope";
@@ -209,3 +210,52 @@ describe("saving does not erase anyone else's work", () => {
  * route refuses a null scope before reaching this module. The type system
  * holds that line, so a runtime test would only assert unreachable code.
  */
+
+/**
+ * The gate every writing route runs (lib/api-guard.ts turns these verdicts
+ * into responses). These exist because the real thing shipped broken and
+ * invisible: requireWriter's comment claimed it refused anyone without
+ * `canEdit`, the check was never written, and every admin route inherited it.
+ */
+describe("writeVerdict", () => {
+  it("lets a full-access user through at either level", () => {
+    expect(writeVerdict("admin", admin.email, admin, null)).toBe("ok");
+    expect(writeVerdict("scoped", admin.email, admin, null)).toBe("ok");
+  });
+
+  it("refuses a state lead an admin-level write", () => {
+    // The regression: /api/dataset, /api/params, /api/import/apply and
+    // /api/access all accepted these, the last of which would have let a lead
+    // grant themselves full access.
+    expect(writeVerdict("admin", vicLead.email, vicLead, null)).toBe("forbidden");
+    expect(writeVerdict("admin", subsetLead.email, subsetLead, null)).toBe("forbidden");
+    expect(writeVerdict("admin", smGroupLead.email, smGroupLead, null)).toBe("forbidden");
+  });
+
+  it("lets a state lead make a scoped write, which is /api/state alone", () => {
+    // sanitiseOverrideWrite decides afterwards which rows and fields were
+    // actually theirs, which is what makes the weaker gate safe here.
+    expect(writeVerdict("scoped", vicLead.email, vicLead, null)).toBe("ok");
+  });
+
+  it("refuses everyone while viewing as someone, at either level", () => {
+    expect(writeVerdict("scoped", admin.email, vicLead, "vic@texco.net.au")).toBe("viewing-as");
+    expect(writeVerdict("admin", admin.email, admin, "other@texco.net.au")).toBe("viewing-as");
+  });
+
+  it("judges viewing-as before the scope, since the scope is the target's", () => {
+    // An admin viewing another admin holds a canEdit scope that is not their
+    // own; taking it at face value would let them write on someone else's
+    // authority and log it against the wrong person.
+    expect(writeVerdict("admin", admin.email, admin, "other-admin@texco.net.au")).toBe(
+      "viewing-as"
+    );
+  });
+
+  it("refuses a signed-out caller, and one with no access at all", () => {
+    expect(writeVerdict("admin", null, null, null)).toBe("unauthenticated");
+    expect(writeVerdict("scoped", "nobody@texco.net.au", null, null)).toBe(
+      "unauthenticated"
+    );
+  });
+});
