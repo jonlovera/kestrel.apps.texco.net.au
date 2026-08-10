@@ -5,14 +5,14 @@ access control is enforced **server-side**: the browser never receives rows or
 fields the signed-in user isn't entitled to. Sign-in is Microsoft Entra ID
 (the same method as the tools app) — no passwords in this app at all.
 
-- **Full access** users get the whole dataset and edit it in the browser with
-  the prototype's instant recalculation; every change is revalidated
-  server-side and persisted to Postgres, so results survive across sessions.
-  They can also drop a spreadsheet onto the dashboard to replace the roster,
-  edit the source figures inline, and add or remove people (see §5).
-- **State** and **subset** users get read-only, server-computed views with
-  only their permitted rows and fields — verified absent from the network
-  payload, not hidden with CSS.
+- **Full access** users get the whole dataset with the prototype's instant
+  recalculation, and drop the spreadsheet onto the dashboard to refresh it.
+- **State**, **group** and **subset** users get server-computed views of only
+  their permitted rows and fields — verified absent from the network payload,
+  not hidden with CSS — and can set IPM and Discretionary on their own people.
+- Employee ID, package and bonus % are read-only for **everyone**. They come
+  from the spreadsheet, because a typo in one cascades through every figure.
+- Nothing is written until Save; unsaved figures never leave the browser.
 
 ## Stack
 
@@ -99,11 +99,16 @@ access** in the dashboard header (or `/admin`) — add an email, pick one of the
 three access types, save. Changes are stored in the database and apply
 immediately, no deploy:
 
-- `full` — every employee, every field, can edit, can manage access
-- `state` — all employees in the listed state(s), read-only, with an explicit
+- `full` — every employee, every field, can edit everything, can manage access
+- `state` — all employees in the listed state(s), with an explicit
   visible-fields list (leave Package/Bonus% unticked to keep salary figures
   out entirely — they're flagged "salary" in the form)
-- `subset` — an explicit list of employees, read-only, explicit fields
+- `group` — a state and/or a role, e.g. "all VIC site managers". A standing
+  rule: it keeps matching as people join and leave, where a subset goes stale
+- `subset` — an explicit list of employees, explicit fields
+
+Everyone except `full` sees only their own rows and can set IPM and
+Discretionary on them — nothing else, and never anyone else's row.
 
 Precedence per email: `lib/access.ts` (code seed — the owners, always present)
 < `BONUS_USERS` env var (optional JSON of the same shape) < the `/admin`
@@ -113,50 +118,45 @@ out. Every access change is audit-logged (who, whom, what, when).
 
 ## 4. Data, parameters and presentation (self-service, no deploy)
 
-Almost everything is edited **in place on the dashboard**: press **Edit mode**
-(top right, full-access users only) and the table becomes a spreadsheet. Press
-**Done editing** and it goes back to plain text with no input boxes — the view
-to share on a screen.
+Editing happens **in place on the dashboard**: press **Edit mode** (top right)
+and the figures you're allowed to change become typeable. Press **Done
+editing** and it goes back to plain text — the view to share on a screen.
 
-In edit mode:
+**Nothing is written until you press Save.** Unsaved figures are local to your
+browser, invisible to everyone else, and gone if the tab closes — the tool is
+used to ask "if I move this person to $15k, what happens to everyone else?",
+and those experiments must not reach anyone else or the record. Discard puts
+them back. Each save takes one snapshot.
 
-- **Any cell** — Package, After IPM, FY25 bonus, Bonus %, IPM %, Disc adj, and
-  the identity text (name, position, department, manager, category, state).
-  Tab across, Enter down, Escape to abandon a cell. Each cell saves as you
-  leave it.
-- **The pool caps** — typed straight onto the pool cards; the utilisation bars,
-  scale factors and Remaining figures move as you type, so the live dashboard
-  is the impact preview. The company modifier sits beside the filters and
-  reloads the page on save (it rescales every After-IPM figure).
-- **The columns** — a Columns button to show/hide, reorder, reformat and
-  rename, or double-click any heading to rename it there. Display only: never
-  changes entitlement or calculations (tested).
-- **The wording** — scheme name, status banner (switchable off once figures are
-  final), pool card titles and footer. Same display-only guarantee. The browser
-  tab title and the sign-in / no-access pages stay hardcoded so the scheme is
-  never named on a pre-auth surface.
-- **People** — "+ Add person", and a pencil per row for the VIC/NSW split, the
-  site-manager flag and removal.
+Who can change what:
 
-What's left under **/admin** is what doesn't belong in a cell (full-access
-users only; every page and API authorises independently):
+| | Admin / finance | State lead |
+|---|---|---|
+| IPM, Discretionary | ✅ | ✅ own rows only |
+| After IPM ("Bonus") | ✅ | ✕ |
+| Lock a bonus | ✅ | ✕ |
+| Employee ID, Package/REM, Bonus % | ✕ | ✕ |
+| Names, roles, states, who exists | ✕ | ✕ |
+| Caps, columns, wording, banner | ✅ | ✕ |
 
-- **Access** — grant/revoke who can sign in and what they see.
-- **Import** — drop the .xlsx/.csv onto the dashboard or this page, or pick a
-  file (headers: ID, Surname, Given name, Position, Department, Manager,
-  Category, State, VIC %, NSW %, Package, Bonus %, IPM %, After IPM, Disc adj,
-  FY25 bonus, Site manager). Preview shows added/removed people and the pool
-  total before/after for reconciliation; removals of people with entered
-  figures need explicit confirmation; manager-entered IPMs/adjustments/locks
-  are never overwritten.
-- **Snapshots** — a full copy of everything is taken before every change;
-  one-click restore (itself undoable) and per-snapshot JSON download. Last
-  50 kept.
+The read-only fields come from the spreadsheet, and only from there: a typo in
+an employee ID or a package cascades through every calculation in the scheme.
+Terminations, promotions and new starters arrive by import.
 
-Concurrent editing is safe: saves carry a version and a stale save gets a
-"someone else saved" reload instead of silently overwriting. The dataset and
-the overrides doc are versioned separately, so an import (or someone else's
-inline edit) also forces open editors to reload before their next change.
+A state lead never calculates locally — their browser is never given the pool
+it would need. Their what-ifs go to `/api/preview`, which runs the real engine
+server-side and returns only their own scope-stripped rows, persisting
+nothing. `lib/write-scope.ts` decides every write, and `lib/scope-core.ts`
+every read; both share one definition of "in scope".
+
+Also in edit mode: bulk IPM across everyone shown, the pool caps typed onto
+the cards (the summary is frozen so "remaining to allocate" stays visible),
+the column menu, and the headings, banner and footer.
+
+**Export** — the Export button downloads an Excel workbook: one sheet of data
+with employee ID and headers matching the import, plus a Summary sheet with
+provenance and totals. It can be edited and imported straight back. Snapshots
+export the same way.
 
 ### The two write paths
 
@@ -164,26 +164,8 @@ Deliberately kept apart:
 
 | | Fields | Stored in | Survives an import? |
 |---|---|---|---|
-| **Your judgement** | Bonus %, IPM %, Disc adj, locks | overrides doc | **Yes** |
-| **Payroll facts** | Package, After IPM, FY25 bonus, pool split, site-manager flag, who exists | the dataset | **No** — the spreadsheet wins |
-
-Package, After IPM and FY25 bonus are typed straight into the table. The pencil
-on each row opens a drawer for the VIC/NSW split, the site-manager flag and
-**Remove person**; **+ Add person** beside the filters takes a new starter.
-Removing someone deletes their entered figures with them (behind a confirm),
-and the filter lists re-derive automatically.
-
-**A package edit carries After IPM with it, pro rata.** The frozen engine
-derives each person's company modifier from their After-IPM figure
-(`cpm = bipm / (pkg × bp × ipm)`, `lib/calc.ts`), so the `pkg` terms cancel and
-editing Package *alone* would move the bonus by exactly $0. Scaling After IPM
-by the same ratio keeps the derived modifier identical and makes a pay rise
-raise the bonus proportionally. See `scaledBipm()` in `lib/dataset-edit.ts`.
-
-Pool weights are validated: VIC + NSW must total 100% (or both be 0% for
-someone outside the pools) and must match the person's state — every one of the
-155 source rows already satisfies this, and a partial split would allocate part
-of a bonus against neither state cap.
+| **Your judgement** | IPM, Discretionary, locks | overrides doc | **Yes** |
+| **Payroll facts** | After IPM, and everything read-only | the dataset | **No** — the spreadsheet wins |
 
 **Source data is not in git.** `data/bonus.json` (155 salary packages) is
 gitignored; the app reads the dataset from the database (`kestrel_docs` key
