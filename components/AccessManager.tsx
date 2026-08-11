@@ -27,7 +27,8 @@ interface PositionOption {
 
 const FIELD_LABELS: Record<NumericField, string> = {
   elig: "Eligibility %",
-  pkg: "Package",
+  totalPkg: "Total Package",
+  pkg: "Eligible Salary",
   bp: "Bonus%",
   potential: "Potential Bonus",
   ipm: "IPM%",
@@ -40,7 +41,9 @@ const FIELD_LABELS: Record<NumericField, string> = {
   vp: "VIC %",
   np: "NSW %",
 };
-const SENSITIVE: NumericField[] = ["pkg", "bp"];
+// Raw salary figures, opt-in only for a new access grant — unlike bonus
+// outcomes, these reveal what someone is actually paid.
+const SENSITIVE: NumericField[] = ["totalPkg", "pkg", "bp"];
 const STATES = ["VIC", "NSW", "SHARED"] as const;
 const DEFAULT_FIELDS: NumericField[] = [
   "elig",

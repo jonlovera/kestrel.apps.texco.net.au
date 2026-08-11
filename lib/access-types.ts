@@ -6,13 +6,17 @@
 /**
  * Numeric/sensitive columns that `visibleFields` governs.
  *
- * `elig` and `potential` are the bonus build-up's two new figures — ordered
- * here to match the build-up chain (Eligibility % → Package → Bonus % →
- * Potential bonus → After IPM), since several screens iterate this array
- * directly to decide display order.
+ * `elig`, `totalPkg` and `potential` are the bonus build-up's new figures —
+ * ordered here to match the build-up chain (Eligibility % → Total Package →
+ * Eligible Salary → Bonus % → Potential Bonus → After IPM), since several
+ * screens iterate this array directly to decide display order. `pkg` is
+ * "Eligible Salary" — the figure that drives the calc — and `totalPkg` is
+ * the separate, informational-only whole-of-package figure "Package" used
+ * to mean before `pkg` took over that name.
  */
 export const NUMERIC_FIELDS = [
   "elig",
+  "totalPkg",
   "pkg",
   "bp",
   "potential",

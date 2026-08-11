@@ -110,6 +110,7 @@ export function buildPayloadCore(
       inPool: e.vp > 0 || e.np > 0,
     };
     if (fields.has("elig")) row.elig = e.elig;
+    if (fields.has("totalPkg")) row.totalPkg = e.totalPkg;
     if (fields.has("pkg")) row.pkg = e.pkg;
     if (fields.has("bp")) row.bp = e.bpEdit;
     if (fields.has("potential")) row.potential = e.preIpm;

@@ -534,6 +534,7 @@ export default function DashboardClient({
       vp: e.vp,
       np: e.np,
       elig: e.elig,
+      totalPkg: e.totalPkg,
       pkg: e.pkg,
       bp: e.bpEdit,
       potential: e.preIpm,

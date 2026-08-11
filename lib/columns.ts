@@ -67,7 +67,10 @@ export const DEFAULT_COLUMNS: ColumnConfig = [
   { field: "cat", visible: false, label: "Category", format: "text", decimals: 0 },
   // The bonus build-up, in reconciliation order — see BUILDUP_FIELDS below.
   { field: "elig", visible: true, label: "Eligibility %", format: "percent", decimals: 0 },
-  { field: "pkg", visible: true, label: "Package", format: "currency", decimals: 0 },
+  { field: "totalPkg", visible: true, label: "Total Package", format: "currency", decimals: 0 },
+  // "Package" used to mean this whole-of-package figure; it's now Eligible
+  // Salary, the figure that actually drives the calc — see lib/schema.ts.
+  { field: "pkg", visible: true, label: "Eligible Salary", format: "currency", decimals: 0 },
   { field: "bp", visible: true, label: "Bonus%", format: "percent", decimals: 0 },
   { field: "potential", visible: true, label: "Potential Bonus", format: "currency", decimals: 0 },
   { field: "ipm", visible: true, label: "IPM%", format: "percent", decimals: 0 },
@@ -84,8 +87,9 @@ export const DEFAULT_COLUMNS: ColumnConfig = [
 
 /**
  * The bonus build-up: figures that reconcile left to right into "After IPM".
- * Eligibility % and Potential Bonus are the two genuinely new figures here —
- * Package, Bonus % and After IPM already existed and simply join the group.
+ * Eligibility %, Total Package and Potential Bonus are the genuinely new
+ * figures here — Eligible Salary (formerly labelled "Package"), Bonus % and
+ * After IPM already existed and simply join the group.
  *
  * A plain constant, not a field on ColumnConfigEntry: which columns are
  * visible is the shared, multi-user document (this file); whether the GROUP
@@ -95,6 +99,7 @@ export const DEFAULT_COLUMNS: ColumnConfig = [
  */
 export const BUILDUP_FIELDS: readonly NumericField[] = [
   "elig",
+  "totalPkg",
   "pkg",
   "bp",
   "potential",
@@ -180,6 +185,9 @@ const RENAMED_DEFAULTS: Record<string, [string, string]> = {
   f25: ["FY25 bonus", "FY25 Bonus (Paid)"],
   final: ["Final", "FY26 Bonus (Final)"],
   yoy: ["YoY diff", "YoY Change"],
+  // "Package" now means the new, separate "Total Package" field — this one
+  // became the figure the calc actually runs on (lib/schema.ts).
+  pkg: ["Package", "Eligible Salary"],
 };
 
 export function migrateRenamedLabels(config: ColumnConfig): ColumnConfig {

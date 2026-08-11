@@ -181,6 +181,14 @@ export default function EmployeeTable({
         ) : (
           show(c, r.elig)
         );
+      case "totalPkg":
+        // The whole-of-package figure "Package" used to mean. Informational
+        // only — "pkg" (Eligible Salary) is what the calc actually runs on.
+        return r.totalPkg === undefined ? (
+          <span className="text-neutral-300">—</span>
+        ) : (
+          show(c, r.totalPkg)
+        );
       case "pkg":
         return show(c, r.pkg!);
       case "bp":

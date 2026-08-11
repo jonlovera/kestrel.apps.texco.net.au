@@ -53,12 +53,13 @@ const FIELDS = Object.keys(FIELD_LABELS);
 
 /**
  * Recognised, but never required — a file that has always worked without
- * these columns must keep working. `elig` (Eligibility %) is genuinely new
- * data most flat files won't carry; `EmployeeSchema` makes it optional to
- * match.
+ * these columns must keep working. `elig` (Eligibility %) and `totalPkg`
+ * (Total Package) are informational figures most flat files won't carry;
+ * `EmployeeSchema` makes both optional to match.
  */
 const OPTIONAL_FIELD_LABELS: Record<string, string> = {
   elig: "Eligibility %",
+  totalPkg: "Total Package",
 };
 const ALL_LABELS: Record<string, string> = { ...FIELD_LABELS, ...OPTIONAL_FIELD_LABELS };
 
@@ -66,7 +67,10 @@ const ALL_LABELS: Record<string, string> = { ...FIELD_LABELS, ...OPTIONAL_FIELD_
 function headerToField(header: string): string | null {
   const h = header.trim().toLowerCase();
   for (const f of Object.keys(ALL_LABELS)) {
-    if (h === f || h === ALL_LABELS[f].toLowerCase()) return f;
+    // f.toLowerCase(), not f: every field key was lowercase-by-convention
+    // until totalPkg, whose capital P otherwise never matched its own raw
+    // key here — a real miss, not a hypothetical one.
+    if (h === f.toLowerCase() || h === ALL_LABELS[f].toLowerCase()) return f;
   }
   return null;
 }
@@ -75,6 +79,7 @@ const NUMERIC_KEYS = new Set([
   "vp",
   "np",
   "pkg",
+  "totalPkg",
   "bp",
   "ipm",
   "bipm",

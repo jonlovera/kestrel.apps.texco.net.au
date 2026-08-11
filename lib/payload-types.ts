@@ -29,6 +29,7 @@ export interface ScopedRow {
   /** whether the row participates in any pool (drives the DA '—' rendering) */
   inPool: boolean;
   elig?: number;
+  totalPkg?: number;
   pkg?: number;
   bp?: number;
   potential?: number;
