@@ -18,7 +18,16 @@ import {
 import { applyOverrides, computeScalesAndBonuses } from "./calc";
 import { deriveFacets } from "./dataset-edit";
 import { isModelWorkbook, readModelWorkbook } from "./import-model";
-import { cellValue, UNCOMPUTED, UNCOMPUTED_HINT, uncomputedSummary, ImportError } from "./xlsx-cells";
+import {
+  cellValue,
+  UNCOMPUTED,
+  UNCOMPUTED_HINT,
+  uncomputedSummary,
+  isFormulaFault,
+  formulaFaultHint,
+  formulaFaultSummary,
+  ImportError,
+} from "./xlsx-cells";
 
 /** Header labels accepted in files (case-insensitive), keyed by field. */
 export const FIELD_LABELS: Record<string, string> = {
@@ -211,8 +220,16 @@ export async function parseImportFile(
     // stringified into a text column with no error at all. Collected across
     // the whole sheet and refused up front, the same as the model importer
     // (lib/xlsx-cells.ts): a file that half-imports garbage is worse than one
-    // that names every affected cell and asks for a re-save.
+    // that names every affected cell and asks for a re-save. The two fault
+    // kinds are counted separately (not recovered from message text
+    // afterwards) because they need different advice: an uncomputed formula
+    // is fixed by a full recalculation before saving, but a formula that
+    // already calculated to #VALUE!/#N/A stays broken no matter how many
+    // times it's saved — confirmed against a real re-saved workbook that hit
+    // exactly this.
     const formulaErrors: string[] = [];
+    let uncomputedCount = 0;
+    let formulaFaultCount = 0;
     ws.eachRow((row, rowNo) => {
       if (rowNo === 1) return;
       const obj: Record<string, unknown> = {};
@@ -224,6 +241,12 @@ export async function parseImportFile(
           formulaErrors.push(
             `Row ${rowNo}, '${h}': the spreadsheet has a formula here with ${UNCOMPUTED_HINT}.`
           );
+          uncomputedCount++;
+          return;
+        }
+        if (isFormulaFault(v)) {
+          formulaErrors.push(`Row ${rowNo}, '${h}': ${formulaFaultHint(v.code)}.`);
+          formulaFaultCount++;
           return;
         }
         if (v !== null && v !== "") hasValue = true;
@@ -232,7 +255,10 @@ export async function parseImportFile(
       if (hasValue) rows.push(obj);
     });
     if (formulaErrors.length) {
-      throw new ImportError([uncomputedSummary(formulaErrors.length), ...formulaErrors]);
+      const summary: string[] = [];
+      if (formulaFaultCount > 0) summary.push(formulaFaultSummary(formulaFaultCount));
+      if (uncomputedCount > 0) summary.push(uncomputedSummary(uncomputedCount));
+      throw new ImportError([...summary, ...formulaErrors]);
     }
     return rows;
   }

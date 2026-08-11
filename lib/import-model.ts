@@ -37,13 +37,16 @@ import {
   UNCOMPUTED,
   UNCOMPUTED_HINT,
   uncomputedSummary,
+  isFormulaFault,
+  formulaFaultHint,
+  formulaFaultSummary,
   ImportError as ModelReadError,
 } from "./xlsx-cells";
 
 /** Header text, whitespace-collapsed, for comparison. */
 function headerText(cell: ExcelJS.Cell): string {
   const v = cellValue(cell);
-  if (v === UNCOMPUTED || v === null) return "";
+  if (v === UNCOMPUTED || v === null || isFormulaFault(v)) return "";
   return String(v).replace(/\s+/g, " ").trim();
 }
 
@@ -234,6 +237,11 @@ export function readModelWorkbook(wb: ExcelJS.Workbook): ModelReadResult {
   const rows: Record<string, unknown>[] = [];
   const sheetsRead: string[] = [];
   const seen = new Map<string, string>();
+  // Counted as they're found rather than recovered by matching message text
+  // afterwards — a genuine #VALUE! and "no calculated value" need different
+  // advice, and detecting that by substring is a needless way to get it wrong.
+  let uncomputedCount = 0;
+  let formulaFaultCount = 0;
 
   for (const { sheet: ws, state } of sheets) {
     const headerRow = findHeaderRow(ws);
@@ -267,7 +275,14 @@ export function readModelWorkbook(wb: ExcelJS.Workbook): ModelReadResult {
       const row = ws.getRow(r);
       const rawId = cellValue(row.getCell(cols.id));
       // Blank rows and the totals block below the table have no employee id.
-      if (rawId === null || rawId === UNCOMPUTED || String(rawId).trim() === "") continue;
+      if (
+        rawId === null ||
+        rawId === UNCOMPUTED ||
+        isFormulaFault(rawId) ||
+        String(rawId).trim() === ""
+      ) {
+        continue;
+      }
       const id = String(rawId).trim();
 
       // Keyed by Kestrel's own field names, which the shared header resolver
@@ -285,6 +300,15 @@ export function readModelWorkbook(wb: ExcelJS.Workbook): ModelReadResult {
           errors.push(
             `'${ws.name}' row ${r} (${id}), '${MODEL_COLUMNS[field].label}': the spreadsheet has a formula here with ${UNCOMPUTED_HINT}.`
           );
+          uncomputedCount++;
+          rowFailed = true;
+          continue;
+        }
+        if (isFormulaFault(value)) {
+          errors.push(
+            `'${ws.name}' row ${r} (${id}), '${MODEL_COLUMNS[field].label}': ${formulaFaultHint(value.code)}.`
+          );
+          formulaFaultCount++;
           rowFailed = true;
           continue;
         }
@@ -303,6 +327,13 @@ export function readModelWorkbook(wb: ExcelJS.Workbook): ModelReadResult {
           errors.push(
             `'${ws.name}' row ${r} (${id}), '${MODEL_COLUMNS.elig.label}': the spreadsheet has a formula here with ${UNCOMPUTED_HINT}.`
           );
+          uncomputedCount++;
+          rowFailed = true;
+        } else if (isFormulaFault(eligValue)) {
+          errors.push(
+            `'${ws.name}' row ${r} (${id}), '${MODEL_COLUMNS.elig.label}': ${formulaFaultHint(eligValue.code)}.`
+          );
+          formulaFaultCount++;
           rowFailed = true;
         } else if (eligValue !== null && eligValue !== "") {
           rec.elig = eligValue;
@@ -346,12 +377,14 @@ export function readModelWorkbook(wb: ExcelJS.Workbook): ModelReadResult {
   }
 
   if (errors.length) {
-    // Uncomputed formulas have one cause and one fix, and neither is obvious
-    // from a list of cell references. Say it once, at the top, before the
-    // detail — otherwise the reader is left with 125 identical complaints and
-    // no idea what to do about them.
-    const uncomputed = errors.filter((e) => e.includes(UNCOMPUTED_HINT)).length;
-    if (uncomputed > 0) errors.unshift(uncomputedSummary(uncomputed));
+    // Each fault kind has one cause and one fix, and neither is obvious from
+    // a list of cell references — say it once, at the top, before the
+    // detail. Formula errors go first: recalculating (the uncomputed fix)
+    // does nothing for them, so leading with the fix that won't work here
+    // would send someone re-saving the file for no reason.
+    // unshift twice, in reverse priority — the last one prepended ends up first
+    if (uncomputedCount > 0) errors.unshift(uncomputedSummary(uncomputedCount));
+    if (formulaFaultCount > 0) errors.unshift(formulaFaultSummary(formulaFaultCount));
     throw new ModelReadError(errors);
   }
   if (rows.length === 0) {

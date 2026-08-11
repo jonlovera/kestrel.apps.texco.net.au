@@ -127,7 +127,7 @@ describe("import parsing", () => {
     expect(detail).toContain("Package");
     expect(detail).toContain("no calculated value");
     // the fix comes first, before naming individual cells
-    expect(thrown!.message).toContain("Open the file in Excel");
+    expect(thrown!.message).toContain("Calculation Options");
   });
 
   it("refuses — rather than silently corrupting — a formula on a text column", async () => {
@@ -152,6 +152,36 @@ describe("import parsing", () => {
     const detail = thrown!.errors?.join("\n") ?? "";
     expect(detail).toContain("Surname");
     expect(detail).not.toContain("[object Object]");
+  });
+
+  /**
+   * Found against a real re-saved workbook: some flagged cells had already
+   * calculated fine, to a genuine Excel error, and "open it, save it" did
+   * nothing for them because there was nothing left to recalculate.
+   */
+  it("gives different advice for a formula that already calculated to an error", async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Sheet1");
+    ws.addRow(HEADERS);
+    ws.addRow([
+      "XLSX4", "Smith", "Jane", "PM", "Delivery", "MB", "Employee",
+      "VIC", 1, 0, 180000, 0.15, 0.9, 24300, 0, 20000, 0,
+    ]);
+    ws.getRow(2).getCell(11).value = {
+      formula: "A1*2",
+      result: { error: "#VALUE!" },
+    } as ExcelJS.CellValue;
+    const buf = Buffer.from(await wb.xlsx.writeBuffer());
+    let thrown: (Error & { errors?: string[] }) | null = null;
+    try {
+      await parseImportFile("test.xlsx", buf);
+    } catch (e) {
+      thrown = e as Error & { errors?: string[] };
+    }
+    expect(thrown).not.toBeNull();
+    expect(thrown!.message).toContain("Saving again won't fix");
+    expect(thrown!.message).not.toContain("Calculation Options");
+    expect(thrown!.errors?.join("\n")).toContain("results in #VALUE!");
   });
 });
 

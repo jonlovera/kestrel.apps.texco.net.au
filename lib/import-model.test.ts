@@ -159,11 +159,61 @@ describe("EBS model workbook", () => {
     }
     expect(thrown).toBeInstanceOf(ModelReadError);
     // The fix comes first, because a list of cell references doesn't imply it.
-    expect(thrown!.errors[0]).toContain("Open the file in Excel, save it");
+    expect(thrown!.errors[0]).toContain("Calculation Options");
     // Then the detail: which person, which column.
     const detail = thrown!.errors.find((m) => m.includes("AAA"))!;
     expect(detail).toContain("FY25 Bonus Award");
     expect(detail).toContain("no calculated value");
+  });
+
+  /**
+   * Found against a real re-saved workbook: some cells aren't uncomputed at
+   * all — they calculated fine, to a genuine Excel error. Telling someone to
+   * recalculate and save again does nothing for those; the wording and the
+   * advice both have to be different.
+   */
+  it("refuses a formula that calculated to a genuine Excel error, with different advice", () => {
+    const wb = modelWorkbook();
+    const ws = wb.getWorksheet("EBS VIC - FY26")!;
+    // What Excel itself writes when a formula errors, e.g. on a text value
+    // where a number was expected somewhere in the reference chain.
+    ws.getRow(9).getCell(28).value = {
+      formula: "AB9",
+      result: { error: "#VALUE!" },
+    } as ExcelJS.CellValue;
+    let thrown: ModelReadError | null = null;
+    try {
+      readModelWorkbook(wb);
+    } catch (e) {
+      thrown = e as ModelReadError;
+    }
+    expect(thrown).toBeInstanceOf(ModelReadError);
+    expect(thrown!.errors[0]).toContain("Saving again won't fix");
+    expect(thrown!.errors[0]).not.toContain("Calculation Options");
+    const detail = thrown!.errors.find((m) => m.includes("AAA"))!;
+    expect(detail).toContain("results in #VALUE!");
+  });
+
+  it("names both kinds of fault together when a workbook has both", () => {
+    const wb = modelWorkbook();
+    const ws = wb.getWorksheet("EBS VIC - FY26")!;
+    ws.getRow(9).getCell(38).value = { formula: "F1" } as ExcelJS.CellValue; // uncomputed
+    ws.getRow(9).getCell(28).value = {
+      formula: "AB9",
+      result: { error: "#N/A" },
+    } as ExcelJS.CellValue; // genuine error
+    let thrown: ModelReadError | null = null;
+    try {
+      readModelWorkbook(wb);
+    } catch (e) {
+      thrown = e as ModelReadError;
+    }
+    expect(thrown).toBeInstanceOf(ModelReadError);
+    // Both summaries present, and the one that recalculating can't fix leads.
+    const first = thrown!.errors[0];
+    const second = thrown!.errors[1];
+    expect(first).toContain("Saving again won't fix");
+    expect(second).toContain("Calculation Options");
   });
 
   it("refuses when one shared employee's split differs from the sheet's", () => {

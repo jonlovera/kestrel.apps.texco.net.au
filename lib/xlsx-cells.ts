@@ -1,17 +1,28 @@
 /**
  * Reading an ExcelJS cell down to a primitive, distinguishing "empty" from
- * "a formula with no cached result" — the fact that makes formula handling
- * possible at all.
+ * two different kinds of unreadable formula — the fact that makes formula
+ * handling possible at all.
  *
  * ExcelJS (the only import library used here; SheetJS carries unpatched
  * advisories) can read a formula's cached result, but it cannot evaluate a
- * formula itself. A workbook saved by anything other than Excel — or one with
- * a stale cache — carries a formula object with no `result`, and reading that
- * as empty or coercing it to a string silently produces wrong data: a blank
- * salary, or literally the text "[object Object]" stored as someone's
- * surname. This module exists so both import paths refuse that case loudly,
- * the same way and with the same wording, instead of each getting it wrong
- * slightly differently.
+ * formula itself. That leaves two distinct faults, confirmed against a real
+ * re-saved workbook rather than assumed, and they need different advice:
+ *
+ *  - UNCOMPUTED: the formula carries no cached result at all — not even a
+ *    stale one. The near-universal cause is the workbook's calculation mode
+ *    being set to Manual, so an ordinary Ctrl+S never asked Excel to compute
+ *    anything; "open it and save it" only fixes this one if a full
+ *    recalculation (Ctrl+Alt+F9, or switching to Automatic) happens first.
+ *  - FormulaFault: the formula WAS calculated, and calculated to a genuine
+ *    Excel error (#VALUE!, #N/A, #REF!, …). Re-saving, however many times,
+ *    changes nothing — the formula itself, or something it references, is
+ *    broken, and only editing it in Excel fixes it.
+ *
+ * Treating these as the same thing (as this module used to) tells someone
+ * with a genuine #VALUE! to "open it and save it", which does nothing and
+ * looks like the importer is stuck. Reading these as empty, or coercing them
+ * to a string, is worse: a blank salary, or literally the text
+ * "[object Object]" stored as someone's surname.
  *
  * Originally lived only in lib/import-model.ts (the real EBS workbook
  * reader); lib/import-parse.ts (the flat one-sheet contract) shares it now
@@ -19,16 +30,24 @@
  */
 import type ExcelJS from "exceljs";
 
-/** Wording shared by every per-cell refusal and the guidance line above it. */
+/** Wording shared by every "no cached result" refusal and its summary line. */
 export const UNCOMPUTED_HINT = "no calculated value";
 
-/** A cell that is a formula the file carries no computed result for. */
+/** A cell that is a formula the file carries no computed result for at all. */
 export const UNCOMPUTED = Symbol("uncomputed");
 
-/** Read a cell down to a primitive, distinguishing "empty" from "uncomputed". */
+/** A cell that WAS calculated, to a genuine Excel error (#VALUE!, #N/A, …). */
+export class FormulaFault {
+  constructor(readonly code: string) {}
+}
+export function isFormulaFault(v: unknown): v is FormulaFault {
+  return v instanceof FormulaFault;
+}
+
+/** Read a cell down to a primitive, or one of the two faults above. */
 export function cellValue(
   cell: ExcelJS.Cell
-): string | number | null | typeof UNCOMPUTED {
+): string | number | null | typeof UNCOMPUTED | FormulaFault {
   const v = cell.value;
   if (v === null || v === undefined) return null;
   if (typeof v === "number" || typeof v === "string") return v;
@@ -42,10 +61,12 @@ export function cellValue(
     error?: string;
   };
   if (o.richText) return o.richText.map((r) => r.text).join("");
-  if (o.error) return UNCOMPUTED;
+  if (o.error) return new FormulaFault(o.error);
   if (o.result !== undefined) {
     const r = o.result as unknown;
-    if (r && typeof r === "object" && "error" in (r as object)) return UNCOMPUTED;
+    if (r && typeof r === "object" && "error" in (r as object)) {
+      return new FormulaFault(String((r as { error: unknown }).error));
+    }
     return r as string | number | null;
   }
   if (o.text !== undefined) return o.text;
@@ -60,7 +81,22 @@ export function cellValue(
  * do about them.
  */
 export function uncomputedSummary(count: number): string {
-  return `${count} figure${count > 1 ? "s are" : " is"} stored in the spreadsheet as a formula that hasn't been calculated, so ${count > 1 ? "they" : "it"} can't be read. Open the file in Excel, save it, and upload it again — Excel writes the calculated values as it saves. Nothing has been changed in the meantime.`;
+  return `${count} figure${count > 1 ? "s are" : " is"} stored in the spreadsheet as a formula that hasn't been calculated, so ${count > 1 ? "they" : "it"} can't be read. This is almost always the workbook's calculation mode set to Manual, which means an ordinary save never asked Excel to compute anything. In Excel: Formulas → Calculation Options → Automatic, then press Ctrl+Alt+F9 to force a full recalculation, then save and upload again. Nothing has been changed in the meantime.`;
+}
+
+/** The per-cell line for a formula that calculated to a genuine Excel error. */
+export function formulaFaultHint(code: string): string {
+  return `this formula results in ${code}`;
+}
+
+/**
+ * The summary line for genuine formula errors — deliberately not "recalculate
+ * and try again", because that does nothing here: the formula (or something
+ * it looks up) is broken and stays broken no matter how many times it's
+ * saved.
+ */
+export function formulaFaultSummary(count: number): string {
+  return `${count} figure${count > 1 ? "s" : ""} in the spreadsheet ${count > 1 ? "calculate" : "calculates"} to an error (${count > 1 ? "e.g. " : ""}#VALUE!, #N/A) rather than a usable value. Saving again won't fix ${count > 1 ? "these" : "this"} — the formula itself, or something it looks up, needs correcting directly in Excel.`;
 }
 
 /**
