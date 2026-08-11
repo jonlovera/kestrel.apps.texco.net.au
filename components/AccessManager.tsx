@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { GrantingRule, RuleSource } from "@/lib/access-rules";
+import type { GrantingRule, RuleSource, EditableField } from "@/lib/access-rules";
+import { EDITABLE_FIELDS, describeEditing } from "@/lib/access-rules";
 import type { NumericField } from "@/lib/access-types";
 import { NUMERIC_FIELDS } from "@/lib/access-types";
 import EmailCombobox from "./EmailCombobox";
@@ -25,19 +26,35 @@ interface PositionOption {
 }
 
 const FIELD_LABELS: Record<NumericField, string> = {
+  elig: "Eligibility %",
   pkg: "Package",
   bp: "Bonus%",
+  potential: "Potential Bonus",
   ipm: "IPM%",
   bipm: "After IPM",
   calc: "Calc bonus",
-  f25: "FY25 bonus",
+  f25: "FY25 Bonus (Paid)",
   da: "Discretionary",
-  yoy: "YoY diff",
-  final: "Final",
+  yoy: "YoY Change",
+  final: "FY26 Bonus (Final)",
+  vp: "VIC %",
+  np: "NSW %",
 };
 const SENSITIVE: NumericField[] = ["pkg", "bp"];
 const STATES = ["VIC", "NSW", "SHARED"] as const;
-const DEFAULT_FIELDS: NumericField[] = ["ipm", "bipm", "calc", "f25", "da", "yoy", "final"];
+const DEFAULT_FIELDS: NumericField[] = [
+  "elig",
+  "potential",
+  "ipm",
+  "bipm",
+  "calc",
+  "f25",
+  "da",
+  "yoy",
+  "final",
+  "vp",
+  "np",
+];
 
 export default function AccessManager({
   initialRules,
@@ -61,6 +78,11 @@ export default function AccessManager({
   const [roles, setRoles] = useState<string[]>([]);
   const [ids, setIds] = useState<string[]>([]);
   const [fields, setFields] = useState<NumericField[]>(DEFAULT_FIELDS);
+  /**
+   * Which editable figures this person may set — just Discretionary now that
+   * IPM can't be granted to anyone. Empty means read only.
+   */
+  const [editable, setEditable] = useState<EditableField[]>([...EDITABLE_FIELDS]);
   const [empSearch, setEmpSearch] = useState("");
   /** set while amending someone, so the form knows it is replacing not adding */
   const [editingEmail, setEditingEmail] = useState<string | null>(null);
@@ -79,6 +101,9 @@ export default function AccessManager({
     setRoles(row.rule.type === "group" ? [...row.rule.positions] : []);
     setIds(row.rule.type === "subset" ? [...row.rule.employeeIds] : []);
     setFields(row.rule.type === "full" ? DEFAULT_FIELDS : [...row.rule.visibleFields]);
+    setEditable(
+      row.rule.type === "full" ? [...EDITABLE_FIELDS] : [...row.rule.editableFields]
+    );
     window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
   }
 
@@ -90,6 +115,7 @@ export default function AccessManager({
     setRoles([]);
     setIds([]);
     setFields(DEFAULT_FIELDS);
+    setEditable([...EDITABLE_FIELDS]);
     setError("");
   }
 
@@ -120,6 +146,9 @@ export default function AccessManager({
       setError("Enter a valid email address");
       return;
     }
+    // A figure they cannot see is not offered for editing either, so the two
+    // rows on the form can never be saved contradicting each other.
+    const editableFields = editable.filter((f) => fields.includes(f));
     const rule: GrantingRule =
       type === "full"
         ? { type: "full" }
@@ -128,6 +157,7 @@ export default function AccessManager({
               type: "state",
               states: states as ("VIC" | "NSW" | "SHARED")[],
               visibleFields: fields,
+              editableFields,
             }
           : type === "group"
             ? {
@@ -135,8 +165,14 @@ export default function AccessManager({
                 states: states as ("VIC" | "NSW" | "SHARED")[],
                 positions: roles,
                 visibleFields: fields,
+                editableFields,
               }
-            : { type: "subset", employeeIds: ids, visibleFields: fields };
+            : {
+                type: "subset",
+                employeeIds: ids,
+                visibleFields: fields,
+                editableFields,
+              };
     if (rule.type === "state" && rule.states.length === 0) {
       setError("Pick at least one state");
       return;
@@ -155,13 +191,17 @@ export default function AccessManager({
 
   function describe(rule: GrantingRule): string {
     if (rule.type === "full") return "Everyone · all fields · can edit";
-    if (rule.type === "state") return `${rule.states.join(" + ")} · can set IPM and Discretionary`;
+    // describeEditing rather than a literal: this used to assert "can set IPM
+    // and Discretionary" for everyone, which was only ever true because there
+    // was no way to say otherwise.
+    const editing = describeEditing(rule);
+    if (rule.type === "state") return `${rule.states.join(" + ")} · ${editing}`;
     if (rule.type === "group") {
       const where = rule.states.length ? rule.states.join(" + ") : "all states";
       const who = rule.positions.length ? rule.positions.join(", ") : "all roles";
-      return `${where} · ${who} · can set IPM and Discretionary`;
+      return `${where} · ${who} · ${editing}`;
     }
-    return `${rule.employeeIds.length} employee${rule.employeeIds.length === 1 ? "" : "s"} · can set IPM and Discretionary`;
+    return `${rule.employeeIds.length} employee${rule.employeeIds.length === 1 ? "" : "s"} · ${editing}`;
   }
 
   function fieldsOf(rule: GrantingRule): string {
@@ -206,9 +246,10 @@ export default function AccessManager({
           directory, or type any address in full — access can be granted to
           people outside the bonus scheme too. Use <strong>Edit</strong> to
           amend someone in place rather than removing and re-adding them.
-          Everyone except full access sees only their own rows, and can set
-          IPM and Discretionary on them. Changes apply immediately — no deploy
-          needed. Entries marked{" "}
+          Everyone except full access sees only their own rows.{" "}
+          <strong>Can edit</strong> decides what they may change on those rows:
+          leave both unticked and they can look but not touch. Changes apply
+          immediately — no deploy needed. Entries marked{" "}
           <span className="font-semibold">code</span> are seeded in the repo and
           reappear unless removed here.
         </p>
@@ -408,6 +449,47 @@ export default function AccessManager({
                     )}
                   </label>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {type !== "full" && (
+            <div className="mb-4">
+              <div className="mb-1 text-[11px] font-semibold tracking-wide text-brand-70">
+                Can edit
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                {EDITABLE_FIELDS.map((f) => {
+                  // Editing a figure they were never sent is not a thing that
+                  // can happen, so the box says so rather than looking
+                  // available and then being ignored on save.
+                  const hidden = !fields.includes(f);
+                  return (
+                    <label
+                      key={f}
+                      title={
+                        hidden
+                          ? `Tick ${FIELD_LABELS[f]} under Visible fields first — nobody can change a figure they can't see`
+                          : undefined
+                      }
+                      className={`flex items-center gap-1.5 text-[13px] ${
+                        hidden ? "text-brand-70 opacity-60" : ""
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 accent-brand-orange"
+                        disabled={hidden}
+                        checked={!hidden && editable.includes(f)}
+                        onChange={() => toggle(editable, f, setEditable)}
+                      />
+                      {FIELD_LABELS[f]}
+                    </label>
+                  );
+                })}
+                <span className="text-[12px] text-brand-70">
+                  Tick none for read only.
+                </span>
               </div>
             </div>
           )}

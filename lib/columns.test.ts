@@ -44,6 +44,7 @@ const vicScope: Scope = {
     type: "state",
     states: ["VIC"],
     visibleFields: ["ipm", "bipm", "calc", "f25", "da", "yoy", "final"],
+    editableFields: ["da"],
   },
   canEdit: false,
   visibleFields: ["ipm", "bipm", "calc", "f25", "da", "yoy", "final"],
@@ -72,7 +73,7 @@ describe("effectiveColumns = config-visible AND scope-visible", () => {
   it("order, labels and formats come from config", () => {
     const cols = effectiveColumns(scrambled, NUMERIC_FIELDS);
     expect(figures(cols)).toEqual([...NUMERIC_FIELDS].reverse());
-    expect(cols[0].label).toBe("X-final");
+    expect(cols[0].label).toBe(`X-${NUMERIC_FIELDS[NUMERIC_FIELDS.length - 1]}`);
     expect(cols[0].format).toBe("number");
   });
 
@@ -209,7 +210,12 @@ describe("entitlement is unaffected by column config (non-negotiable #2)", () =>
   it("a two-state read-only user does get it", () => {
     const bothScope: Scope = {
       ...vicScope,
-      rule: { type: "state", states: ["VIC", "NSW"], visibleFields: ["final"] },
+      rule: {
+        type: "state",
+        states: ["VIC", "NSW"],
+        visibleFields: ["final"],
+        editableFields: ["da"],
+      },
       visibleFields: ["final"],
     };
     const payload = buildPayloadCore(data, {}, bothScope, user, {

@@ -1,6 +1,7 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { allRules } from "./access";
+import { describeEditing, type GrantingRule } from "./access-rules";
 import { appendHistory } from "./store";
 import { resolveViewer, VIEW_AS_COOKIE } from "./view-as";
 
@@ -18,21 +19,19 @@ export interface ViewableUser {
   summary: string;
 }
 
-function summarise(rule: {
-  type: string;
-  states?: readonly string[];
-  positions?: readonly string[];
-  employeeIds?: readonly string[];
-}): string {
+function summarise(rule: GrantingRule): string {
   if (rule.type === "full") return "Full access";
-  if (rule.type === "state") return `${(rule.states ?? []).join(" + ")}`;
+  // Picking who to view as is largely a question of what they can do, so the
+  // grant is part of the line rather than something you discover afterwards.
+  const editing = describeEditing(rule);
+  if (rule.type === "state") return `${rule.states.join(" + ")} · ${editing}`;
   if (rule.type === "group") {
-    const where = rule.states?.length ? rule.states.join(" + ") : "all states";
-    const who = rule.positions?.length ? rule.positions.join(", ") : "all roles";
-    return `${where} · ${who}`;
+    const where = rule.states.length ? rule.states.join(" + ") : "all states";
+    const who = rule.positions.length ? rule.positions.join(", ") : "all roles";
+    return `${where} · ${who} · ${editing}`;
   }
-  const n = rule.employeeIds?.length ?? 0;
-  return `${n} employee${n === 1 ? "" : "s"}`;
+  const n = rule.employeeIds.length;
+  return `${n} employee${n === 1 ? "" : "s"} · ${editing}`;
 }
 
 export async function listViewableUsers(actor: string): Promise<ViewableUser[]> {

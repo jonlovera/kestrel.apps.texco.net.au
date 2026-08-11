@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { DashboardPayload, DisplayRow } from "@/lib/payload-types";
 import { NUMERIC_FIELDS, type NumericField } from "@/lib/access-types";
-import { effectiveColumns, type ColumnConfig } from "@/lib/columns";
+import { effectiveColumns, BUILDUP_FIELDS, type ColumnConfig } from "@/lib/columns";
 import { DEFAULT_COPY, type Copy } from "@/lib/copy";
 import type { Params } from "@/lib/params-apply";
 import type { Employee, Overrides, HistoryEntry } from "@/lib/schema";
@@ -43,13 +43,17 @@ type SaveStatus = "idle" | "saving" | "saved" | "error";
  * Which columns can be typed into, and down which write path.
  *
  * Bonus % left this list when it became spreadsheet-only, and so did package,
- * FY25 and every identity field. What remains is the allocation: IPM and
- * Discretionary through the overrides doc, After IPM through the dataset.
- * The server re-decides all of it on every write (lib/write-scope.ts) — this
- * only governs which cells look typeable.
+ * FY25 and every identity field. IPM left it too: it's a formula-derived
+ * figure and a manual override on it corrupts the calculation, so nobody —
+ * lead or admin — may set it any more. What remains is Discretionary through
+ * the overrides doc, and After IPM through the dataset. The server re-decides
+ * all of it on every write (lib/write-scope.ts) — this only governs which
+ * cells look typeable.
  */
-const OVERRIDE_EDITABLE = ["ipm", "da"];
-const DATASET_EDITABLE = ["bipm"];
+const OVERRIDE_EDITABLE = ["da"];
+const DATASET_EDITABLE = ["bipm", "vp", "np"];
+/** localStorage key for the build-up group's collapse state (per browser). */
+const BUILDUP_KEY = "kestrel:buildup-open";
 
 export default function DashboardClient({
   payload,
@@ -289,8 +293,6 @@ export default function DashboardClient({
   const [selCats, setSelCats] = useState<string[]>(payload.cats);
   const [selDepts, setSelDepts] = useState<string[]>(payload.depts);
   const [selMgrs, setSelMgrs] = useState<string[]>(payload.mgrs);
-  // 90% is the scheme default every row carries, so that's where this starts
-  const [bulkIpm, setBulkIpm] = useState("90");
 
   /**
    * Send one After-IPM change to the source dataset. Unlike the overrides
@@ -388,6 +390,44 @@ export default function DashboardClient({
     const next = { ...params, [field]: value };
     setParams(next);
     void saveConfig("params", next);
+  }
+
+  /**
+   * The bonus build-up group (Eligibility % → Package → Bonus % → Potential
+   * Bonus → After IPM), collapsed by default and remembered per browser.
+   *
+   * Starting `false` on every render, including the first one on a returning
+   * visitor's browser, is deliberate: this is a client component, so it is
+   * still server-rendered before it hydrates, and the server has no
+   * localStorage to read. Reading it in a useEffect after mount is the
+   * standard way to avoid a hydration mismatch — it costs one extra render
+   * when the stored preference differs from the default, never a warning.
+   *
+   * There is no server-side, per-user preference store anywhere in this app
+   * (column visibility is one shared document for everyone); building one for
+   * a single collapse toggle would be disproportionate. The trade-off is
+   * real and worth stating: this does not follow someone to a second device.
+   */
+  const [buildupOpen, setBuildupOpen] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    // Syncing React state from an external store (localStorage) on mount is
+    // exactly what this effect is for, per the lint rule's own guidance —
+    // there is no prop or state this could be derived from instead.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setBuildupOpen(window.localStorage.getItem(BUILDUP_KEY) === "true");
+  }, []);
+  function toggleBuildup() {
+    setBuildupOpen((open) => {
+      const next = !open;
+      try {
+        window.localStorage.setItem(BUILDUP_KEY, String(next));
+      } catch {
+        // Private browsing or a full quota — the toggle still works for the
+        // rest of this session, it just won't be remembered next time.
+      }
+      return next;
+    });
   }
 
   // ── privacy: figures are masked by default; reveal per row, or all at once
@@ -493,8 +533,10 @@ export default function DashboardClient({
       inPool: e.vp > 0 || e.np > 0,
       vp: e.vp,
       np: e.np,
+      elig: e.elig,
       pkg: e.pkg,
       bp: e.bpEdit,
+      potential: e.preIpm,
       ipm: e.ipmEdit,
       bipm: e.bipmCalc,
       calc: e.calcBonus,
@@ -540,6 +582,24 @@ export default function DashboardClient({
       : [];
     return [...configured, ...tools];
   }, [isEditor, editing, viewingAs, columnConfig, payload, canEditFields]);
+
+  /** Which of the build-up figures this person is entitled to at all. */
+  const buildupColumnCount = useMemo(
+    () => columns.filter((c) => (BUILDUP_FIELDS as readonly string[]).includes(c.key)).length,
+    [columns]
+  );
+  /**
+   * The build-up group collapses out of the table entirely rather than being
+   * greyed out — this is a reconciliation aid someone reaches for on demand,
+   * not a permanent fixture competing for space with the figures used daily.
+   */
+  const visibleColumns = useMemo(
+    () =>
+      buildupOpen
+        ? columns
+        : columns.filter((c) => !(BUILDUP_FIELDS as readonly string[]).includes(c.key)),
+    [columns, buildupOpen]
+  );
 
   // ── filtering + sorting (prototype getVisibleEmployees) ──
   const visibleRows = useMemo(() => {
@@ -616,19 +676,6 @@ export default function DashboardClient({
     setOverrides((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
   }
 
-  function updatePercent(id: string, field: "bpEdit" | "ipmEdit", val: string) {
-    const num = parsePercentInput(val);
-    if (num === null) return;
-    if (isEditor) {
-      const emp = empById.get(id);
-      if (!emp || emp.locked) return;
-    } else {
-      const row = rowById.get(id);
-      if (!row || row.locked) return;
-    }
-    setOverride(id, { [field]: num });
-  }
-
   function updateDA(id: string, val: string) {
     let num = parseDaInput(val);
     if (isEditor) {
@@ -663,33 +710,14 @@ export default function DashboardClient({
   }
 
   /**
-   * Set one IPM across everyone currently shown — the walkthrough workflow is
-   * "put the whole list on 100%, see what that does to the pool, then bring
-   * individuals back down". Scoped to the visible rows, so the tab and filters
-   * decide who it lands on; locked rows are left alone.
-   *
-   * One state update, so the existing debounce sends it as a single save.
+   * Set one side of a Shared Services split. The server derives the other
+   * side (lib/dataset-edit.ts) so a save can never leave the two sides
+   * disagreeing — this only has to send the one figure that was typed.
    */
-  function applyBulkIpm() {
-    const pct = parsePercentInput(bulkIpm);
-    if (pct === null) return;
-    const targets = visibleRows.filter((r) => !r.locked);
-    const skipped = visibleRows.length - targets.length;
-    if (targets.length === 0) {
-      setDsError("Nothing to apply to — every row shown is locked.");
-      return;
-    }
-    const msg =
-      `Set IPM to ${Math.round(pct * 100)}% for the ${targets.length} ` +
-      `${targets.length === 1 ? "person" : "people"} currently shown?` +
-      (skipped > 0 ? `\n\n${skipped} locked ${skipped === 1 ? "row is" : "rows are"} skipped.` : "") +
-      `\n\nIndividuals can be adjusted afterwards, and a snapshot is taken first so this can be undone.`;
-    if (!confirm(msg)) return;
-    setOverrides((prev) => {
-      const next = { ...prev };
-      for (const r of targets) next[r.id] = { ...next[r.id], ipmEdit: pct };
-      return next;
-    });
+  function updateSplit(id: string, field: "vp" | "np", current: number, raw: string) {
+    const next = parsePercentInput(raw);
+    if (next === null || Math.round(next * 100) === Math.round(current * 100)) return;
+    void patchDataset({ op: "field", id, field, value: next });
   }
 
   function toggleLock(id: string) {
@@ -910,6 +938,16 @@ export default function DashboardClient({
             <br />
             <span className="text-[10px] opacity-80">{payload.user.scopeLabel}</span>
           </span>
+          {buildupColumnCount > 0 && (
+            <button
+              type="button"
+              onClick={toggleBuildup}
+              className="border border-brand-orange/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white"
+              title="Eligibility %, Package, Bonus %, Potential Bonus and After IPM, side by side"
+            >
+              {buildupOpen ? "Hide build-up" : `Show build-up (${buildupColumnCount})`}
+            </button>
+          )}
           {!editing && (
             <button
               type="button"
@@ -1131,29 +1169,6 @@ export default function DashboardClient({
                     onChange={applyColumnConfig}
                     busy={dsBusy}
                   />
-                  {/* Bulk IPM: set the whole visible list at once, then bring
-                      individuals down. */}
-                  <div className="flex items-center gap-1.5 border-2 border-neutral-200 px-2.5 py-1 text-[11px] font-semibold text-brand-70">
-                    Set IPM for the {visibleRows.length} shown
-                    <input
-                      type="text"
-                      value={bulkIpm}
-                      disabled={dsBusy}
-                      aria-label="Bulk IPM percentage"
-                      onChange={(e) => setBulkIpm(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && applyBulkIpm()}
-                      className="w-[52px] border border-neutral-300 px-1.5 py-1 text-right tabular-nums outline-none focus:border-brand-orange"
-                    />
-                    %
-                    <button
-                      type="button"
-                      disabled={dsBusy}
-                      onClick={applyBulkIpm}
-                      className="ml-1 bg-brand-orange px-2.5 py-1 font-bold text-white transition-colors hover:bg-brand-orange-hover disabled:opacity-40"
-                    >
-                      Apply
-                    </button>
-                  </div>
                   {/* Informational only, per the walkthrough: it scales every
                       After-IPM figure, so it is not something to nudge from
                       here. It changes with the scheme, not with an allocation. */}
@@ -1181,7 +1196,7 @@ export default function DashboardClient({
             </div>
 
             <EmployeeTable
-              columns={columns}
+              columns={visibleColumns}
               rows={visibleRows}
               totals={totals}
               editing={editing}
@@ -1193,9 +1208,9 @@ export default function DashboardClient({
               sortDir={sortDir}
               onSort={doSort}
               handlers={{
-                updatePercent,
                 updateDA,
                 updateDatasetFigure,
+                updateSplit,
                 toggleLock,
                 renameColumn,
               }}

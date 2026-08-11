@@ -109,8 +109,10 @@ export function buildPayloadCore(
       locked: e.locked,
       inPool: e.vp > 0 || e.np > 0,
     };
+    if (fields.has("elig")) row.elig = e.elig;
     if (fields.has("pkg")) row.pkg = e.pkg;
     if (fields.has("bp")) row.bp = e.bpEdit;
+    if (fields.has("potential")) row.potential = e.preIpm;
     if (fields.has("ipm")) row.ipm = e.ipmEdit;
     if (fields.has("bipm")) row.bipm = e.bipmCalc;
     if (fields.has("calc")) row.calc = e.calcBonus;
@@ -118,6 +120,13 @@ export function buildPayloadCore(
     if (fields.has("da")) row.da = e.daEdit;
     if (fields.has("yoy")) row.yoy = e.finalBonus - e.f25;
     if (fields.has("final")) row.final = e.finalBonus;
+    // Gated by visibleFields like every other numeric field, and additionally
+    // only ever populated for a Shared Services row — a VIC or NSW employee
+    // is 100% one pool already, so there is nothing to show or edit.
+    if (e.st === "SHARED") {
+      if (fields.has("vp")) row.vp = e.vp;
+      if (fields.has("np")) row.np = e.np;
+    }
     return row;
   });
 

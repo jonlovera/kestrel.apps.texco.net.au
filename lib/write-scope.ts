@@ -6,9 +6,21 @@
  *
  * The change that made this necessary: state leads used to be strictly
  * read-only, so `canEdit` alone was enough to gate every write. They can now
- * set IPM and Discretionary for their own people, which means every incoming
+ * set Discretionary for their own people, which means every incoming
  * override has to be checked against two questions rather than one — is this
  * row theirs, and is this field theirs?
+ *
+ * "Is this field theirs" is no longer a property of the rule TYPE. Whether
+ * someone may set Discretionary is chosen per person on the access screen and
+ * carried on the rule as `editableFields`; leaving it unticked is how you
+ * grant somebody a purely read-only view. See writableFields below, which is
+ * the one place that setting is honoured for both the affordances and the
+ * write boundary.
+ *
+ * IPM is not part of that grant, for anyone, including full access. It is a
+ * formula-derived figure — a manual override on it corrupts the calculation —
+ * so the only writable fields in this whole module are Discretionary and,
+ * for admin, the lock.
  *
  * Pure and no server-only imports, so both questions are directly testable.
  *
@@ -22,31 +34,66 @@ import type { Overrides } from "./schema";
 import type { Scope } from "./access";
 import { ruleMatches, type ScopableEmployee } from "./access-rules";
 
-/** Override fields a state lead may change, within their own rows. */
-export const WRITABLE_BY_LEAD = ["ipmEdit", "daEdit"] as const;
+/**
+ * Override fields a state lead may change, within their own rows.
+ *
+ * IPM is deliberately absent. It used to be here, gated per person by the
+ * access screen's "Can edit" setting — it no longer can be, for anyone: IPM
+ * is a formula-derived figure, and a manual override on it corrupts the
+ * calculation. Discretionary remains the one sanctioned adjustment mechanism.
+ */
+export const WRITABLE_BY_LEAD = ["daEdit"] as const;
 
 /**
  * Admin adds the lock. A lead must never hold it: locking freezes a bonus
  * against redistribution, which moves every other figure in the pool.
+ *
+ * IPM is absent here too, and deliberately not just for leads: nobody may set
+ * it, including full access. `EmployeeOverrideSchema` still carries `ipmEdit`
+ * so a value stored before this change keeps parsing and keeps applying — it
+ * is only the ability to WRITE a new one that is gone.
  */
-export const WRITABLE_BY_ADMIN = [
-  "ipmEdit",
-  "daEdit",
-  "locked",
-  "lockedFinal",
-] as const;
+export const WRITABLE_BY_ADMIN = ["daEdit", "locked", "lockedFinal"] as const;
 
 export type WritableField = (typeof WRITABLE_BY_ADMIN)[number];
 
+/** Column keys matching the writable override fields, for the table to key off. */
+const COLUMN_FOR_FIELD: Partial<Record<WritableField, string>> = {
+  daEdit: "da",
+};
+
 /**
  * Which override fields this scope may change at all.
+ *
+ * The one place the access screen's "Can edit" setting is honoured, which is
+ * what keeps the UI and the server from ever disagreeing: editableColumns
+ * below feeds every affordance on the dashboard, sanitiseOverrideWrite feeds
+ * the write boundary, and both come through here.
+ *
+ * Two conditions on the lead path, not one. `editableFields` is what was
+ * granted (Discretionary is the only member now that IPM can no longer be
+ * granted to anyone). Visibility is the older rule and used to be applied
+ * only in editableColumns, which meant hiding a figure removed the input but
+ * not the permission: the same person could still POST a write for their own
+ * rows and have it accepted. A field they were never sent is now unwritable
+ * in fact, not just unofferable.
+ *
+ * Neither condition touches the admin path. WRITABLE_BY_ADMIN includes
+ * `locked` and `lockedFinal`, which have no column and no visibility, so
+ * filtering them here would quietly break locking.
  *
  * A revoked user needs no branch here: `scopeForUser` returns null for them,
  * so they never reach a Scope in the first place, and every route already
  * refuses a null scope before it gets this far.
  */
 export function writableFields(scope: Scope): readonly WritableField[] {
-  return scope.rule.type === "full" ? WRITABLE_BY_ADMIN : WRITABLE_BY_LEAD;
+  if (scope.rule.type === "full") return WRITABLE_BY_ADMIN;
+  const granted = new Set<string>(scope.rule.editableFields);
+  const visible = new Set<string>(scope.visibleFields);
+  return WRITABLE_BY_LEAD.filter((f) => {
+    const column = COLUMN_FOR_FIELD[f];
+    return !!column && granted.has(column) && visible.has(column);
+  });
 }
 
 /** Whose rows this scope may change. */
@@ -59,24 +106,17 @@ export function writableEmployeeIds(
   );
 }
 
-/** Column keys matching the writable override fields, for the table to key off. */
-const COLUMN_FOR_FIELD: Partial<Record<WritableField, string>> = {
-  ipmEdit: "ipm",
-  daEdit: "da",
-};
-
 /**
  * Which table columns this scope may type into.
  *
- * Intersected with what they can actually see: a field they were never sent
- * can't be edited, and offering the cell would be a lie. Presentation only —
- * sanitiseOverrideWrite decides again on every write.
+ * Presentation only — sanitiseOverrideWrite decides again on every write, off
+ * the same writableFields, so the cells offered and the writes accepted are
+ * the same set by construction.
  */
 export function editableColumns(scope: Scope): string[] {
-  const visible = new Set<string>(scope.visibleFields);
   return writableFields(scope)
     .map((f) => COLUMN_FOR_FIELD[f])
-    .filter((c): c is string => !!c && visible.has(c));
+    .filter((c): c is string => !!c);
 }
 
 /**

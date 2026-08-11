@@ -128,7 +128,7 @@ export function ExpectedColumns() {
         A plain one-row-per-employee file works too, with these columns: ID,
         Surname, Given name, Position, Department, Manager, Category, State, VIC
         %, NSW %, Package, Bonus %, IPM %, After IPM, Disc adj, FY25 bonus, Site
-        manager.
+        manager. An optional Eligibility % column is picked up if it&apos;s there.
       </p>
     </div>
   );

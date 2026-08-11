@@ -28,6 +28,7 @@ const vicScopeNoPkg: Scope = {
     type: "state",
     states: ["VIC"],
     visibleFields: ["ipm", "bipm", "calc", "f25", "da", "yoy", "final"],
+    editableFields: ["da"],
   },
   canEdit: false,
   visibleFields: ["ipm", "bipm", "calc", "f25", "da", "yoy", "final"],
@@ -62,7 +63,12 @@ describe("field stripping strips bytes, not pixels", () => {
     const twoIds = [data.emp[0].id, data.emp[1].id];
     const scope: Scope = {
       email: "board@texco.net.au",
-      rule: { type: "subset", employeeIds: twoIds, visibleFields: ["final"] },
+      rule: {
+        type: "subset",
+        employeeIds: twoIds,
+        visibleFields: ["final"],
+        editableFields: ["da"],
+      },
       canEdit: false,
       visibleFields: ["final"],
       label: "Selected employees — read only",
@@ -124,6 +130,7 @@ describe("a state lead sees their own pool and nothing wider", () => {
         type: "state",
         states: ["VIC", "NSW"],
         visibleFields: vicScopeNoPkg.visibleFields,
+        editableFields: ["da"],
       },
     };
     const payload = buildPayloadCore(data, {}, both, user);
@@ -139,6 +146,7 @@ describe("a state lead sees their own pool and nothing wider", () => {
         type: "subset",
         employeeIds: [data.emp[0].id],
         visibleFields: ["final"],
+        editableFields: ["da"],
       },
       visibleFields: ["final"],
     };

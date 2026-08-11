@@ -3,6 +3,7 @@ import { z } from "zod";
 import { NUMERIC_FIELDS, type NumericField } from "./access-types";
 import {
   AccessRuleSchema,
+  describeEditing,
   effectiveRules,
   type AccessRule,
   type EffectiveRule,
@@ -20,13 +21,17 @@ import { loadAccessOverlay, saveAccessOverlay, appendHistory } from "./store";
  * owners even if the database is empty, and so jlovera can never be locked
  * out. Precedence per email: this file < BONUS_USERS env var < /admin (db).
  *
- * The three access types (see /admin for the same options with a form):
+ * The access types (see /admin for the same options with a form):
  *   full   — every employee, every field, can edit, can manage access
- *   state  — employees in the listed state(s), read-only, listed fields only
- *   subset — only the listed employee ids, read-only, listed fields only
+ *   state  — employees in the listed state(s), listed fields only
+ *   group  — a standing state ∧ role group, listed fields only
+ *   subset — only the listed employee ids, listed fields only
  * `visibleFields` governs the numeric columns (pkg, bp, ipm, bipm, calc, f25,
  * da, yoy, final); pkg/bp are the salary-sensitive ones. Identity fields
  * (name, position, department, manager) are always visible on permitted rows.
+ * `editableFields` is the separate question of what they may CHANGE on those
+ * rows: IPM, Discretionary, both, or neither for a read-only view. Everything
+ * below `full` used to carry both implicitly, with no way to withhold them.
  * ============================================================================
  */
 const ACCESS: Record<string, AccessRule> = {
@@ -84,21 +89,23 @@ export async function scopeForUser(
       label: "Full access — can edit",
     };
   }
-  if (rule.type === "state") {
-    return {
-      email: key,
-      rule,
-      canEdit: false,
-      visibleFields: rule.visibleFields,
-      label: `${rule.states.join(" + ")} — read only`,
-    };
-  }
+  // The label used to say "read only" for every non-full scope, which was
+  // never true — they could all set IPM and Discretionary — and is now a real
+  // state someone can be put in, so it follows the grant instead of guessing.
+  const where =
+    rule.type === "state"
+      ? rule.states.join(" + ")
+      : rule.type === "group"
+        ? rule.states.length
+          ? rule.states.join(" + ")
+          : "Selected roles"
+        : "Selected employees";
   return {
     email: key,
     rule,
     canEdit: false,
     visibleFields: rule.visibleFields,
-    label: "Selected employees — read only",
+    label: `${where} — ${describeEditing(rule)}`,
   };
 }
 

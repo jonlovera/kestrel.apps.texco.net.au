@@ -65,15 +65,40 @@ export const DEFAULT_COLUMNS: ColumnConfig = [
   // present in the source data and editable, but not shown by default — the
   // prototype's table never had a Category column
   { field: "cat", visible: false, label: "Category", format: "text", decimals: 0 },
+  // The bonus build-up, in reconciliation order — see BUILDUP_FIELDS below.
+  { field: "elig", visible: true, label: "Eligibility %", format: "percent", decimals: 0 },
   { field: "pkg", visible: true, label: "Package", format: "currency", decimals: 0 },
   { field: "bp", visible: true, label: "Bonus%", format: "percent", decimals: 0 },
+  { field: "potential", visible: true, label: "Potential Bonus", format: "currency", decimals: 0 },
   { field: "ipm", visible: true, label: "IPM%", format: "percent", decimals: 0 },
   { field: "bipm", visible: true, label: "After IPM", format: "currency", decimals: 0 },
   { field: "calc", visible: true, label: "Calc bonus", format: "currency", decimals: 0 },
-  { field: "f25", visible: true, label: "FY25 bonus", format: "currency", decimals: 0 },
+  { field: "f25", visible: true, label: "FY25 Bonus (Paid)", format: "currency", decimals: 0 },
   { field: "da", visible: true, label: "Discretionary", format: "currency", decimals: 0 },
-  { field: "yoy", visible: true, label: "YoY diff", format: "currency", decimals: 0 },
-  { field: "final", visible: true, label: "Final", format: "currency", decimals: 0 },
+  { field: "yoy", visible: true, label: "YoY Change", format: "currency", decimals: 0 },
+  { field: "final", visible: true, label: "FY26 Bonus (Final)", format: "currency", decimals: 0 },
+  // Admin-editable, Shared Services rows only — see lib/dataset-edit.ts.
+  { field: "vp", visible: true, label: "VIC %", format: "percent", decimals: 0 },
+  { field: "np", visible: true, label: "NSW %", format: "percent", decimals: 0 },
+];
+
+/**
+ * The bonus build-up: figures that reconcile left to right into "After IPM".
+ * Eligibility % and Potential Bonus are the two genuinely new figures here —
+ * Package, Bonus % and After IPM already existed and simply join the group.
+ *
+ * A plain constant, not a field on ColumnConfigEntry: which columns are
+ * visible is the shared, multi-user document (this file); whether the GROUP
+ * is currently expanded is a client-side, per-browser UI preference
+ * (localStorage) that never touches that document. Keeping them separate
+ * means there is no migration to reason about here.
+ */
+export const BUILDUP_FIELDS: readonly NumericField[] = [
+  "elig",
+  "pkg",
+  "bp",
+  "potential",
+  "bipm",
 ];
 
 /** Ensure every configurable field appears exactly once (missing → default). */
@@ -149,6 +174,12 @@ export function effectiveColumns(
 const RENAMED_DEFAULTS: Record<string, [string, string]> = {
   // "Disc adj" read as finance jargon to everyone else using the tool
   da: ["Disc adj", "Discretionary"],
+  // The two bonus figures being compared needed to read as a matched pair,
+  // naming which is the historical (paid) one and which is the proposed
+  // (calculated) one.
+  f25: ["FY25 bonus", "FY25 Bonus (Paid)"],
+  final: ["Final", "FY26 Bonus (Final)"],
+  yoy: ["YoY diff", "YoY Change"],
 };
 
 export function migrateRenamedLabels(config: ColumnConfig): ColumnConfig {

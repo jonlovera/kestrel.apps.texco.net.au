@@ -15,7 +15,12 @@ export const EmployeeSchema = z.object({
   st: z.enum(["VIC", "NSW", "SHARED"]), // state
   vp: z.number().min(0).max(1), // VIC pool weight
   np: z.number().min(0).max(1), // NSW pool weight
-  pkg: z.number().min(0), // salary package $
+  pkg: z.number().min(0), // salary package $ (already eligibility-adjusted)
+  // Informational only — never used in the calc, which already works off
+  // `pkg`. Optional because the real workbook carries it (as "Bonus Scheme
+  // Eligibility") but the flat import contract shouldn't suddenly require a
+  // column nobody using it today has.
+  elig: z.number().min(0).max(1).optional(),
   bp: z.number().min(0), // bonus % of package (fraction)
   ipm: z.number().min(0), // individual performance modifier (fraction)
   bipm: z.number(), // bonus after IPM $ (source figure; cpm derived from it)

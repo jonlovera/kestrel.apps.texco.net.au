@@ -186,6 +186,45 @@ describe("EBS model workbook", () => {
     expect(rows).toHaveLength(4);
   });
 
+  describe("Eligibility %, the one optional column", () => {
+    // Column 7 matches where the real workbook actually carries "Bonus
+    // Scheme Eligibility" — kept distinct from the columns VIC_HEADERS
+    // already occupies (2-38, 41-42).
+    const withElig = { ...VIC_HEADERS, 7: "Bonus Scheme Eligibility" };
+
+    it("imports it when the column is present", () => {
+      const wb = new ExcelJS.Workbook();
+      addSheet(wb, "EBS VIC - FY26", withElig, [vicRow("AAA", { 7: 0.9863 })]);
+      const parsed = rowsToEmployees(readModelWorkbook(wb).rows);
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) return;
+      expect(parsed.employees[0].elig).toBeCloseTo(0.9863, 4);
+    });
+
+    it("is skipped, not a failure, when the column is absent", () => {
+      // modelWorkbook()'s sheets have no column 7 header at all — the
+      // existing fixture, unmodified, is the proof this doesn't break a
+      // sheet that predates the column existing.
+      const parsed = rowsToEmployees(readModelWorkbook(modelWorkbook()).rows);
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) return;
+      expect(parsed.employees.find((e) => e.id === "AAA")?.elig).toBeUndefined();
+    });
+
+    it("still refuses an uncomputed formula in it, same as any other column", () => {
+      const wb = new ExcelJS.Workbook();
+      addSheet(wb, "EBS VIC - FY26", withElig, [vicRow("AAA", { 7: { formula: "A1" } })]);
+      let thrown: ModelReadError | null = null;
+      try {
+        readModelWorkbook(wb);
+      } catch (e) {
+        thrown = e as ModelReadError;
+      }
+      expect(thrown).toBeInstanceOf(ModelReadError);
+      expect(thrown!.errors.join("\n")).toContain("Bonus Scheme Eligibility");
+    });
+  });
+
   it("names a missing column instead of importing a blank one", () => {
     const wb = new ExcelJS.Workbook();
     const headers = { ...VIC_HEADERS };

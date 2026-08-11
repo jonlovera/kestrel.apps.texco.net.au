@@ -8,11 +8,13 @@
  */
 import { describe, it, expect } from "vitest";
 import type { Scope } from "./access";
+import { EDITABLE_FIELDS, AccessRuleSchema } from "./access-rules";
 import type { Overrides } from "./schema";
 import {
   sanitiseOverrideWrite,
   writableEmployeeIds,
   writableFields,
+  editableColumns,
   writeVerdict,
   WRITABLE_BY_ADMIN,
   WRITABLE_BY_LEAD,
@@ -26,7 +28,10 @@ const EMPLOYEES = [
   { id: "S1", st: "SHARED", pos: "General Counsel" },
 ];
 
-const FIELDS = ["ipm", "calc", "final"] as const;
+// `da` belongs here now that a figure has to be visible before it can be
+// written: these fixtures stand for a lead who sets both, and leaving
+// Discretionary out would quietly make them read-only for it.
+const FIELDS = ["ipm", "da", "calc", "final"] as const;
 
 const admin: Scope = {
   email: "admin@texco.net.au",
@@ -37,14 +42,14 @@ const admin: Scope = {
 };
 const vicLead: Scope = {
   email: "vic@texco.net.au",
-  rule: { type: "state", states: ["VIC"], visibleFields: [...FIELDS] },
+  rule: { type: "state", states: ["VIC"], visibleFields: [...FIELDS], editableFields: [...EDITABLE_FIELDS] },
   canEdit: false,
   visibleFields: [...FIELDS],
   label: "VIC",
 };
 const subsetLead: Scope = {
   email: "sub@texco.net.au",
-  rule: { type: "subset", employeeIds: ["V2", "N1"], visibleFields: [...FIELDS] },
+  rule: { type: "subset", employeeIds: ["V2", "N1"], visibleFields: [...FIELDS], editableFields: [...EDITABLE_FIELDS] },
   canEdit: false,
   visibleFields: [...FIELDS],
   label: "Subset",
@@ -56,6 +61,7 @@ const smGroupLead: Scope = {
     states: ["VIC"],
     positions: ["Site Manager"],
     visibleFields: [...FIELDS],
+    editableFields: [...EDITABLE_FIELDS],
   },
   canEdit: false,
   visibleFields: [...FIELDS],
@@ -70,7 +76,7 @@ describe("who may write what", () => {
     expect(writableFields(admin)).toEqual(WRITABLE_BY_ADMIN);
   });
 
-  it("a lead may write only IPM and Discretionary", () => {
+  it("a lead may write only Discretionary", () => {
     expect(writableFields(vicLead)).toEqual(WRITABLE_BY_LEAD);
     expect(writableFields(subsetLead)).toEqual(WRITABLE_BY_LEAD);
     expect(writableFields(smGroupLead)).toEqual(WRITABLE_BY_LEAD);
@@ -79,6 +85,15 @@ describe("who may write what", () => {
   it("nobody may write bonus % — it comes from the spreadsheet", () => {
     for (const scope of [admin, vicLead, subsetLead, smGroupLead]) {
       expect(writableFields(scope)).not.toContain("bpEdit");
+    }
+  });
+
+  it("nobody may write IPM — including full access", () => {
+    // The regression this guards: IPM used to be grantable per person via
+    // editableFields, and unconditionally writable for admin. It is a
+    // formula-derived figure now locked for everyone, no exceptions.
+    for (const scope of [admin, vicLead, subsetLead, smGroupLead]) {
+      expect(writableFields(scope)).not.toContain("ipmEdit");
     }
   });
 
@@ -109,21 +124,21 @@ describe("whose rows may be written", () => {
 
 describe("a lead cannot reach outside their own rows", () => {
   it("an id in another state is dropped", () => {
-    const res = write(vicLead, { N1: { ipmEdit: 0.5 } });
+    const res = write(vicLead, { N1: { daEdit: 50 } });
     expect(res.overrides).toEqual({});
     expect(res.rejected).toContain("employee N1 outside scope");
   });
 
   it("their own row goes through", () => {
-    const res = write(vicLead, { V1: { ipmEdit: 0.5 } });
-    expect(res.overrides).toEqual({ V1: { ipmEdit: 0.5 } });
+    const res = write(vicLead, { V1: { daEdit: 50 } });
+    expect(res.overrides).toEqual({ V1: { daEdit: 50 } });
     expect(res.rejected).toEqual([]);
   });
 
   it("a mixed save keeps the permitted half and drops the rest", () => {
     const res = write(vicLead, {
-      V1: { ipmEdit: 0.5 },
-      N1: { ipmEdit: 0.9 },
+      V1: { daEdit: 50 },
+      N1: { daEdit: 90 },
       S1: { daEdit: 1000 },
     });
     expect(Object.keys(res.overrides)).toEqual(["V1"]);
@@ -131,7 +146,7 @@ describe("a lead cannot reach outside their own rows", () => {
   });
 
   it("an employee who doesn't exist is dropped without confirming as much", () => {
-    const res = write(vicLead, { GHOST: { ipmEdit: 0.5 } });
+    const res = write(vicLead, { GHOST: { daEdit: 50 } });
     expect(res.overrides).toEqual({});
     expect(res.rejected).toEqual(["unknown employee GHOST"]);
   });
@@ -139,21 +154,27 @@ describe("a lead cannot reach outside their own rows", () => {
 
 describe("a lead cannot reach fields that aren't theirs", () => {
   it("a bonus % change is dropped, and the stored one survives", () => {
-    const res = write(vicLead, { V1: { bpEdit: 0.5, ipmEdit: 0.8 } }, { V1: { bpEdit: 0.2 } });
-    expect(res.overrides.V1).toEqual({ bpEdit: 0.2, ipmEdit: 0.8 });
+    const res = write(vicLead, { V1: { bpEdit: 0.5, daEdit: 50 } }, { V1: { bpEdit: 0.2 } });
+    expect(res.overrides.V1).toEqual({ bpEdit: 0.2, daEdit: 50 });
     expect(res.rejected).toContain("field bpEdit on V1");
+  });
+
+  it("an IPM change is dropped even from a lead who could set it before", () => {
+    const res = write(vicLead, { V1: { ipmEdit: 0.8, daEdit: 50 } }, { V1: { ipmEdit: 0.9 } });
+    expect(res.overrides.V1).toEqual({ ipmEdit: 0.9, daEdit: 50 });
+    expect(res.rejected).toContain("field ipmEdit on V1");
   });
 
   it("a lock is dropped, and an admin's existing lock survives", () => {
     const res = write(
       vicLead,
-      { V1: { ipmEdit: 0.8, locked: false } },
+      { V1: { daEdit: 50, locked: false } },
       { V1: { locked: true, lockedFinal: 1234 } }
     );
     expect(res.overrides.V1).toEqual({
       locked: true,
       lockedFinal: 1234,
-      ipmEdit: 0.8,
+      daEdit: 50,
     });
     expect(res.rejected).toContain("field locked on V1");
   });
@@ -169,6 +190,12 @@ describe("a lead cannot reach fields that aren't theirs", () => {
     expect(res.overrides).toEqual({});
     expect(res.rejected).toContain("field bpEdit on V1");
   });
+
+  it("IPM is refused even from an admin", () => {
+    const res = write(admin, { V1: { ipmEdit: 0.9 } });
+    expect(res.overrides).toEqual({});
+    expect(res.rejected).toContain("field ipmEdit on V1");
+  });
 });
 
 describe("saving does not erase anyone else's work", () => {
@@ -179,28 +206,45 @@ describe("saving does not erase anyone else's work", () => {
   };
 
   it("a VIC lead saving only their row leaves NSW and shared untouched", () => {
-    const res = write(vicLead, { V1: { ipmEdit: 1 } }, current);
+    const res = write(vicLead, { V1: { daEdit: 100 } }, current);
     expect(res.overrides.N1).toEqual({ ipmEdit: 0.7, daEdit: 500 });
     expect(res.overrides.S1).toEqual({ daEdit: 250 });
-    expect(res.overrides.V1).toEqual({ ipmEdit: 1 });
+    // the row they DID write keeps its grandfathered IPM alongside the new DA
+    expect(res.overrides.V1).toEqual({ ipmEdit: 0.9, daEdit: 100 });
   });
 
-  it("omitting their own row clears it — that is how a value is removed", () => {
+  it("omitting their own row clears only what they could have written", () => {
+    // A grandfathered ipmEdit is not a field this lead can write, so it is
+    // preserved exactly like an admin's lock would be — omission clears
+    // Discretionary, not a figure the lead was never allowed to touch.
     const res = write(vicLead, {}, { ...current, V2: { daEdit: 100 } });
-    expect(res.overrides.V1).toBeUndefined();
+    expect(res.overrides.V1).toEqual({ ipmEdit: 0.9 });
     expect(res.overrides.V2).toBeUndefined();
     // and still nothing of anyone else's moved
     expect(res.overrides.N1).toEqual({ ipmEdit: 0.7, daEdit: 500 });
   });
 
-  it("clearing their own row keeps an admin's lock on it", () => {
+  it("clearing their own row keeps a grandfathered IPM and an admin's lock on it", () => {
     const res = write(vicLead, {}, { V1: { ipmEdit: 0.9, locked: true, lockedFinal: 42 } });
-    expect(res.overrides.V1).toEqual({ locked: true, lockedFinal: 42 });
+    expect(res.overrides.V1).toEqual({ ipmEdit: 0.9, locked: true, lockedFinal: 42 });
   });
 
-  it("an admin saving the whole doc still replaces it, exactly as before", () => {
-    const res = write(admin, { V1: { ipmEdit: 1 } }, current);
-    expect(res.overrides).toEqual({ V1: { ipmEdit: 1 } });
+  it("an admin's whole-doc save still fully replaces Discretionary and locks", () => {
+    const res = write(admin, { V1: { daEdit: 100 } }, current);
+    // Everything writable to admin behaves exactly as before: V1's new figure
+    // lands, and N1's (unmentioned, so cleared) daEdit is gone.
+    expect(res.overrides.V1.daEdit).toBe(100);
+    expect(res.overrides.N1?.daEdit).toBeUndefined();
+  });
+
+  it("a grandfathered IPM survives even an admin's whole-doc save, mentioned or not", () => {
+    // Admin no longer holds ipmEdit in WRITABLE_BY_ADMIN, so from the write
+    // boundary's point of view it is exactly like a lock: not theirs to
+    // touch, so it persists regardless of what the client sends — the same
+    // guarantee a lead's grandfathered IPM gets, and for the same reason.
+    const res = write(admin, { V1: { daEdit: 100 } }, current);
+    expect(res.overrides.V1.ipmEdit).toBe(0.9);
+    expect(res.overrides.N1?.ipmEdit).toBe(0.7);
   });
 });
 
@@ -257,5 +301,80 @@ describe("writeVerdict", () => {
     expect(writeVerdict("scoped", "nobody@texco.net.au", null, null)).toBe(
       "unauthenticated"
     );
+  });
+});
+
+/**
+ * The "Can edit" setting on the access screen. Discretionary is the only
+ * field it can grant now — IPM used to be a second option here, withdrawable
+ * per person, and is now withdrawn from everyone unconditionally (see
+ * "nobody may write IPM" above). A stored rule that still lists "ipm" is
+ * covered separately in access-rules.test.ts (dropInvalidRules strips it
+ * rather than failing the whole rule).
+ */
+describe("the editable-fields grant", () => {
+  const lead = (
+    editableFields: "da"[],
+    visibleFields: Scope["visibleFields"] = [...FIELDS]
+  ): Scope => ({
+    ...vicLead,
+    rule: { type: "state", states: ["VIC"], visibleFields, editableFields },
+    visibleFields,
+  });
+
+  it("grants Discretionary when the rule predates the setting", () => {
+    // The compatibility case that matters most: a rule stored before this
+    // existed must keep behaving exactly as it did, or people silently lose
+    // the ability to do their job.
+    const stored = { type: "state", states: ["VIC"], visibleFields: [...FIELDS] };
+    const parsed = AccessRuleSchema.parse(stored);
+    expect(parsed).toMatchObject({ editableFields: ["da"] });
+  });
+
+  it("writes nothing when no field is granted", () => {
+    expect(writableFields(lead([]))).toEqual([]);
+  });
+
+  it("grants exactly what was ticked", () => {
+    expect(writableFields(lead(["da"]))).toEqual(["daEdit"]);
+  });
+
+  it("cannot grant a figure the person was never sent", () => {
+    // The hole this closes: hiding a figure used to remove the input from
+    // the table while still accepting a write for it posted to /api/state.
+    const hidden = lead(["da"], ["calc", "final"]);
+    expect(writableFields(hidden)).toEqual([]);
+    expect(editableColumns(hidden)).toEqual([]);
+  });
+
+  it("offers exactly the columns it will accept", () => {
+    expect(editableColumns(lead(["da"]))).toEqual(["da"]);
+    expect(editableColumns(lead([]))).toEqual([]);
+  });
+
+  it("drops a read-only lead's write and keeps the stored figure", () => {
+    const { overrides, rejected } = write(
+      lead([]),
+      { V1: { daEdit: 50 } },
+      { V1: { daEdit: 90 } }
+    );
+    expect(overrides.V1).toEqual({ daEdit: 90 });
+    expect(rejected).toContain("field daEdit on V1");
+  });
+
+  it("drops a granted-but-hidden field and keeps what was granted", () => {
+    const { overrides } = write(
+      lead(["da"], ["da", "final"]),
+      { V1: { daEdit: 100, ipmEdit: 0.9 } },
+      { V1: {} }
+    );
+    expect(overrides.V1).toEqual({ daEdit: 100 });
+  });
+
+  it("leaves the admin untouched — locking must still work", () => {
+    // WRITABLE_BY_ADMIN carries `locked`/`lockedFinal`, which have no column
+    // and no visibility, so the new filtering must not reach them.
+    expect(writableFields(admin)).toEqual(WRITABLE_BY_ADMIN);
+    expect(writableFields(admin)).toContain("locked");
   });
 });

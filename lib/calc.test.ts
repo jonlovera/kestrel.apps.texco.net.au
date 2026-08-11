@@ -450,3 +450,44 @@ describe("clampDaToPool", () => {
     expect(overrides.F.daEdit).toBe(0);
   });
 });
+
+describe("Potential Bonus reconciles with After IPM", () => {
+  /**
+   * "Potential Bonus" is the new build-up column shown before "After IPM" —
+   * exposed as `preIpm`, which already includes the per-employee `cpm`
+   * correction (deriveCpm). This is the guard against building it the naive
+   * way instead (pkg × bp, ignoring cpm): that would visibly disagree with
+   * "After IPM" for anyone whose source bipm didn't already equal
+   * pkg × bp × ipm — confirmed against the real dataset to be roughly a
+   * quarter of the real population.
+   */
+  it("preIpm × ipm reproduces bipmCalc even when cpm isn't 1", () => {
+    // bipm (60000) deliberately doesn't equal pkg×bp×ipm (1000×0.1×0.9=90),
+    // so cpm has real work to do here, not just the identity case.
+    const e = makeEmp({ id: "Z", pkg: 1000, bp: 0.1, ipm: 0.9, bipm: 60000 });
+    const { cpm } = deriveCpm(e);
+    expect(cpm).not.toBeCloseTo(1, 2);
+
+    const [emp] = applyOverrides([e], {});
+    computeScalesAndBonuses([emp], CAPS);
+
+    // The build-up column's own figure...
+    const potentialBonus = emp.preIpm;
+    // ...reconciles exactly with the existing "After IPM" figure once its
+    // own IPM is applied — the whole point of surfacing it.
+    expect(potentialBonus * emp.ipmEdit).toBeCloseTo(emp.bipmCalc, 8);
+    // and matches the source bipm, since ipmEdit defaults to the source ipm
+    expect(emp.bipmCalc).toBeCloseTo(60000, 6);
+  });
+
+  it("a naive pkg × bp would have disagreed with After IPM here", () => {
+    // The exact failure this design avoids, stated as a test: without cpm,
+    // "Potential Bonus" would be 100 (1000×0.1) and "After IPM" would be
+    // 90 (100×0.9) — not the real 60000 already on screen elsewhere.
+    const e = makeEmp({ id: "Z", pkg: 1000, bp: 0.1, ipm: 0.9, bipm: 60000 });
+    const naivePotential = e.pkg * e.bp;
+    const [emp] = applyOverrides([e], {});
+    computeScalesAndBonuses([emp], CAPS);
+    expect(naivePotential).not.toBeCloseTo(emp.preIpm, 2);
+  });
+});

@@ -18,6 +18,7 @@ import {
 import { applyOverrides, computeScalesAndBonuses } from "./calc";
 import { deriveFacets } from "./dataset-edit";
 import { isModelWorkbook, readModelWorkbook } from "./import-model";
+import { cellValue, UNCOMPUTED, UNCOMPUTED_HINT, uncomputedSummary, ImportError } from "./xlsx-cells";
 
 /** Header labels accepted in files (case-insensitive), keyed by field. */
 export const FIELD_LABELS: Record<string, string> = {
@@ -41,16 +42,37 @@ export const FIELD_LABELS: Record<string, string> = {
 };
 const FIELDS = Object.keys(FIELD_LABELS);
 
+/**
+ * Recognised, but never required — a file that has always worked without
+ * these columns must keep working. `elig` (Eligibility %) is genuinely new
+ * data most flat files won't carry; `EmployeeSchema` makes it optional to
+ * match.
+ */
+const OPTIONAL_FIELD_LABELS: Record<string, string> = {
+  elig: "Eligibility %",
+};
+const ALL_LABELS: Record<string, string> = { ...FIELD_LABELS, ...OPTIONAL_FIELD_LABELS };
+
 /** header text (raw key or friendly label, any case) → field key */
 function headerToField(header: string): string | null {
   const h = header.trim().toLowerCase();
-  for (const f of FIELDS) {
-    if (h === f || h === FIELD_LABELS[f].toLowerCase()) return f;
+  for (const f of Object.keys(ALL_LABELS)) {
+    if (h === f || h === ALL_LABELS[f].toLowerCase()) return f;
   }
   return null;
 }
 
-const NUMERIC_KEYS = new Set(["vp", "np", "pkg", "bp", "ipm", "bipm", "da", "f25"]);
+const NUMERIC_KEYS = new Set([
+  "vp",
+  "np",
+  "pkg",
+  "bp",
+  "ipm",
+  "bipm",
+  "da",
+  "f25",
+  "elig",
+]);
 
 function coerceCell(field: string, raw: unknown): unknown {
   const s = typeof raw === "string" ? raw.trim() : raw;
@@ -183,26 +205,35 @@ export async function parseImportFile(
       headers[col] = String(cell.value ?? "").trim();
     });
     const rows: Record<string, unknown>[] = [];
+    // A formula with no cached value used to become the literal object here,
+    // which then either produced a confusing "expected a number, got
+    // '[object Object]'" on a numeric column, or — worse — was silently
+    // stringified into a text column with no error at all. Collected across
+    // the whole sheet and refused up front, the same as the model importer
+    // (lib/xlsx-cells.ts): a file that half-imports garbage is worse than one
+    // that names every affected cell and asks for a re-save.
+    const formulaErrors: string[] = [];
     ws.eachRow((row, rowNo) => {
       if (rowNo === 1) return;
       const obj: Record<string, unknown> = {};
       let hasValue = false;
       headers.forEach((h, col) => {
         if (!h) return;
-        const cell = row.getCell(col);
-        let v: unknown = cell.value;
-        // exceljs wraps formulas/rich text; unwrap to the displayed value
-        if (v && typeof v === "object") {
-          const o = v as { result?: unknown; text?: string; richText?: { text: string }[] };
-          if (o.result !== undefined) v = o.result;
-          else if (o.text !== undefined) v = o.text;
-          else if (o.richText) v = o.richText.map((r) => r.text).join("");
+        const v = cellValue(row.getCell(col));
+        if (v === UNCOMPUTED) {
+          formulaErrors.push(
+            `Row ${rowNo}, '${h}': the spreadsheet has a formula here with ${UNCOMPUTED_HINT}.`
+          );
+          return;
         }
-        if (v !== null && v !== undefined && v !== "") hasValue = true;
+        if (v !== null && v !== "") hasValue = true;
         obj[h] = v ?? "";
       });
       if (hasValue) rows.push(obj);
     });
+    if (formulaErrors.length) {
+      throw new ImportError([uncomputedSummary(formulaErrors.length), ...formulaErrors]);
+    }
     return rows;
   }
 

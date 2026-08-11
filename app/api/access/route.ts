@@ -2,24 +2,26 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { allRules, isSeeded, AccessRuleSchema } from "@/lib/access";
 import { requireWriter } from "@/lib/api-guard";
-import { OWNER_EMAIL } from "@/lib/access-rules";
+import { OWNER_EMAIL, describeEditing } from "@/lib/access-rules";
 import { loadAccessOverlay, saveAccessOverlay, appendHistory } from "@/lib/store";
 import { getDataset } from "@/lib/data";
 import { takeSnapshot } from "@/lib/snapshots";
 
 function describeRule(rule: z.infer<typeof AccessRuleSchema>): string {
+  if (rule.type === "none") return "no access";
   if (rule.type === "full") return "full access";
-  if (rule.type === "state") return `${rule.states.join(" + ")}`;
+  // The history has to record what they may CHANGE, not just what they see:
+  // a rule going read-only is the whole point of the entry.
+  const editing = describeEditing(rule);
+  if (rule.type === "state") return `${rule.states.join(" + ")} / ${editing}`;
   if (rule.type === "group") {
     const where = rule.states.length ? rule.states.join(" + ") : "all states";
     const who = rule.positions.length ? rule.positions.join(", ") : "all roles";
-    return `${where} / ${who}`;
+    return `${where} / ${who} / ${editing}`;
   }
-  if (rule.type === "subset")
-    return `${rule.employeeIds.length} selected employee${
-      rule.employeeIds.length === 1 ? "" : "s"
-    }`;
-  return "no access";
+  return `${rule.employeeIds.length} selected employee${
+    rule.employeeIds.length === 1 ? "" : "s"
+  } / ${editing}`;
 }
 
 export const dynamic = "force-dynamic";

@@ -28,8 +28,10 @@ export interface ScopedRow {
   locked: boolean;
   /** whether the row participates in any pool (drives the DA '—' rendering) */
   inPool: boolean;
+  elig?: number;
   pkg?: number;
   bp?: number;
+  potential?: number;
   ipm?: number;
   bipm?: number;
   calc?: number;
@@ -37,6 +39,9 @@ export interface ScopedRow {
   da?: number;
   yoy?: number;
   final?: number;
+  /** Shared Services split, admin-editable, informational elsewhere */
+  vp?: number;
+  np?: number;
 }
 
 /**
@@ -44,8 +49,6 @@ export interface ScopedRow {
  * weights; read-only users get exactly their `ScopedRow`.
  */
 export interface DisplayRow extends ScopedRow {
-  vp?: number;
-  np?: number;
   /** the source name halves, so edit mode can write them back separately */
   gn?: string;
   sn?: string;

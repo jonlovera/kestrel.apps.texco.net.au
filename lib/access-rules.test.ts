@@ -5,6 +5,8 @@ import {
   AccessRuleSchema,
   OWNER_EMAIL,
   type AccessRule,
+  describeEditing,
+  dropInvalidRules,
 } from "./access-rules";
 
 const full: AccessRule = { type: "full" };
@@ -12,6 +14,7 @@ const vic: AccessRule = {
   type: "state",
   states: ["VIC"],
   visibleFields: ["final"],
+  editableFields: ["da"],
 };
 const none: AccessRule = { type: "none" };
 
@@ -68,6 +71,7 @@ describe("group rules: state and/or role, standing rather than a fixed list", ()
       states: states as ("VIC" | "NSW" | "SHARED")[],
       positions,
       visibleFields: [],
+      editableFields: [],
     });
 
   it("state and role together intersect", () => {
@@ -98,5 +102,98 @@ describe("group rules: state and/or role, standing rather than a fixed list", ()
     const rule = group(["VIC"], ["Site Manager"]);
     const joined = [...people, { id: "V3", st: "VIC", pos: "Site Manager" }];
     expect(joined.filter((p) => ruleMatches(rule, p)).map((p) => p.id)).toEqual(["V1", "V3"]);
+  });
+});
+
+describe("describeEditing", () => {
+  const state = (editableFields: "da"[]) =>
+    ({
+      type: "state" as const,
+      states: ["VIC" as const],
+      visibleFields: [],
+      editableFields,
+    });
+
+  it("names what they may set", () => {
+    expect(describeEditing(state(["da"]))).toBe("can set Discretionary");
+  });
+
+  it("says read only when nothing is granted", () => {
+    // Includes anyone whose stored rule still lists "ipm" — the schema no
+    // longer accepts it as a grantable field, so it can never appear here.
+    expect(describeEditing(state([]))).toBe("read only");
+  });
+
+  it("full access is never read only", () => {
+    expect(describeEditing({ type: "full" })).toBe("can edit");
+  });
+});
+
+describe("dropInvalidRules", () => {
+  /**
+   * The overlay is validated as one record, so without this a single bad rule
+   * makes loadDoc fall back to {} and silently revokes everyone's access at
+   * once. One bad rule should cost one person.
+   */
+  const good = { type: "state", states: ["VIC"], visibleFields: [], editableFields: [] };
+
+  it("keeps the rules that parse and drops the ones that don't", () => {
+    const cleaned = dropInvalidRules({
+      "a@x.com": good,
+      "b@x.com": { type: "state", states: ["MARS"], visibleFields: [] },
+      "c@x.com": { type: "full" },
+    }) as Record<string, unknown>;
+    expect(Object.keys(cleaned).sort()).toEqual(["a@x.com", "c@x.com"]);
+  });
+
+  it("passes a healthy overlay through untouched", () => {
+    const overlay = { "a@x.com": good };
+    expect(dropInvalidRules(overlay)).toEqual(overlay);
+  });
+
+  it("keeps a rule written before editableFields existed", () => {
+    const legacy = { "a@x.com": { type: "state", states: ["VIC"], visibleFields: ["final"] } };
+    expect(Object.keys(dropInvalidRules(legacy) as object)).toEqual(["a@x.com"]);
+  });
+
+  it("strips a deprecated 'ipm' grant rather than dropping the whole rule", () => {
+    // IPM used to be grantable and stored rules from before this change may
+    // still list it. Failing that rule outright would revoke the person's
+    // entire access, not just their (already-inert) IPM permission.
+    const legacy = {
+      "a@x.com": {
+        type: "state",
+        states: ["VIC"],
+        visibleFields: ["final"],
+        editableFields: ["ipm", "da"],
+      },
+    };
+    const cleaned = dropInvalidRules(legacy) as Record<
+      string,
+      { editableFields: string[] }
+    >;
+    expect(Object.keys(cleaned)).toEqual(["a@x.com"]);
+    expect(cleaned["a@x.com"].editableFields).toEqual(["da"]);
+  });
+
+  it("strips 'ipm' even when it was the only grant, leaving read only", () => {
+    const legacy = {
+      "a@x.com": {
+        type: "state",
+        states: ["VIC"],
+        visibleFields: ["final"],
+        editableFields: ["ipm"],
+      },
+    };
+    const cleaned = dropInvalidRules(legacy) as Record<
+      string,
+      { editableFields: string[] }
+    >;
+    expect(cleaned["a@x.com"].editableFields).toEqual([]);
+  });
+
+  it("leaves a non-object alone rather than inventing an overlay", () => {
+    expect(dropInvalidRules(null)).toBe(null);
+    expect(dropInvalidRules([1, 2])).toEqual([1, 2]);
   });
 });

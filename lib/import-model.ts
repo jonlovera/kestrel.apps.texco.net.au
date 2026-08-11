@@ -32,39 +32,13 @@
  *    user to open the file in Excel and save it. Never a silent default.
  */
 import ExcelJS from "exceljs";
-
-/** Wording shared by the per-cell refusal and the guidance line above it. */
-const UNCOMPUTED_HINT = "no calculated value";
-
-/** A cell that is a formula the file carries no computed result for. */
-const UNCOMPUTED = Symbol("uncomputed");
-
-/** Read a cell down to a primitive, distinguishing "empty" from "uncomputed". */
-function cellValue(cell: ExcelJS.Cell): string | number | null | typeof UNCOMPUTED {
-  const v = cell.value;
-  if (v === null || v === undefined) return null;
-  if (typeof v === "number" || typeof v === "string") return v;
-  if (v instanceof Date) return v.toISOString();
-  const o = v as {
-    result?: unknown;
-    text?: string;
-    richText?: { text: string }[];
-    formula?: string;
-    sharedFormula?: string;
-    error?: string;
-  };
-  if (o.richText) return o.richText.map((r) => r.text).join("");
-  if (o.error) return UNCOMPUTED;
-  if (o.result !== undefined) {
-    const r = o.result as unknown;
-    if (r && typeof r === "object" && "error" in (r as object)) return UNCOMPUTED;
-    return r as string | number | null;
-  }
-  if (o.text !== undefined) return o.text;
-  // A formula (or a member of a shared-formula group) with no cached value.
-  if (o.formula !== undefined || o.sharedFormula !== undefined) return UNCOMPUTED;
-  return null;
-}
+import {
+  cellValue,
+  UNCOMPUTED,
+  UNCOMPUTED_HINT,
+  uncomputedSummary,
+  ImportError as ModelReadError,
+} from "./xlsx-cells";
 
 /** Header text, whitespace-collapsed, for comparison. */
 function headerText(cell: ExcelJS.Cell): string {
@@ -135,8 +109,17 @@ function findHeaderRow(ws: ExcelJS.Worksheet): number | null {
  * %") can anchor to the right one, while a column that appears only once can
  * ignore the year entirely. `label` is what the user is shown when the column
  * is missing or unreadable, so it reads as the spreadsheet's own wording.
+ *
+ * `optional` marks a column that, if absent, costs the workbook nothing: it
+ * is left out of `missing` entirely (so an older or differently-laid-out
+ * sheet without it still imports everything else) and simply isn't populated
+ * on any row, the same as an optional flat-file column.
  */
-type Matcher = { label: string; test: (h: string, fy: number) => boolean };
+type Matcher = {
+  label: string;
+  test: (h: string, fy: number) => boolean;
+  optional?: boolean;
+};
 
 const norm = (h: string) => h.toLowerCase().replace(/\s+/g, " ").trim();
 
@@ -167,6 +150,15 @@ export const MODEL_COLUMNS: Record<string, Matcher> = {
     label: "FY25 Bonus Award",
     test: (h, fy) => norm(h) === `fy${fy - 1} bonus award`,
   },
+  // Informational only, and genuinely new: never imported before this. Marked
+  // optional because it isn't essential to the payout calculation, which
+  // already works off `pkg` — an older sheet, or one without this column for
+  // any other reason, should still import everything else.
+  elig: {
+    label: "Bonus Scheme Eligibility",
+    test: (h) => norm(h) === "bonus scheme eligibility",
+    optional: true,
+  },
 };
 
 /** Resolve every field to a column index for one sheet. */
@@ -185,7 +177,8 @@ function mapColumns(
   for (const [field, m] of Object.entries(MODEL_COLUMNS)) {
     const hit = headers.find((h) => m.test(h.text, fy));
     if (hit) cols[field] = hit.col;
-    else missing.push(m.label.replace(/FY\d\d/, `FY${field === "f25" ? fy - 1 : fy}`));
+    else if (!m.optional)
+      missing.push(m.label.replace(/FY\d\d/, `FY${field === "f25" ? fy - 1 : fy}`));
   }
   return { cols, missing };
 }
@@ -301,6 +294,21 @@ export function readModelWorkbook(wb: ExcelJS.Workbook): ModelReadResult {
           value === null || value === "" ? (field === "da" || field === "f25" ? 0 : "") : value;
       }
 
+      // Optional: only read when the sheet actually has the column. Left
+      // unset (not even a blank string) when it doesn't, matching a flat
+      // file that simply omits it — EmployeeSchema treats it as undefined.
+      if (cols.elig !== undefined) {
+        const eligValue = cellValue(row.getCell(cols.elig));
+        if (eligValue === UNCOMPUTED) {
+          errors.push(
+            `'${ws.name}' row ${r} (${id}), '${MODEL_COLUMNS.elig.label}': the spreadsheet has a formula here with ${UNCOMPUTED_HINT}.`
+          );
+          rowFailed = true;
+        } else if (eligValue !== null && eligValue !== "") {
+          rec.elig = eligValue;
+        }
+      }
+
       if (split) {
         rec.vp = split.vp;
         rec.np = split.np;
@@ -343,11 +351,7 @@ export function readModelWorkbook(wb: ExcelJS.Workbook): ModelReadResult {
     // detail — otherwise the reader is left with 125 identical complaints and
     // no idea what to do about them.
     const uncomputed = errors.filter((e) => e.includes(UNCOMPUTED_HINT)).length;
-    if (uncomputed > 0) {
-      errors.unshift(
-        `${uncomputed} figure${uncomputed > 1 ? "s are" : " is"} stored in the spreadsheet as a formula that hasn't been calculated, so ${uncomputed > 1 ? "they" : "it"} can't be read. Open the file in Excel, save it, and upload it again — Excel writes the calculated values as it saves. Nothing has been changed in the meantime.`
-      );
-    }
+    if (uncomputed > 0) errors.unshift(uncomputedSummary(uncomputed));
     throw new ModelReadError(errors);
   }
   if (rows.length === 0) {
@@ -356,16 +360,12 @@ export function readModelWorkbook(wb: ExcelJS.Workbook): ModelReadResult {
   return { rows, year, sheetsRead };
 }
 
-/** Carries every fault so the UI can list them, not just the first. */
-export class ModelReadError extends Error {
-  readonly errors: string[];
-  constructor(errors: string[]) {
-    super(errors[0] ?? "The model workbook couldn't be read.");
-    this.name = "ModelReadError";
-    // Cap the list: 159 rows × a broken column is not a readable error page.
-    this.errors =
-      errors.length > 25
-        ? [...errors.slice(0, 25), `…and ${errors.length - 25} more.`]
-        : errors;
-  }
-}
+/**
+ * Named for where it was born, but the class itself moved to
+ * lib/xlsx-cells.ts as the generic `ImportError` — lib/import-parse.ts's flat
+ * path throws the same class for its own formula-cell faults now, and giving
+ * it a "Model"-specific name would have been misleading there. Re-exported
+ * under this name so nothing that already catches `ModelReadError` — this
+ * file's own throws, the API route, the test — needed to change.
+ */
+export { ModelReadError };

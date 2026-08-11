@@ -96,6 +96,63 @@ describe("import parsing", () => {
       sm: 0,
     });
   });
+
+  /**
+   * Before this, an uncomputed formula here became the literal object,
+   * which coerceCell then turned into the string "[object Object]" — a
+   * confusing zod error on a numeric column, and on a text column, silent
+   * corruption with no error raised at all. Both are now refused up front,
+   * matching what the real EBS model importer already does.
+   */
+  it("refuses a formula with no calculated value on a numeric column", async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Sheet1");
+    ws.addRow(HEADERS);
+    ws.addRow([
+      "XLSX2", "Smith", "Jane", "PM", "Delivery", "MB", "Employee",
+      "VIC", 1, 0, 180000, 0.15, 0.9, 24300, 0, 20000, 0,
+    ]);
+    // Package (column 11): a formula with no cached result — what a workbook
+    // saved by anything other than Excel carries.
+    ws.getRow(2).getCell(11).value = { formula: "A1*2" } as ExcelJS.CellValue;
+    const buf = Buffer.from(await wb.xlsx.writeBuffer());
+    let thrown: (Error & { errors?: string[] }) | null = null;
+    try {
+      await parseImportFile("test.xlsx", buf);
+    } catch (e) {
+      thrown = e as Error & { errors?: string[] };
+    }
+    expect(thrown).not.toBeNull();
+    const detail = thrown!.errors?.join("\n") ?? "";
+    expect(detail).toContain("Package");
+    expect(detail).toContain("no calculated value");
+    // the fix comes first, before naming individual cells
+    expect(thrown!.message).toContain("Open the file in Excel");
+  });
+
+  it("refuses — rather than silently corrupting — a formula on a text column", async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Sheet1");
+    ws.addRow(HEADERS);
+    ws.addRow([
+      "XLSX3", "Smith", "Jane", "PM", "Delivery", "MB", "Employee",
+      "VIC", 1, 0, 180000, 0.15, 0.9, 24300, 0, 20000, 0,
+    ]);
+    // Surname (column 2): the silent-corruption case — this used to become
+    // the literal text "[object Object]" with no error raised at all.
+    ws.getRow(2).getCell(2).value = { formula: "UPPER(B1)" } as ExcelJS.CellValue;
+    const buf = Buffer.from(await wb.xlsx.writeBuffer());
+    let thrown: (Error & { errors?: string[] }) | null = null;
+    try {
+      await parseImportFile("test.xlsx", buf);
+    } catch (e) {
+      thrown = e as Error & { errors?: string[] };
+    }
+    expect(thrown).not.toBeNull();
+    const detail = thrown!.errors?.join("\n") ?? "";
+    expect(detail).toContain("Surname");
+    expect(detail).not.toContain("[object Object]");
+  });
 });
 
 describe("import preview", () => {

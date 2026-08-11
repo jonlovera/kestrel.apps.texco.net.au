@@ -1,8 +1,11 @@
 /**
- * Tests for the one remaining dataset edit. The load-bearing assertion is
- * negative: the patch schema accepts nothing except an After-IPM change, so a
- * client cannot reach package, bonus %, a name, or who exists — those come
- * from the spreadsheet, because a typo in one cascades through every figure.
+ * Tests for the remaining dataset edits: After IPM, and the Shared Services
+ * VIC/NSW split. The load-bearing assertion is negative: the patch schema
+ * accepts nothing else, so a client cannot reach package, bonus %, a name, or
+ * who exists — those come from the spreadsheet, because a typo in one
+ * cascades through every figure. Note the old `{op:"split", vp, np}` shape
+ * below stays refused on purpose — the split is reopened under the existing
+ * `{op:"field", field:"vp"|"np"}` vocabulary, not that one.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -122,6 +125,72 @@ describe("the locked-down fields are unreachable through this API", () => {
       expect(DatasetPatchSchema.safeParse(body).success).toBe(false);
     });
   }
+});
+
+describe("the Shared Services split", () => {
+  const shared = dataset([
+    emp({ id: "S1", st: "SHARED", vp: 0.6, np: 0.4 }),
+  ]);
+  const vicOnly = dataset([emp({ id: "V1", st: "VIC", vp: 1, np: 0 })]);
+
+  it("setting one side derives the other, so they always sum to 100%", () => {
+    const res = apply(shared, { op: "field", id: "S1", field: "vp", value: 0.7 });
+    if (!res.ok) throw new Error(res.errors.join("; "));
+    expect(res.dataset.emp[0].vp).toBe(0.7);
+    expect(res.dataset.emp[0].np).toBeCloseTo(0.3, 10);
+  });
+
+  it("setting the other side works the same way, symmetrically", () => {
+    const res = apply(shared, { op: "field", id: "S1", field: "np", value: 0.25 });
+    if (!res.ok) throw new Error(res.errors.join("; "));
+    expect(res.dataset.emp[0].np).toBe(0.25);
+    expect(res.dataset.emp[0].vp).toBeCloseTo(0.75, 10);
+  });
+
+  it("avoids float residue from 1 - value", () => {
+    const res = apply(shared, { op: "field", id: "S1", field: "vp", value: 0.3 });
+    if (!res.ok) throw new Error(res.errors.join("; "));
+    // naive 1 - 0.3 in floating point is 0.7000000000000001
+    expect(res.dataset.emp[0].np).toBe(0.7);
+  });
+
+  it("refuses a split on a VIC or NSW employee — there is nothing to reallocate", () => {
+    const res = apply(vicOnly, { op: "field", id: "V1", field: "vp", value: 0.5 });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error();
+    expect(res.errors[0]).toContain("Shared Services");
+  });
+
+  it("rejects a value outside 0–1", () => {
+    expect(
+      DatasetPatchSchema.safeParse({ op: "field", id: "S1", field: "vp", value: 1.5 }).success
+    ).toBe(false);
+    expect(
+      DatasetPatchSchema.safeParse({ op: "field", id: "S1", field: "np", value: -0.1 }).success
+    ).toBe(false);
+  });
+
+  it("a no-op edit records no history", () => {
+    const res = apply(shared, { op: "field", id: "S1", field: "vp", value: 0.6 });
+    if (!res.ok) throw new Error();
+    expect(res.history).toHaveLength(0);
+  });
+
+  it("records the before/after, naming which side follows automatically", () => {
+    const res = apply(shared, { op: "field", id: "S1", field: "vp", value: 0.8 });
+    if (!res.ok) throw new Error();
+    expect(res.history[0].field).toBe("vp");
+    expect(res.history[0].from).toBe(0.6);
+    expect(res.history[0].to).toBe(0.8);
+    expect(res.history[0].summary).toContain("NSW");
+  });
+
+  it("does not mutate the input dataset", () => {
+    apply(shared, { op: "field", id: "S1", field: "vp", value: 0.99 });
+    expect(shared.emp[0].vp).toBe(0.6);
+    expect(shared.emp[0].np).toBe(0.4);
+  });
+
 });
 
 describe("the change flows through the real calc engine", () => {

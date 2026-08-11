@@ -21,6 +21,7 @@ const vicScope: Scope = {
     type: "state",
     states: ["VIC"],
     visibleFields: ["ipm", "bipm", "calc", "f25", "da", "yoy", "final"],
+    editableFields: ["da"],
   },
   canEdit: false,
   visibleFields: ["ipm", "bipm", "calc", "f25", "da", "yoy", "final"],

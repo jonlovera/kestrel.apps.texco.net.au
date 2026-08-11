@@ -11,7 +11,11 @@ import {
   type Dataset,
   type Snapshot,
 } from "./schema";
-import { AccessRuleSchema, type AccessRule } from "./access-rules";
+import {
+  AccessRuleSchema,
+  dropInvalidRules,
+  type AccessRule,
+} from "./access-rules";
 import {
   ColumnConfigSchema,
   DEFAULT_COLUMNS,
@@ -292,7 +296,13 @@ const AccessOverlaySchema = z.record(z.string(), AccessRuleSchema);
 export type AccessOverlay = Record<string, AccessRule>;
 
 export function loadAccessOverlay(): Promise<AccessOverlay> {
-  return loadDoc(ACCESS_KEY, ACCESS_FILE, AccessOverlaySchema, {});
+  // preprocess so one unparseable rule costs that person their access rather
+  // than failing the whole record and silently revoking everybody's
+  const Tolerant = z.preprocess(
+    dropInvalidRules,
+    AccessOverlaySchema
+  ) as z.ZodType<AccessOverlay>;
+  return loadDoc(ACCESS_KEY, ACCESS_FILE, Tolerant, {});
 }
 
 export function saveAccessOverlay(doc: AccessOverlay): Promise<void> {
