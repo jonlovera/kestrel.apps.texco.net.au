@@ -26,8 +26,14 @@ export const EmployeeSchema = z.object({
   // nobody using it today has.
   totalPkg: z.number().min(0).optional(),
   // Informational only — never used in the calc, which works off `pkg`.
-  // Optional for the same reason as totalPkg.
-  elig: z.number().min(0).max(1).optional(),
+  // Optional for the same reason as totalPkg. No range constraint: a real
+  // employee not eligible for a bonus this cycle can show a negative value
+  // here (their Eligible Salary is 0, and the sheet's own eligibility-
+  // proration formula isn't floored at zero for them) — confirmed against
+  // real data across 12 real employees, all with Eligible Salary exactly 0.
+  // Never computed against, only ever displayed, so nothing downstream is at
+  // risk from a figure outside 0–1.
+  elig: z.number().optional(),
   bp: z.number().min(0), // bonus % of package (fraction)
   ipm: z.number().min(0), // individual performance modifier (fraction)
   bipm: z.number(), // bonus after IPM $ (source figure; cpm derived from it)

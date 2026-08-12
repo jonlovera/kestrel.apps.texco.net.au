@@ -226,6 +226,24 @@ describe("EBS Group workbook", () => {
     expect(parsed.employees[0].elig).toBeUndefined();
   });
 
+  /**
+   * Found against a real file: someone not eligible for a bonus this cycle
+   * (Eligible Salary $0) can carry a negative Eligibility % — the sheet's own
+   * proration formula isn't floored at zero for them. `elig` is informational
+   * only, never computed against, so this must not block the import.
+   */
+  it("accepts a negative Eligibility %, for someone not eligible this cycle", () => {
+    const { wb } = groupWorkbook();
+    const ws = wb.getWorksheet("EBS Group - FY26")!;
+    ws.getRow(16).getCell(17).value = -0.2438356164383562; // Eligibility %
+    ws.getRow(16).getCell(18).value = 0; // Eligible Salary
+    const { rows } = readModelWorkbook(wb);
+    const parsed = rowsToEmployees(rows);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.employees.find((e) => e.id === "AAA")!.elig).toBeCloseTo(-0.2438, 4);
+  });
+
   it("refuses a formula with no calculated value rather than importing a zero", () => {
     const { wb } = groupWorkbook();
     const ws = wb.getWorksheet("EBS Group - FY26")!;
