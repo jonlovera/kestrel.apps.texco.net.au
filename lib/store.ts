@@ -27,6 +27,12 @@ import {
 import { ParamsSchema, type Params } from "./params-apply";
 import { StoredCopySchema, resolveCopy, type Copy } from "./copy";
 import { IdentityUsersSchema, type IdentityUsers } from "./identity-schema";
+import {
+  PageviewEntrySchema,
+  AnonVisitEntrySchema,
+  type PageviewEntry,
+  type AnonVisitEntry,
+} from "./pageviews";
 
 /**
  * Persistence: Neon Postgres in production (Vercel Marketplace add-on), a
@@ -471,6 +477,99 @@ export async function loadHistory(limit = 500): Promise<HistoryEntry[]> {
       .filter((e): e is HistoryEntry => e !== null);
   } catch (err) {
     console.error("[store] failed to load history:", err);
+    return [];
+  }
+}
+
+// ── signed-in page views (append-only, newest first, capped) ────────────────
+// Logged from proxy.ts on every real navigation by an authenticated user —
+// see lib/pageviews.ts for the entry shape and proxy.ts for what counts as
+// "real" (not an API call, not a router prefetch).
+const PAGEVIEWS_KEY = "kestrel:pageviews:fy26";
+const PAGEVIEWS_FILE = "pageviews.json";
+const PAGEVIEWS_CAP = 5000;
+
+/** Never throws — a logging failure must not break the request it describes. */
+export async function appendPageview(entry: PageviewEntry): Promise<void> {
+  try {
+    const client = sql();
+    if (client) {
+      await client`INSERT INTO kestrel_log (list, entry)
+        VALUES (${PAGEVIEWS_KEY}, ${JSON.stringify(entry)}::jsonb)`;
+      await trimLog(client, PAGEVIEWS_KEY, PAGEVIEWS_CAP);
+    } else if (process.env.NODE_ENV === "development") {
+      const prev = ((await devRead(PAGEVIEWS_FILE)) as PageviewEntry[]) ?? [];
+      await devWrite(PAGEVIEWS_FILE, [entry, ...prev].slice(0, PAGEVIEWS_CAP));
+    }
+  } catch (err) {
+    console.error("[store] failed to append pageview:", err);
+  }
+}
+
+export async function loadPageviews(limit = 500): Promise<PageviewEntry[]> {
+  try {
+    const client = sql();
+    const raw = client
+      ? (
+          await client`SELECT entry FROM kestrel_log
+            WHERE list = ${PAGEVIEWS_KEY} ORDER BY id DESC LIMIT ${limit}`
+        ).map((row) => row.entry)
+      : (((await devRead(PAGEVIEWS_FILE)) as unknown[]) ?? []).slice(0, limit);
+    return raw
+      .map((item) => {
+        const obj = typeof item === "string" ? JSON.parse(item) : item;
+        const parsed = PageviewEntrySchema.safeParse(obj);
+        return parsed.success ? parsed.data : null;
+      })
+      .filter((e): e is PageviewEntry => e !== null);
+  } catch (err) {
+    console.error("[store] failed to load pageviews:", err);
+    return [];
+  }
+}
+
+// ── anonymous visits (append-only, newest first, capped) ────────────────────
+// Hits from people who never signed in, to any page other than /login itself
+// (that exclusion happens in proxy.ts). Answers "how many random visitors and
+// what were they trying to reach" without ever storing a full IP.
+const ANON_VISITS_KEY = "kestrel:visits:anon:fy26";
+const ANON_VISITS_FILE = "visits-anon.json";
+const ANON_VISITS_CAP = 5000;
+
+export async function appendAnonVisit(entry: AnonVisitEntry): Promise<void> {
+  try {
+    const client = sql();
+    if (client) {
+      await client`INSERT INTO kestrel_log (list, entry)
+        VALUES (${ANON_VISITS_KEY}, ${JSON.stringify(entry)}::jsonb)`;
+      await trimLog(client, ANON_VISITS_KEY, ANON_VISITS_CAP);
+    } else if (process.env.NODE_ENV === "development") {
+      const prev = ((await devRead(ANON_VISITS_FILE)) as AnonVisitEntry[]) ?? [];
+      await devWrite(ANON_VISITS_FILE, [entry, ...prev].slice(0, ANON_VISITS_CAP));
+    }
+  } catch (err) {
+    console.error("[store] failed to append anonymous visit:", err);
+  }
+}
+
+export async function loadAnonVisits(limit = 500): Promise<AnonVisitEntry[]> {
+  try {
+    const client = sql();
+    const raw = client
+      ? (
+          await client`SELECT entry FROM kestrel_log
+            WHERE list = ${ANON_VISITS_KEY} ORDER BY id DESC LIMIT ${limit}`
+        ).map((row) => row.entry)
+      : (((await devRead(ANON_VISITS_FILE)) as unknown[]) ?? []).slice(0, limit);
+    return raw
+      .map((item) => {
+        const obj = typeof item === "string" ? JSON.parse(item) : item;
+        const parsed = AnonVisitEntrySchema.safeParse(obj);
+        return parsed.success ? parsed.data : null;
+      })
+      .filter((e): e is AnonVisitEntry => e !== null);
+  } catch (err) {
+    console.error("[store] failed to load anonymous visits:", err);
     return [];
   }
 }

@@ -1,8 +1,10 @@
 import { auth } from "@/auth";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { identityHost } from "@/lib/identity";
 import { scopeForUser } from "@/lib/access";
 import { ADMIN_GATE_COOKIE, verifyAdminGateToken } from "@/lib/admin-gate";
+import { appendPageview, appendAnonVisit } from "@/lib/store";
+import { truncateIp, clientIpFrom } from "@/lib/pageviews";
 
 /**
  * Next 16 proxy (formerly middleware): every route except /login and the
@@ -31,6 +33,28 @@ const PUBLIC_PATHS = [
 // The gate's own page: must stay reachable by a signed-in admin who hasn't
 // passed it yet, or there is no way to ever pass it.
 const ADMIN_GATE_PATH = "/admin-gate";
+
+/**
+ * Whether this request represents someone actually looking at a page, as
+ * opposed to an API call, a static asset, or the browser speculatively
+ * prefetching a route it hasn't navigated to. Only GET requests outside
+ * /api qualify; `next-router-prefetch` is Next's own header for hover/viewport
+ * prefetch (see node_modules/next/dist/client/components/app-router-headers.js)
+ * and must not be counted as a visit. A soft client-side navigation the user
+ * actually triggered still carries the `rsc` header but not the prefetch one,
+ * so it's still counted.
+ */
+function isLoggablePageview(req: {
+  method: string;
+  nextUrl: { pathname: string };
+  headers: Headers;
+}): boolean {
+  return (
+    req.method === "GET" &&
+    !req.nextUrl.pathname.startsWith("/api") &&
+    !req.headers.get("next-router-prefetch")
+  );
+}
 
 function applySecurityHeaders(res: NextResponse): NextResponse {
   const isDev = process.env.NODE_ENV === "development";
@@ -71,6 +95,28 @@ export default auth(async (req) => {
     pathname.startsWith("/dev/login");
 
   const email = req.auth?.user?.email;
+
+  // Durable visitor logging — see lib/store.ts (kestrel:pageviews:fy26 /
+  // kestrel:visits:anon:fy26) and /admin/visitors. Scheduled with `after()` so
+  // the write never delays the redirect/response below.
+  if (isLoggablePageview(req)) {
+    if (email) {
+      const name = req.auth?.user?.name ?? undefined;
+      after(() =>
+        appendPageview({ ts: new Date().toISOString(), path: pathname, email, name })
+      );
+    } else if (!isPublic) {
+      // Anonymous and not one of the always-open paths (that excludes /login
+      // itself) — this is a random visitor's attempt to reach a real page.
+      const ipPrefix = (() => {
+        const ip = clientIpFrom(req.headers);
+        return ip ? truncateIp(ip) : null;
+      })();
+      after(() =>
+        appendAnonVisit({ ts: new Date().toISOString(), path: pathname, ipPrefix })
+      );
+    }
+  }
 
   if (!email && !isPublic) {
     const loginUrl = new URL("/login", req.nextUrl.origin);
