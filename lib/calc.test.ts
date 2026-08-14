@@ -18,11 +18,16 @@ import {
 
 /**
  * Hand-computable fixture:
- *   VIC pool: A (bipm 100), B (bipm 300) unlocked; C site manager fixed at 200
- *   NSW pool: D (bipm 250) unlocked
- *   SHARED:   E (bipm 100, 60/40 split) unlocked
+ *   VIC pool: A (bipm 200), B (bipm 600) unlocked; C site manager fixed at 200
+ *   NSW pool: D (bipm 500) unlocked
+ *   SHARED:   E (bipm 200, 60/40 split) unlocked
  *   F: no pool exposure (vp = np = 0)
- * Baseline: vicScale = (1000-200)/460, nswScale = 500/290
+ * Baseline: vicScale = (1000-200)/920, nswScale = 500/580 — both pools
+ * genuinely oversubscribed (demand > cap), so scale stays below 1 and these
+ * bipm figures are deliberately chosen well above the old (100/300/250/100)
+ * ones: since FY26's methodology caps scale at 1 (see clampScale in
+ * lib/calc.ts), a fixture with scale > 1 would now just clamp to 1 and stop
+ * exercising DA redistribution/locking at all.
  */
 const CAPS: Caps = { vCap: 1000, nCap: 500, gCap: 1500 };
 
@@ -49,11 +54,11 @@ function makeEmp(over: Partial<Employee> & { id: string }): Employee {
 }
 
 const FIXTURE: Employee[] = [
-  makeEmp({ id: "A", bipm: 100, pkg: 1000 }),
-  makeEmp({ id: "B", bipm: 300, pkg: 3000 }),
+  makeEmp({ id: "A", bipm: 200, pkg: 2000 }),
+  makeEmp({ id: "B", bipm: 600, pkg: 6000 }),
   makeEmp({ id: "C", bipm: 200, pkg: 2000, sm: 1 }),
-  makeEmp({ id: "D", st: "NSW", vp: 0, np: 1, bipm: 250, pkg: 2500 }),
-  makeEmp({ id: "E", st: "SHARED", vp: 0.6, np: 0.4, bipm: 100, pkg: 1000 }),
+  makeEmp({ id: "D", st: "NSW", vp: 0, np: 1, bipm: 500, pkg: 5000 }),
+  makeEmp({ id: "E", st: "SHARED", vp: 0.6, np: 0.4, bipm: 200, pkg: 2000 }),
   makeEmp({ id: "F", vp: 0, np: 0, bipm: 50, pkg: 500 }),
 ];
 
@@ -74,8 +79,8 @@ function totalNswAlloc(emps: CalcEmployee[], nswScale: number) {
 describe("baseline (no edits, no locks)", () => {
   it("computes the expected scales", () => {
     const { pool } = run();
-    expect(pool.vicScale).toBeCloseTo(800 / 460, 10);
-    expect(pool.nswScale).toBeCloseTo(500 / 290, 10);
+    expect(pool.vicScale).toBeCloseTo(800 / 920, 10);
+    expect(pool.nswScale).toBeCloseTo(500 / 580, 10);
     expect(pool.stateVicAvail).toBe(1000);
     expect(pool.stateNswAvail).toBe(500);
   });
@@ -95,7 +100,7 @@ describe("baseline (no edits, no locks)", () => {
   it("split-state employee draws from both pools at their weights", () => {
     const { byId, pool } = run();
     expect(byId.E.finalBonus).toBeCloseTo(
-      100 * 0.6 * pool.vicScale + 100 * 0.4 * pool.nswScale,
+      200 * 0.6 * pool.vicScale + 200 * 0.4 * pool.nswScale,
       10
     );
   });
@@ -103,6 +108,22 @@ describe("baseline (no edits, no locks)", () => {
   it("zero-weight employee gets only their DA (here 0)", () => {
     const { byId } = run();
     expect(byId.F.finalBonus).toBe(0);
+  });
+
+  it("an under-subscribed pool caps its scale at 1 and leaves the rest unpaid (FY26 methodology)", () => {
+    // Everyone's demand comfortably fits inside a much bigger cap: the old
+    // behaviour would have scaled B/A/E up above 100% to spend the lot;
+    // now the scale clamps at exactly 1 and money is left on the table.
+    const bigCaps: Caps = { vCap: 100_000, nCap: 100_000, gCap: 200_000 };
+    const emps = applyOverrides(FIXTURE, {});
+    const pool = computeScalesAndBonuses(emps, bigCaps);
+    expect(pool.vicScale).toBe(1);
+    expect(pool.nswScale).toBe(1);
+    expect(totalVicAlloc(emps, pool.vicScale)).toBeLessThan(bigCaps.vCap);
+    expect(totalNswAlloc(emps, pool.nswScale)).toBeLessThan(bigCaps.nCap);
+    // nobody is paid above their own theoretical (unscaled) entitlement
+    expect(emps.find((e) => e.id === "A")!.finalBonus).toBeCloseTo(200, 10);
+    expect(emps.find((e) => e.id === "B")!.finalBonus).toBeCloseTo(600, 10);
   });
 });
 
@@ -112,9 +133,9 @@ describe("single discretionary adjustment pro-rates across the unlocked pool", (
     const adj = run({ A: { daEdit: 100 } });
 
     // scale drops to absorb the DA
-    expect(adj.pool.vicScale).toBeCloseTo(700 / 460, 10);
+    expect(adj.pool.vicScale).toBeCloseTo(700 / 920, 10);
     // recipient rises, but by less than the DA (their own share re-prorates)
-    expect(adj.byId.A.finalBonus).toBeCloseTo(100 * (700 / 460) + 100, 10);
+    expect(adj.byId.A.finalBonus).toBeCloseTo(200 * (700 / 920) + 100, 10);
     expect(adj.byId.A.finalBonus - base.byId.A.finalBonus).toBeLessThan(100);
     expect(adj.byId.A.finalBonus).toBeGreaterThan(base.byId.A.finalBonus);
     // pool total unchanged
@@ -128,8 +149,8 @@ describe("single discretionary adjustment pro-rates across the unlocked pool", (
     const dEvic =
       base.byId.E.finalBonus -
       adj.byId.E.finalBonus; // E only loses on its VIC component
-    // B carries 300 of VIC bipm, E carries 60 → 5:1 ratio
-    expect(dB / dEvic).toBeCloseTo(300 / 60, 8);
+    // B carries 600 of VIC bipm, E carries 120 → 5:1 ratio
+    expect(dB / dEvic).toBeCloseTo(600 / 120, 8);
   });
 
   it("site managers and the other pool are untouched", () => {
@@ -144,7 +165,7 @@ describe("single discretionary adjustment pro-rates across the unlocked pool", (
 describe("multiple adjustments compose", () => {
   it("two DAs shrink the scale additively and are order-independent", () => {
     const both = run({ A: { daEdit: 100 }, B: { daEdit: 50 } });
-    expect(both.pool.vicScale).toBeCloseTo((800 - 150) / 460, 10);
+    expect(both.pool.vicScale).toBeCloseTo((800 - 150) / 920, 10);
     // pure function of state → same result as applying in any order
     const swapped = run({ B: { daEdit: 50 }, A: { daEdit: 100 } });
     expect(swapped.byId.A.finalBonus).toBeCloseTo(both.byId.A.finalBonus, 12);
@@ -154,14 +175,18 @@ describe("multiple adjustments compose", () => {
 
   it("DAs in different pools do not interact", () => {
     const adj = run({ A: { daEdit: 100 }, D: { daEdit: 60 } });
-    expect(adj.pool.vicScale).toBeCloseTo(700 / 460, 10);
-    expect(adj.pool.nswScale).toBeCloseTo((500 - 60) / 290, 10);
+    expect(adj.pool.vicScale).toBeCloseTo(700 / 920, 10);
+    expect(adj.pool.nswScale).toBeCloseTo((500 - 60) / 580, 10);
   });
 });
 
 describe("locked positions are excluded from re-proration", () => {
-  // Lock B at its baseline final (521.739…) as the prototype's lock button does
-  const bFinal = 300 * (800 / 460);
+  // Lock B at its baseline final (521.739…) as the prototype's lock button does.
+  // B is pure-VIC (vp=1, np=0), so its raw-vp/np split and the FY26
+  // no-locks-scale-weighted split agree exactly here — the two only diverge
+  // for a *blended* locked employee (see the "blended locked employee" tests
+  // further down).
+  const bFinal = 600 * (800 / 920);
 
   it("a locked employee's final is frozen while others re-prorate", () => {
     const adj = run({
@@ -169,8 +194,8 @@ describe("locked positions are excluded from re-proration", () => {
       A: { daEdit: 100 },
     });
     expect(adj.byId.B.finalBonus).toBeCloseTo(bFinal, 10);
-    // locked B moves into the locked aggregate: scale over remaining 160 bipm
-    expect(adj.pool.vicScale).toBeCloseTo((1000 - 200 - bFinal - 100) / 160, 10);
+    // locked B moves into the locked aggregate: scale over remaining 320 bipm (A + E's VIC share)
+    expect(adj.pool.vicScale).toBeCloseTo((1000 - 200 - bFinal - 100) / 320, 10);
     expect(totalVicAlloc(adj.emps, adj.pool.vicScale)).toBeCloseTo(1000, 8);
   });
 
@@ -181,13 +206,13 @@ describe("locked positions are excluded from re-proration", () => {
 
   it("unlocking releases the bonus back into the pool", () => {
     const relocked = run({ A: { daEdit: 100 } }); // as if B was unlocked again
-    expect(relocked.pool.vicScale).toBeCloseTo(700 / 460, 10);
+    expect(relocked.pool.vicScale).toBeCloseTo(700 / 920, 10);
   });
 });
 
 describe("all-but-one locked", () => {
-  const bFinal = 300 * (800 / 460);
-  const eFinal = 100 * 0.6 * (800 / 460) + 100 * 0.4 * (500 / 290);
+  const bFinal = 600 * (800 / 920);
+  const eFinal = 200 * 0.6 * (800 / 920) + 200 * 0.4 * (500 / 580);
   const locks: Overrides = {
     B: { locked: true, lockedFinal: bFinal },
     E: { locked: true, lockedFinal: eFinal },
@@ -195,21 +220,79 @@ describe("all-but-one locked", () => {
 
   it("the sole unlocked employee's scale absorbs a DA fully", () => {
     const adj = run({ ...locks, A: { daEdit: 100 } });
-    const lockedVp = 200 + bFinal + eFinal * 0.6;
-    expect(adj.pool.vicScale).toBeCloseTo((1000 - lockedVp - 100) / 100, 8);
-    expect(adj.byId.A.finalBonus).toBeCloseTo(
-      100 * adj.pool.vicScale + 100,
+    // E is blended (vp 0.6/np 0.4) and locked: its contribution to VIC's pool
+    // deduction is now split via the no-locks-weighted method (FY26 fix),
+    // not raw vp — so this isn't simply `eFinal * 0.6` any more. Assert
+    // against the actual pool-math split via poolAgg.empLockedVp instead of
+    // re-deriving it by hand, since that's exactly the quantity under test.
+    expect(adj.pool.vicScale).toBeCloseTo(
+      (1000 - adj.pool.poolAgg.empLockedVp - 100) / 200,
       8
     );
-    expect(totalVicAlloc(adj.emps, adj.pool.vicScale)).toBeCloseTo(1000, 8);
+    expect(adj.byId.A.finalBonus).toBeCloseTo(
+      200 * adj.pool.vicScale + 100,
+      8
+    );
+    // Note: totalVicAlloc (getVicAlloc's raw-vp/np reporting split) no longer
+    // exactly equals the cap here — E's *reported* VIC allocation and its
+    // *pool-consumption* VIC attribution are legitimately different figures
+    // once E is a blended, locked employee (this mirrors the real FY26
+    // workbook, whose own "VIC Allocation" and "Locked → VIC" columns
+    // disagree for exactly this kind of row). See the dedicated
+    // "blended locked employee" tests below for that distinction.
   });
 
   it("getMaxDA equals the exact remaining room for the last unlocked employee", () => {
-    const { emps, pool, byId } = run(locks);
-    const lockedVp = 200 + bFinal + eFinal * 0.6;
-    const room = 1000 - lockedVp;
+    const { pool, byId } = run(locks);
+    const room = 1000 - pool.poolAgg.empLockedVp;
     expect(getMaxDA(byId.A, pool)).toBe(Math.floor(room));
-    void emps;
+  });
+});
+
+describe("a blended (split-state) locked employee splits by the no-locks scale, not raw vp/np", () => {
+  // FY26 methodology fix: confirmed against the real workbook (146/146
+  // employees reconciled exactly) that a locked employee's contribution to
+  // each state's pool deduction is weighted by a preliminary "no locks"
+  // scale (site managers excluded, nobody else), not their raw vp/np split.
+  // E is blended (0.6/0.4) — with VIC oversubscribed (scale < 1) and NSW
+  // comfortably funded (scale = 1 once big enough), the two methods produce
+  // visibly different splits for the same locked amount.
+  it("differs from the raw vp/np split when the two states' pressure differs", () => {
+    const bigNCap: Caps = { vCap: 1000, nCap: 100_000, gCap: 101_000 };
+    const eFinal = 500; // an arbitrary frozen figure for this scenario
+    const pool = computeScalesAndBonuses(
+      applyOverrides(FIXTURE, { E: { locked: true, lockedFinal: eFinal } }),
+      bigNCap
+    );
+    // FIXTURE's site manager (C, pure VIC) also feeds empLockedVp at its raw
+    // 200 — isolate E's own contribution before comparing.
+    const eVicShare = pool.poolAgg.empLockedVp - 200;
+    // no-locks scale: VIC is oversubscribed (< 1), NSW is not (clamps to 1) —
+    // so E's frozen amount should be weighted less toward VIC than a raw
+    // 60/40 split would give it.
+    const rawVicShare = eFinal * 0.6;
+    expect(eVicShare).not.toBeCloseTo(rawVicShare, 0);
+    expect(eVicShare).toBeLessThan(rawVicShare);
+  });
+
+  it("still splits by raw vp/np when both states put equal pressure on it", () => {
+    // With vicScaleNoLocks == nswScaleNoLocks, the weighted split degenerates
+    // back to raw vp/np. VIC's no-locks scale is (1000-200)/920 (C, the site
+    // manager, is VIC-only); to give NSW the identical ratio with no
+    // site-manager deduction of its own, its demand needs to be
+    // 1000 * 920/800 = 1150 (D=1070 + E's NSW share of 80).
+    const equalCaps: Caps = { vCap: 1000, nCap: 1000, gCap: 2000 };
+    const symmetricFixture = FIXTURE.map((e) =>
+      e.id === "D" ? { ...e, bipm: 1070 } : e
+    );
+    const eFinal = 500;
+    const pool = computeScalesAndBonuses(
+      applyOverrides(symmetricFixture, { E: { locked: true, lockedFinal: eFinal } }),
+      equalCaps
+    );
+    const eVicShare = pool.poolAgg.empLockedVp - 200; // minus C, the site manager
+    expect(eVicShare).toBeCloseTo(eFinal * 0.6, 6);
+    expect(pool.poolAgg.empLockedNp).toBeCloseTo(eFinal * 0.4, 6); // C has np=0
   });
 });
 

@@ -49,6 +49,8 @@ function addGroupSheet(
   ws.getCell("A1").value = "TEXCO — FY26 EMPLOYEE BONUS SCHEME";
   ws.getCell("C5").value = "VIC Pool Cap";
   ws.getCell("D5").value = 1450259.6;
+  ws.getCell("E5").value = "NSW Pool Cap";
+  ws.getCell("F5").value = 987654.32;
   for (const [col, text] of Object.entries(headers)) {
     ws.getRow(15).getCell(Number(col)).value = text;
   }
@@ -370,5 +372,49 @@ describe("EBS Group workbook", () => {
     for (const field of ["id", "sn", "gn", "pos", "dept", "mgr", "cat", "vp", "np", "pkg", "totalPkg", "bp", "ipm", "bipm", "da", "f25", "elig"]) {
       expect(GROUP_COLUMNS[field]).toBeDefined();
     }
+  });
+
+  describe("pool caps (FY26: the workbook is now authoritative for these)", () => {
+    it("reads VIC/NSW Pool Cap and derives the group cap as their sum", () => {
+      const { caps } = readModelWorkbook(groupWorkbook().wb);
+      expect(caps.vCap).toBe(1450259.6);
+      expect(caps.nCap).toBe(987654.32);
+      expect(caps.gCap).toBeCloseTo(1450259.6 + 987654.32, 6);
+    });
+
+    it("prefers an explicit 'TOTAL GROUP POOL CAP' label over the derived sum", () => {
+      const { wb } = groupWorkbook();
+      const ws = wb.getWorksheet("EBS Group - FY26")!;
+      ws.getCell("C6").value = "TOTAL GROUP POOL CAP";
+      ws.getCell("D6").value = 2_500_000;
+      const { caps } = readModelWorkbook(wb);
+      expect(caps.gCap).toBe(2_500_000);
+    });
+
+    it("refuses to import when the VIC Pool Cap figure can't be found", () => {
+      const { wb } = groupWorkbook();
+      const ws = wb.getWorksheet("EBS Group - FY26")!;
+      ws.getCell("C5").value = null;
+      expect(() => readModelWorkbook(wb)).toThrow(/VIC Pool Cap/);
+    });
+
+    it("refuses to import when the NSW Pool Cap figure can't be found", () => {
+      const { wb } = groupWorkbook();
+      const ws = wb.getWorksheet("EBS Group - FY26")!;
+      ws.getCell("E5").value = null;
+      expect(() => readModelWorkbook(wb)).toThrow(/NSW Pool Cap/);
+    });
+
+    it("resolves the label by text even when restated at a different column", () => {
+      // The real workbook restates "VIC Pool Cap" a second time, further
+      // right, as the first row of its own waterfall table — the label
+      // scan must find a match wherever it sits, not at a fixed column.
+      const { wb } = groupWorkbook();
+      const ws = wb.getWorksheet("EBS Group - FY26")!;
+      ws.getCell("H11").value = "VIC Pool Cap";
+      ws.getCell("I11").value = 1450259.6; // same figure, restated
+      const { caps } = readModelWorkbook(wb);
+      expect(caps.vCap).toBe(1450259.6);
+    });
   });
 });

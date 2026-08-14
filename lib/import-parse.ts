@@ -205,6 +205,12 @@ export interface ParsedFile {
    * that format has no equivalent concept, and this is never asked of it.
    */
   lockedAmounts: Record<string, number>;
+  /**
+   * Pool caps read from the model workbook's own parameter cells. Undefined
+   * for a flat file/CSV (never had this concept) — candidateDataset() falls
+   * back to carrying the current dataset's caps over when this is absent.
+   */
+  caps?: { vCap: number; nCap: number; gCap: number };
 }
 
 /** Parse an uploaded file (xlsx or csv) into header-keyed raw rows. */
@@ -221,8 +227,8 @@ export async function parseImportFile(
     // looking like a flat export. Detection is by its per-state FY sheets, so
     // an ordinary spreadsheet can never take this path by accident.
     if (isModelWorkbook(wb)) {
-      const { rows, lockedAmounts } = readModelWorkbook(wb);
-      return { rows, lockedAmounts };
+      const { rows, lockedAmounts, caps } = readModelWorkbook(wb);
+      return { rows, lockedAmounts, caps };
     }
 
     const ws = wb.worksheets[0];
@@ -305,21 +311,30 @@ export interface ImportPreview {
 }
 
 /**
- * Shape imported employees into a dataset: caps and the permanent exclude
- * list both carry over from the current dataset (neither comes from a
- * spreadsheet), and anyone on that list is dropped here — before the
- * added/removed diff is even computed — so a future import can never quietly
- * bring an excluded person back just because the spreadsheet still lists
- * them.
+ * Shape imported employees into a dataset. The permanent exclude list always
+ * carries over from the current dataset (never comes from a spreadsheet),
+ * and anyone on it is dropped here — before the added/removed diff is even
+ * computed — so a future import can never quietly bring an excluded person
+ * back just because the spreadsheet still lists them.
+ *
+ * Pool caps: the model workbook reads its own ("VIC/NSW Pool Cap") cells
+ * (lib/import-model.ts) and is authoritative for them, the same as every
+ * other figure it carries — so when `caps` is supplied, it replaces
+ * whatever's currently stored. A flat file/CSV has no such concept, so caps
+ * still carry over from the current dataset for that path (`caps` absent).
  */
-export function candidateDataset(current: Dataset, employees: Employee[]): Dataset {
+export function candidateDataset(
+  current: Dataset,
+  employees: Employee[],
+  caps?: { vCap: number; nCap: number; gCap: number }
+): Dataset {
   const excluded = new Set(current.excludedIds);
   const kept = employees.filter((e) => !excluded.has(e.id));
   return {
     emp: kept,
-    vCap: current.vCap,
-    nCap: current.nCap,
-    gCap: current.gCap,
+    vCap: caps?.vCap ?? current.vCap,
+    nCap: caps?.nCap ?? current.nCap,
+    gCap: caps?.gCap ?? current.gCap,
     excludedIds: current.excludedIds,
     ...deriveFacets(kept),
   };

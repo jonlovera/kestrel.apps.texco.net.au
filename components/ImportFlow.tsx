@@ -10,6 +10,12 @@ import { fmt } from "@/lib/fmt";
  * the preview and pressed Apply; /api/import only parses and reports.
  */
 
+interface Caps {
+  vCap: number;
+  nCap: number;
+  gCap: number;
+}
+
 export interface Preview {
   rowCount: number;
   added: string[];
@@ -21,6 +27,9 @@ export interface Preview {
   excludedInFile: string[];
   /** will import with a frozen bonus, from the sheet's own Locked Amount column */
   lockedInFile: string[];
+  /** the pool caps currently stored, and what the file would set them to */
+  capsBefore: Caps;
+  capsAfter: Caps;
 }
 
 export type Stage =
@@ -32,6 +41,8 @@ export type Stage =
       preview: Preview;
       rows: Employee[];
       lockedAmounts: Record<string, number>;
+      /** the model workbook's own pool caps, echoed back to /api/import/apply — absent for a flat file/CSV */
+      caps?: Caps;
       confirm: boolean;
     }
   | { step: "done"; preview: Preview };
@@ -73,6 +84,7 @@ export function useImportFlow(onApplied?: () => void) {
           preview: data.preview,
           rows: data.rows,
           lockedAmounts: data.lockedAmounts ?? {},
+          caps: data.caps,
           confirm: false,
         });
       }
@@ -99,6 +111,7 @@ export function useImportFlow(onApplied?: () => void) {
           confirmRemovals: snapshot.confirm,
           totalAfter: snapshot.preview.totalAfter,
           lockedAmounts: snapshot.lockedAmounts,
+          caps: snapshot.caps,
         }),
       });
       const data = await res.json();
@@ -182,6 +195,10 @@ export function ImportPreview({
   onCancel: () => void;
 }) {
   const needsConfirm = preview.removedWithData.length > 0;
+  const capsChanged =
+    preview.capsBefore.vCap !== preview.capsAfter.vCap ||
+    preview.capsBefore.nCap !== preview.capsAfter.nCap ||
+    preview.capsBefore.gCap !== preview.capsAfter.gCap;
   return (
     <div className="bg-white p-5 shadow-sm">
       <h2 className="mb-3 text-[13px] font-bold">
@@ -207,6 +224,24 @@ export function ImportPreview({
           <span className="text-brand-70">{preview.removed.join(", ") || "none"}</span>
         </div>
       </div>
+
+      {capsChanged && (
+        <div className="mb-3 border-2 border-brand-orange bg-surface-sunken p-3 text-[13px]">
+          <strong>Pool caps will change</strong> — this affects every
+          employee&apos;s bonus, not just the rows added or removed:
+          <div className="mt-1 grid grid-cols-1 gap-1 sm:grid-cols-3">
+            <div>
+              VIC: {fmt(preview.capsBefore.vCap)} → <strong>{fmt(preview.capsAfter.vCap)}</strong>
+            </div>
+            <div>
+              NSW: {fmt(preview.capsBefore.nCap)} → <strong>{fmt(preview.capsAfter.nCap)}</strong>
+            </div>
+            <div>
+              Group: {fmt(preview.capsBefore.gCap)} → <strong>{fmt(preview.capsAfter.gCap)}</strong>
+            </div>
+          </div>
+        </div>
+      )}
 
       {preview.excludedInFile.length > 0 && (
         <div className="mb-3 border-2 border-neutral-200 bg-surface-sunken p-3 text-[13px]">

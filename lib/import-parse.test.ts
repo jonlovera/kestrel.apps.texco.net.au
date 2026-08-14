@@ -235,6 +235,24 @@ describe("candidateDataset", () => {
     expect(candidate.excludedIds).toEqual(["B"]);
   });
 
+  it("carries the current caps forward when the file supplies none (flat file/CSV)", () => {
+    const candidate = candidateDataset(current([]), [mk("A")]);
+    expect(candidate.vCap).toBe(1);
+    expect(candidate.nCap).toBe(1);
+    expect(candidate.gCap).toBe(1);
+  });
+
+  it("replaces the caps with the file's own when supplied (FY26 model workbook)", () => {
+    const candidate = candidateDataset(current([]), [mk("A")], {
+      vCap: 1_593_574.32,
+      nCap: 1_365_714.16,
+      gCap: 2_959_288.48,
+    });
+    expect(candidate.vCap).toBe(1_593_574.32);
+    expect(candidate.nCap).toBe(1_365_714.16);
+    expect(candidate.gCap).toBe(2_959_288.48);
+  });
+
   it("a dataset predating excludedIds still parses, defaulting to none excluded", () => {
     const legacy = {
       emp: [mk("A")],

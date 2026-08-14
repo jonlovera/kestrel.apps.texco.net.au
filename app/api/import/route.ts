@@ -32,9 +32,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "File too large (max 5 MB)" }, { status: 400 });
   }
 
-  let rawRows, lockedAmounts;
+  let rawRows, lockedAmounts, caps;
   try {
-    ({ rows: rawRows, lockedAmounts } = await parseImportFile(
+    ({ rows: rawRows, lockedAmounts, caps } = await parseImportFile(
       file.name,
       Buffer.from(await file.arrayBuffer())
     ));
@@ -63,7 +63,7 @@ export async function POST(req: Request) {
   // Excluded people are dropped before anything else looks at this list —
   // the added/removed diff, the reconciliation total, and what Apply would
   // actually save all need to agree on the same, already-filtered roster.
-  const candidate = candidateDataset(current, parsed.employees);
+  const candidate = candidateDataset(current, parsed.employees, caps);
   const preview = buildImportPreview(current.emp, candidate.emp, overrides);
   const excludedIds = new Set(current.excludedIds);
   const excludedInFile = parsed.employees
@@ -101,10 +101,17 @@ export async function POST(req: Request) {
     `[audit] import-preview email=${guard.email} rows=${preview.rowCount} added=${preview.added.length} removed=${preview.removed.length} excluded=${excludedInFile.length} locked=${lockedInFile.length} ts=${new Date().toISOString()}`
   );
 
+  // Surfaced whenever the workbook carries its own caps, so an admin sees a
+  // pool-cap change coming before they apply it — it affects every
+  // employee's payout, not just the ones in the added/removed diff.
+  const capsBefore = { vCap: current.vCap, nCap: current.nCap, gCap: current.gCap };
+  const capsAfter = caps ?? capsBefore;
+
   const res = NextResponse.json({
-    preview: { ...preview, totalBefore, totalAfter, excludedInFile, lockedInFile },
+    preview: { ...preview, totalBefore, totalAfter, excludedInFile, lockedInFile, capsBefore, capsAfter },
     rows: candidate.emp,
     lockedAmounts: importedLocks,
+    caps,
   });
   res.headers.set("Cache-Control", "no-store, max-age=0");
   return res;

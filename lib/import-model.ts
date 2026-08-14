@@ -58,6 +58,32 @@ function headerText(cell: ExcelJS.Cell): string {
 const norm = (h: string) => h.toLowerCase().replace(/\s+/g, " ").trim();
 
 /**
+ * Find a named parameter cell (e.g. "VIC Pool Cap") in the sheet's top
+ * label/value block and read the next numeric cell along that row — not a
+ * fixed column position, the same "resolve by text" principle as the
+ * employee table's headers, since the real workbook restates some of these
+ * labels in more than one place (a general parameters block, and again as
+ * the first row of a per-state waterfall) at different columns.
+ */
+function findNamedValue(ws: ExcelJS.Worksheet, label: string, maxRows = 20): number | undefined {
+  const target = norm(label);
+  for (let r = 1; r <= Math.min(maxRows, ws.rowCount); r++) {
+    const row = ws.getRow(r);
+    let labelCol: number | null = null;
+    row.eachCell({ includeEmpty: false }, (c, col) => {
+      if (labelCol === null && norm(headerText(c)) === target) labelCol = col;
+    });
+    if (labelCol === null) continue;
+    for (let c = labelCol + 1; c <= labelCol + 5; c++) {
+      const v = cellValue(row.getCell(c));
+      if (typeof v === "number") return v;
+      if (v !== null && v !== "") break; // a non-numeric, non-blank cell — not the value
+    }
+  }
+  return undefined;
+}
+
+/**
  * Locate the Group sheet and the year it describes.
  *
  * Anchored at both ends so "EBS Group - FY26 SM Scenario" — a what-if
@@ -190,6 +216,14 @@ export interface ModelReadResult {
   sheetsRead: string[];
   /** employee id → the sheet's own frozen bonus figure (Locked Amount column) */
   lockedAmounts: Record<string, number>;
+  /**
+   * Pool caps read straight from the sheet's own parameter cells ("VIC Pool
+   * Cap" / "NSW Pool Cap" / "TOTAL GROUP POOL CAP") — the workbook is
+   * authoritative for these the same way it is for every employee figure,
+   * so an import now replaces whatever caps are currently stored rather than
+   * always carrying them over (candidateDataset in lib/import-parse.ts).
+   */
+  caps: { vCap: number; nCap: number; gCap: number };
 }
 
 const REQUIRED_FIELDS = [
@@ -382,7 +416,29 @@ export function readModelWorkbook(wb: ExcelJS.Workbook): ModelReadResult {
   if (rows.length === 0) {
     throw new ModelReadError([`'${ws.name}' contains no employee rows.`]);
   }
-  return { rows, year, sheetsRead: [ws.name], lockedAmounts };
+
+  // Pool caps: the workbook is authoritative for these too, the same as
+  // every employee figure — a missing cap is a hard refusal, not a silent
+  // "keep whatever's already stored", since that would silently disagree
+  // with every other figure this same import is about to replace.
+  const vCap = findNamedValue(ws, "VIC Pool Cap");
+  const nCap = findNamedValue(ws, "NSW Pool Cap");
+  const capErrors: string[] = [];
+  if (vCap === undefined) capErrors.push(`'${ws.name}': couldn't find a 'VIC Pool Cap' figure.`);
+  if (nCap === undefined) capErrors.push(`'${ws.name}': couldn't find an 'NSW Pool Cap' figure.`);
+  if (capErrors.length) throw new ModelReadError(capErrors);
+  // Every real workbook seen so far has the group cap as exactly the sum of
+  // the two state caps — fall back to that when the label itself isn't
+  // found, rather than refusing over a missing figure that's derivable.
+  const gCap = findNamedValue(ws, "TOTAL GROUP POOL CAP") ?? vCap! + nCap!;
+
+  return {
+    rows,
+    year,
+    sheetsRead: [ws.name],
+    lockedAmounts,
+    caps: { vCap: vCap!, nCap: nCap!, gCap },
+  };
 }
 
 /**

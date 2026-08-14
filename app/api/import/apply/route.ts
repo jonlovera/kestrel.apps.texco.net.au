@@ -25,6 +25,12 @@ const ApplySchema = z.object({
   // rather than trusted, the same defence-in-depth reasoning as re-deriving
   // `candidate` itself.
   lockedAmounts: z.record(z.string(), z.number()).default({}),
+  // Pool caps read from the model workbook, echoed back from the preview the
+  // same way lockedAmounts is (the apply route never re-parses the original
+  // file — only the already-parsed rows are available here).
+  caps: z
+    .object({ vCap: z.number().positive(), nCap: z.number().positive(), gCap: z.number().positive() })
+    .optional(),
 });
 
 /**
@@ -54,7 +60,7 @@ export async function POST(req: Request) {
   // excluded person can never end up saved regardless of what the request
   // actually contains — the same reasoning as re-validating everything else
   // on this route rather than trusting what was previewed.
-  const candidate = candidateDataset(current, body.rows);
+  const candidate = candidateDataset(current, body.rows, body.caps);
   const preview = buildImportPreview(current.emp, candidate.emp, overrides);
   if (preview.removedWithData.length > 0 && !body.confirmRemovals) {
     return NextResponse.json(
@@ -89,16 +95,23 @@ export async function POST(req: Request) {
   // Force-write bumps the version so open editors reload cleanly.
   await saveOverridesForce(survivingOverrides);
 
+  const capsChanged =
+    body.caps &&
+    (body.caps.vCap !== current.vCap || body.caps.nCap !== current.nCap || body.caps.gCap !== current.gCap);
+  const capsNote = capsChanged
+    ? ` — pool caps changed to VIC ${fmt(candidate.vCap)} / NSW ${fmt(candidate.nCap)} / Group ${fmt(candidate.gCap)}`
+    : "";
+
   await appendHistory([
     {
       ts: new Date().toISOString(),
       actor: email,
       kind: "import",
-      summary: `Imported ${candidate.emp.length} employees (${preview.added.length} added, ${preview.removed.length} removed, ${importedLocks.length} locked) — total pool now ${fmt(body.totalAfter)}`,
+      summary: `Imported ${candidate.emp.length} employees (${preview.added.length} added, ${preview.removed.length} removed, ${importedLocks.length} locked) — total pool now ${fmt(body.totalAfter)}${capsNote}`,
     },
   ]);
   console.log(
-    `[audit] import-apply email=${email} rows=${candidate.emp.length} added=${preview.added.length} removed=${preview.removed.length} locked=${importedLocks.length} ts=${new Date().toISOString()}`
+    `[audit] import-apply email=${email} rows=${candidate.emp.length} added=${preview.added.length} removed=${preview.removed.length} locked=${importedLocks.length} capsChanged=${!!capsChanged} ts=${new Date().toISOString()}`
   );
   revalidatePath("/");
 
