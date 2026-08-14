@@ -9,12 +9,13 @@ import {
   dropInvalidRules,
 } from "./access-rules";
 
-const full: AccessRule = { type: "full" };
+const full: AccessRule = { type: "full", canEditCaps: false };
 const vic: AccessRule = {
   type: "state",
   states: ["VIC"],
   visibleFields: ["final"],
   editableFields: ["da"],
+  canLock: false,
 };
 const none: AccessRule = { type: "none" };
 
@@ -72,6 +73,7 @@ describe("group rules: state and/or role, standing rather than a fixed list", ()
       positions,
       visibleFields: [],
       editableFields: [],
+      canLock: false,
     });
 
   it("state and role together intersect", () => {
@@ -112,6 +114,7 @@ describe("describeEditing", () => {
       states: ["VIC" as const],
       visibleFields: [],
       editableFields,
+      canLock: false,
     });
 
   it("names what they may set", () => {
@@ -125,7 +128,7 @@ describe("describeEditing", () => {
   });
 
   it("full access is never read only", () => {
-    expect(describeEditing({ type: "full" })).toBe("can edit");
+    expect(describeEditing({ type: "full", canEditCaps: false })).toBe("can edit");
   });
 });
 
@@ -156,11 +159,11 @@ describe("dropInvalidRules", () => {
     expect(Object.keys(dropInvalidRules(legacy) as object)).toEqual(["a@x.com"]);
   });
 
-  it("strips a deprecated 'ipm' grant rather than dropping the whole rule", () => {
-    // IPM used to be grantable and stored rules from before this change may
-    // still list it. Failing that rule outright would revoke the person's
-    // entire access, not just their (already-inert) IPM permission.
-    const legacy = {
+  it("keeps a rule granting 'ipm' — it's a live grant, not a deprecated one", () => {
+    // IPM used to be stripped as a deprecated grant; it's since been reopened
+    // (lib/write-scope.ts) and is now an ordinary member of EDITABLE_FIELDS,
+    // so a rule listing it parses and keeps it exactly as stored.
+    const rule = {
       "a@x.com": {
         type: "state",
         states: ["VIC"],
@@ -168,28 +171,27 @@ describe("dropInvalidRules", () => {
         editableFields: ["ipm", "da"],
       },
     };
-    const cleaned = dropInvalidRules(legacy) as Record<
+    const cleaned = dropInvalidRules(rule) as Record<
       string,
       { editableFields: string[] }
     >;
     expect(Object.keys(cleaned)).toEqual(["a@x.com"]);
-    expect(cleaned["a@x.com"].editableFields).toEqual(["da"]);
+    expect(cleaned["a@x.com"].editableFields).toEqual(["ipm", "da"]);
   });
 
-  it("strips 'ipm' even when it was the only grant, leaving read only", () => {
-    const legacy = {
+  it("still drops a rule for a genuinely unknown editableFields value", () => {
+    // Distinct from the "ipm" case above: an unrecognised field name is a
+    // real validation failure, not a retired-but-tolerated grant, so the
+    // whole rule is dropped the same as any other malformed entry.
+    const bad = {
       "a@x.com": {
         type: "state",
         states: ["VIC"],
         visibleFields: ["final"],
-        editableFields: ["ipm"],
+        editableFields: ["not-a-real-field"],
       },
     };
-    const cleaned = dropInvalidRules(legacy) as Record<
-      string,
-      { editableFields: string[] }
-    >;
-    expect(cleaned["a@x.com"].editableFields).toEqual([]);
+    expect(Object.keys(dropInvalidRules(bad) as object)).toEqual([]);
   });
 
   it("leaves a non-object alone rather than inventing an overlay", () => {

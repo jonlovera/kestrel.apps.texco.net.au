@@ -11,7 +11,12 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Dataset, Employee } from "./schema";
-import { applyDatasetPatch, deriveFacets, DatasetPatchSchema } from "./dataset-edit";
+import {
+  applyDatasetPatch,
+  deriveFacets,
+  excludedRoster,
+  DatasetPatchSchema,
+} from "./dataset-edit";
 import { applyOverrides, computeScalesAndBonuses } from "./calc";
 
 const real = JSON.parse(
@@ -42,11 +47,12 @@ const emp = (over: Partial<Employee> = {}): Employee => ({
   ...over,
 });
 
-const dataset = (emps: Employee[]): Dataset => ({
+const dataset = (emps: Employee[], excludedIds: string[] = []): Dataset => ({
   emp: emps,
   vCap: 1_000_000,
   nCap: 500_000,
   gCap: 1_500_000,
+  excludedIds,
   ...deriveFacets(emps),
 });
 
@@ -191,6 +197,83 @@ describe("the Shared Services split", () => {
     expect(shared.emp[0].np).toBe(0.4);
   });
 
+});
+
+describe("permanent exclusion", () => {
+  const base = dataset([emp({ id: "E1" }), emp({ id: "E2", gn: "Bob" })]);
+
+  it("removes the employee from emp immediately", () => {
+    const res = apply(base, { op: "exclude", id: "E1" });
+    if (!res.ok) throw new Error(res.errors.join("; "));
+    expect(res.dataset.emp.map((e) => e.id)).toEqual(["E2"]);
+  });
+
+  it("adds the id to excludedIds", () => {
+    const res = apply(base, { op: "exclude", id: "E1" });
+    if (!res.ok) throw new Error();
+    expect(res.dataset.excludedIds).toEqual(["E1"]);
+  });
+
+  it("names who was excluded in the history entry", () => {
+    const res = apply(base, { op: "exclude", id: "E1" });
+    if (!res.ok) throw new Error();
+    expect(res.history).toHaveLength(1);
+    expect(res.history[0].summary).toContain("Jane Smith");
+    expect(res.history[0].empId).toBe("E1");
+  });
+
+  it("does not mutate the input dataset", () => {
+    apply(base, { op: "exclude", id: "E1" });
+    expect(base.emp.map((e) => e.id)).toEqual(["E1", "E2"]);
+    expect(base.excludedIds).toEqual([]);
+  });
+
+  it("excluding someone already excluded is a no-op", () => {
+    const already = dataset([emp({ id: "E2" })], ["E1"]);
+    const res = apply(already, { op: "exclude", id: "E1" });
+    if (!res.ok) throw new Error();
+    expect(res.history).toHaveLength(0);
+    expect(res.dataset).toBe(already);
+  });
+
+  it("rejects excluding an unknown employee", () => {
+    const res = apply(base, { op: "exclude", id: "NOPE" });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error();
+    expect(res.errors[0]).toContain("NOPE");
+  });
+
+  it("un-excluding removes the id from excludedIds, but does not restore the row", () => {
+    const excluded = dataset([emp({ id: "E2" })], ["E1"]);
+    const res = apply(excluded, { op: "unexclude", id: "E1" });
+    if (!res.ok) throw new Error();
+    expect(res.dataset.excludedIds).toEqual([]);
+    expect(res.dataset.emp.map((e) => e.id)).toEqual(["E2"]);
+    expect(res.history).toHaveLength(1);
+  });
+
+  it("un-excluding someone not on the list is a no-op", () => {
+    const res = apply(base, { op: "unexclude", id: "E1" });
+    if (!res.ok) throw new Error();
+    expect(res.history).toHaveLength(0);
+    expect(res.dataset).toBe(base);
+  });
+
+  it("rejects an empty id for either op", () => {
+    expect(DatasetPatchSchema.safeParse({ op: "exclude", id: "" }).success).toBe(false);
+    expect(DatasetPatchSchema.safeParse({ op: "unexclude", id: "" }).success).toBe(false);
+  });
+
+  it("looks up the display name from the exclude history entry", () => {
+    const res = apply(base, { op: "exclude", id: "E1" });
+    if (!res.ok) throw new Error();
+    const roster = excludedRoster(res.dataset.excludedIds, res.history);
+    expect(roster).toEqual([{ id: "E1", name: "Jane Smith" }]);
+  });
+
+  it("falls back to the bare id when no history entry names them", () => {
+    expect(excludedRoster(["GHOST"], [])).toEqual([{ id: "GHOST", name: "GHOST" }]);
+  });
 });
 
 describe("the change flows through the real calc engine", () => {

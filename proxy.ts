@@ -1,11 +1,19 @@
 import { auth } from "@/auth";
 import { NextResponse } from "next/server";
 import { identityHost } from "@/lib/identity";
+import { scopeForUser } from "@/lib/access";
+import { ADMIN_GATE_COOKIE, verifyAdminGateToken } from "@/lib/admin-gate";
 
 /**
  * Next 16 proxy (formerly middleware): every route except /login and the
  * NextAuth endpoints requires a session. Security headers are applied to
  * every response, including redirects.
+ *
+ * Full-access admins face a second gate on top of that, checked here rather
+ * than per-page so it covers every route — pages, API routes, and the POST a
+ * server action's own button submits — in one place: full access is what
+ * carries "View as" (impersonating anyone), and a same-day fix for a few IT
+ * staff holding that needs to close every door, not just the dashboard's.
  */
 const PUBLIC_PATHS = [
   "/login",
@@ -19,6 +27,10 @@ const PUBLIC_PATHS = [
   // every delivery as a failure and retry forever.
   "/api/identity/webhook",
 ];
+
+// The gate's own page: must stay reachable by a signed-in admin who hasn't
+// passed it yet, or there is no way to ever pass it.
+const ADMIN_GATE_PATH = "/admin-gate";
 
 function applySecurityHeaders(res: NextResponse): NextResponse {
   const isDev = process.env.NODE_ENV === "development";
@@ -50,7 +62,7 @@ function applySecurityHeaders(res: NextResponse): NextResponse {
   return res;
 }
 
-export default auth((req) => {
+export default auth(async (req) => {
   const { pathname } = req.nextUrl;
   const isPublic =
     PUBLIC_PATHS.includes(pathname) ||
@@ -58,10 +70,26 @@ export default auth((req) => {
     // local-only convenience login; the route 404s outside `next dev`
     pathname.startsWith("/dev/login");
 
-  if (!req.auth?.user?.email && !isPublic) {
+  const email = req.auth?.user?.email;
+
+  if (!email && !isPublic) {
     const loginUrl = new URL("/login", req.nextUrl.origin);
     if (pathname !== "/") loginUrl.searchParams.set("callbackUrl", pathname);
     return applySecurityHeaders(NextResponse.redirect(loginUrl));
+  }
+
+  // Signed in, and somewhere real (not the gate page itself, and not one of
+  // the always-open paths above): full admins need the password too.
+  if (email && !isPublic && pathname !== ADMIN_GATE_PATH) {
+    const scope = await scopeForUser(email);
+    if (scope?.canEdit) {
+      const token = req.cookies.get(ADMIN_GATE_COOKIE)?.value;
+      if (!verifyAdminGateToken(email, token)) {
+        const gateUrl = new URL(ADMIN_GATE_PATH, req.nextUrl.origin);
+        if (pathname !== "/") gateUrl.searchParams.set("callbackUrl", pathname);
+        return applySecurityHeaders(NextResponse.redirect(gateUrl));
+      }
+    }
   }
 
   return applySecurityHeaders(NextResponse.next());

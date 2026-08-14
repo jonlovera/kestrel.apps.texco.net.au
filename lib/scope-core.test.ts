@@ -29,6 +29,7 @@ const vicScopeNoPkg: Scope = {
     states: ["VIC"],
     visibleFields: ["ipm", "bipm", "calc", "f25", "da", "yoy", "final"],
     editableFields: ["da"],
+  canLock: false,
   },
   canEdit: false,
   visibleFields: ["ipm", "bipm", "calc", "f25", "da", "yoy", "final"],
@@ -68,6 +69,7 @@ describe("field stripping strips bytes, not pixels", () => {
         employeeIds: twoIds,
         visibleFields: ["final"],
         editableFields: ["da"],
+      canLock: false,
       },
       canEdit: false,
       visibleFields: ["final"],
@@ -131,6 +133,7 @@ describe("a state lead sees their own pool and nothing wider", () => {
         states: ["VIC", "NSW"],
         visibleFields: vicScopeNoPkg.visibleFields,
         editableFields: ["da"],
+      canLock: false,
       },
     };
     const payload = buildPayloadCore(data, {}, both, user);
@@ -147,6 +150,7 @@ describe("a state lead sees their own pool and nothing wider", () => {
         employeeIds: [data.emp[0].id],
         visibleFields: ["final"],
         editableFields: ["da"],
+      canLock: false,
       },
       visibleFields: ["final"],
     };

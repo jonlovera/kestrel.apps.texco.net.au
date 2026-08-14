@@ -4,7 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 // Columns, wording and the scheme parameters are edited in place on the
-// dashboard now (Edit mode) — what's left here is what doesn't belong in a cell.
+// dashboard now, directly, with no separate mode to switch into — what's
+// left here is what doesn't belong in a cell.
 const TABS = [
   { href:"/admin/access", label: "Access" },
   { href:"/admin/import", label: "Import" },

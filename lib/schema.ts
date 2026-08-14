@@ -50,6 +50,17 @@ export const BonusDataSchema = z.object({
   cats: z.array(z.string()),
   depts: z.array(z.string()),
   mgrs: z.array(z.string()),
+  /**
+   * Employee ids permanently excluded from the model — set once (or
+   * gradually, one at a time), then honoured by every import after, not just
+   * the one running when it was set. Lives on the dataset rather than a
+   * separate document for exactly the reason the pool caps do: an import
+   * replaces `emp` but carries everything else on the current dataset
+   * forward (candidateDataset, lib/import-parse.ts), so this survives an
+   * import the same way a cap does, with no separate persistence to reason
+   * about. Defaulted so a dataset stored before this existed keeps parsing.
+   */
+  excludedIds: z.array(z.string()).default([]),
 });
 
 export type Employee = z.infer<typeof EmployeeSchema>;

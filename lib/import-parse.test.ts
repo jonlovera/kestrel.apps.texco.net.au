@@ -4,9 +4,11 @@ import {
   parseImportFile,
   rowsToEmployees,
   buildImportPreview,
+  candidateDataset,
   FIELD_LABELS,
 } from "./import-parse";
-import type { Employee } from "./schema";
+import { deriveFacets } from "./dataset-edit";
+import { DatasetSchema, type Dataset, type Employee } from "./schema";
 
 const HEADERS = Object.values(FIELD_LABELS); // friendly labels
 const goodRow = [
@@ -20,7 +22,8 @@ function csv(rows: string[][]): string {
 }
 
 async function fromCsv(text: string) {
-  return rowsToEmployees(await parseImportFile("test.csv", Buffer.from(text)));
+  const { rows } = await parseImportFile("test.csv", Buffer.from(text));
+  return rowsToEmployees(rows);
 }
 
 describe("import parsing", () => {
@@ -85,7 +88,8 @@ describe("import parsing", () => {
       "VIC", 1, 0, 180000, 0.15, 0.9, 24300, 0, 20000, 0,
     ]);
     const buf = Buffer.from(await wb.xlsx.writeBuffer());
-    const result = rowsToEmployees(await parseImportFile("test.xlsx", buf));
+    const { rows } = await parseImportFile("test.xlsx", buf);
+    const result = rowsToEmployees(rows);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.employees[0]).toMatchObject({
@@ -203,5 +207,43 @@ describe("import preview", () => {
     expect(preview.removed.sort()).toEqual(["B S", "C S"]);
     expect(preview.removedWithData).toEqual(["B S"]); // B has entered data, C doesn't
     expect(preview.rowCount).toBe(2);
+  });
+});
+
+describe("candidateDataset", () => {
+  const mk = (id: string): Employee => ({
+    id, sn: "S", gn: id, pos: "P", dept: "D", mgr: "M", cat: "C",
+    st: "VIC", vp: 1, np: 0, pkg: 1000, bp: 0.1, ipm: 1, bipm: 100,
+    da: 0, f25: 0, sm: 0,
+  });
+  const current = (excludedIds: string[]): Dataset => ({
+    emp: [mk("A")],
+    vCap: 1,
+    nCap: 1,
+    gCap: 1,
+    excludedIds,
+    ...deriveFacets([mk("A")]),
+  });
+
+  it("drops a permanently excluded id even though the incoming file lists them", () => {
+    const candidate = candidateDataset(current(["B"]), [mk("A"), mk("B")]);
+    expect(candidate.emp.map((e) => e.id)).toEqual(["A"]);
+  });
+
+  it("carries excludedIds forward unchanged — only an exclude/unexclude patch touches it", () => {
+    const candidate = candidateDataset(current(["B"]), [mk("A")]);
+    expect(candidate.excludedIds).toEqual(["B"]);
+  });
+
+  it("a dataset predating excludedIds still parses, defaulting to none excluded", () => {
+    const legacy = {
+      emp: [mk("A")],
+      vCap: 1,
+      nCap: 1,
+      gCap: 1,
+      ...deriveFacets([mk("A")]),
+    };
+    const parsed = DatasetSchema.parse(legacy);
+    expect(parsed.excludedIds).toEqual([]);
   });
 });

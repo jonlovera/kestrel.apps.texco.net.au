@@ -11,7 +11,7 @@
 import type { Dataset, Overrides } from "./schema";
 import type { Scope } from "./access";
 import { ruleMatches } from "./access-rules";
-import { editableColumns } from "./write-scope";
+import { editableColumns, canLockRows } from "./write-scope";
 import { NUMERIC_FIELDS } from "./access-types";
 import {
   DEFAULT_COLUMNS,
@@ -81,6 +81,7 @@ export function buildPayloadCore(
         companyModifier,
       },
       caps: { vCap: data.vCap, nCap: data.nCap, gCap: data.gCap },
+      canEditCaps: scope.rule.canEditCaps,
       cats: data.cats,
       depts: data.depts,
       mgrs: data.mgrs,
@@ -179,6 +180,7 @@ export function buildPayloadCore(
     visibleFields: scope.visibleFields,
     columns,
     canEditFields: editableColumns(scope),
+    canLock: canLockRows(scope),
     // pool titles are already baked into poolCards[].title above; sending the
     // map too would name the pools this user has no business seeing
     copy: {

@@ -3,25 +3,30 @@ import { revalidatePath } from "next/cache";
 import { saveParams, appendHistory } from "@/lib/store";
 import { getParams } from "@/lib/data";
 import { takeSnapshot } from "@/lib/snapshots";
-import { ParamsSchema } from "@/lib/params-apply";
-import { fmt } from "@/lib/fmt";
+import { ParamsSchema, canChangeCaps } from "@/lib/params-apply";
 import { requireWriter, noStore } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Save the pool caps and the company modifier, edited straight on the pool
- * cards. Unlike the presentation docs these DO move every figure, so the
- * history entry spells out exactly what changed.
+ * Save the company modifier, and — for the admins explicitly granted it —
+ * the pool caps too. Both move every figure downstream, so the history
+ * entry spells out exactly what changed.
  *
- * The caller sees the impact before saving without a preview pane: the
- * dashboard runs the same engine client-side, so the cards recalculate as the
- * number is typed. `/admin/params` used to do that in a separate panel.
+ * Caps used to be unconditionally uneditable here: any vCap/nCap/gCap in the
+ * request were silently discarded and the stored values kept, regardless of
+ * who was asking. That's now a real permission (`canEditCaps` on a
+ * full-access rule, lib/access-rules.ts) rather than a blanket no. A caller
+ * without it keeps the old graceful behaviour UNLESS they actually tried to
+ * change a cap, in which case they're told no rather than left thinking it
+ * saved — the old silent-discard was fine when nothing could ever send a
+ * cap change; now something can, and pretending it worked would be worse
+ * than refusing it.
  */
 export async function POST(req: Request) {
   const guard = await requireWriter("params-write");
   if ("response" in guard) return guard.response;
-  const { email } = guard;
+  const { email, scope } = guard;
 
   const parsed = ParamsSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
@@ -33,20 +38,31 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
-  const params = parsed.data;
   const previous = await getParams();
+  const capsChanged =
+    parsed.data.vCap !== previous.vCap ||
+    parsed.data.nCap !== previous.nCap ||
+    parsed.data.gCap !== previous.gCap;
+
+  if (capsChanged && !canChangeCaps(scope)) {
+    return NextResponse.json(
+      { error: "You don't have permission to change the pool caps." },
+      { status: 403 }
+    );
+  }
+
+  const params = canChangeCaps(scope)
+    ? parsed.data
+    : { ...parsed.data, vCap: previous.vCap, nCap: previous.nCap, gCap: previous.gCap };
 
   const changes: string[] = [];
-  if (previous.vCap !== params.vCap)
-    changes.push(`VIC cap ${fmt(previous.vCap)} → ${fmt(params.vCap)}`);
-  if (previous.nCap !== params.nCap)
-    changes.push(`NSW cap ${fmt(previous.nCap)} → ${fmt(params.nCap)}`);
-  if (previous.gCap !== params.gCap)
-    changes.push(`Group cap ${fmt(previous.gCap)} → ${fmt(params.gCap)}`);
   if (previous.companyModifier !== params.companyModifier)
     changes.push(
       `company modifier ${previous.companyModifier} → ${params.companyModifier}`
     );
+  if (previous.vCap !== params.vCap) changes.push(`VIC cap ${previous.vCap} → ${params.vCap}`);
+  if (previous.nCap !== params.nCap) changes.push(`NSW cap ${previous.nCap} → ${params.nCap}`);
+  if (previous.gCap !== params.gCap) changes.push(`Group cap ${previous.gCap} → ${params.gCap}`);
 
   if (changes.length === 0) {
     return noStore(NextResponse.json({ ok: true, params, unchanged: true }));

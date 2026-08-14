@@ -11,16 +11,16 @@
  * row theirs, and is this field theirs?
  *
  * "Is this field theirs" is no longer a property of the rule TYPE. Whether
- * someone may set Discretionary is chosen per person on the access screen and
- * carried on the rule as `editableFields`; leaving it unticked is how you
- * grant somebody a purely read-only view. See writableFields below, which is
- * the one place that setting is honoured for both the affordances and the
- * write boundary.
+ * someone may set Discretionary or IPM is chosen per person on the access
+ * screen and carried on the rule as `editableFields`; leaving it unticked is
+ * how you grant somebody a purely read-only view. See writableFields below,
+ * which is the one place that setting is honoured for both the affordances
+ * and the write boundary.
  *
- * IPM is not part of that grant, for anyone, including full access. It is a
- * formula-derived figure — a manual override on it corrupts the calculation —
- * so the only writable fields in this whole module are Discretionary and,
- * for admin, the lock.
+ * The lock is different again: it isn't a member of `editableFields` and
+ * isn't derived from it either. It has its own checkbox on the access screen
+ * (`canLock` on the rule), independent of Discretionary/IPM — a lead can hold
+ * either without the other, in any combination.
  *
  * Pure and no server-only imports, so both questions are directly testable.
  *
@@ -35,31 +35,25 @@ import type { Scope } from "./access";
 import { ruleMatches, type ScopableEmployee } from "./access-rules";
 
 /**
- * Override fields a state lead may change, within their own rows.
- *
- * IPM is deliberately absent. It used to be here, gated per person by the
- * access screen's "Can edit" setting — it no longer can be, for anyone: IPM
- * is a formula-derived figure, and a manual override on it corrupts the
- * calculation. Discretionary remains the one sanctioned adjustment mechanism.
+ * Override fields a state lead may change, within their own rows — each
+ * gated individually by the access screen's "Can edit" grant
+ * (`editableFields`) intersected with visibility, in `writableFields` below.
  */
-export const WRITABLE_BY_LEAD = ["daEdit"] as const;
+export const WRITABLE_BY_LEAD = ["daEdit", "ipmEdit"] as const;
 
 /**
- * Admin adds the lock. A lead must never hold it: locking freezes a bonus
- * against redistribution, which moves every other figure in the pool.
- *
- * IPM is absent here too, and deliberately not just for leads: nobody may set
- * it, including full access. `EmployeeOverrideSchema` still carries `ipmEdit`
- * so a value stored before this change keeps parsing and keeps applying — it
- * is only the ability to WRITE a new one that is gone.
+ * Everything an admin may write. `locked`/`lockedFinal` have no column and no
+ * visibility (see the comment on `writableFields`), so they're listed here
+ * directly rather than derived from `editableFields`.
  */
-export const WRITABLE_BY_ADMIN = ["daEdit", "locked", "lockedFinal"] as const;
+export const WRITABLE_BY_ADMIN = ["daEdit", "ipmEdit", "locked", "lockedFinal"] as const;
 
 export type WritableField = (typeof WRITABLE_BY_ADMIN)[number];
 
 /** Column keys matching the writable override fields, for the table to key off. */
 const COLUMN_FOR_FIELD: Partial<Record<WritableField, string>> = {
   daEdit: "da",
+  ipmEdit: "ipm",
 };
 
 /**
@@ -71,16 +65,21 @@ const COLUMN_FOR_FIELD: Partial<Record<WritableField, string>> = {
  * the write boundary, and both come through here.
  *
  * Two conditions on the lead path, not one. `editableFields` is what was
- * granted (Discretionary is the only member now that IPM can no longer be
- * granted to anyone). Visibility is the older rule and used to be applied
- * only in editableColumns, which meant hiding a figure removed the input but
- * not the permission: the same person could still POST a write for their own
- * rows and have it accepted. A field they were never sent is now unwritable
- * in fact, not just unofferable.
+ * granted (Discretionary and/or IPM). Visibility is the older rule and used
+ * to be applied only in editableColumns, which meant hiding a figure removed
+ * the input but not the permission: the same person could still POST a write
+ * for their own rows and have it accepted. A field they were never sent is
+ * now unwritable in fact, not just unofferable.
  *
- * Neither condition touches the admin path. WRITABLE_BY_ADMIN includes
- * `locked` and `lockedFinal`, which have no column and no visibility, so
- * filtering them here would quietly break locking.
+ * The lock is gated on `scope.rule.canLock` alone — not on `fields`, so a
+ * lead can hold Discretionary/IPM without it, or hold it with neither
+ * ticked. `sanitiseOverrideWrite`'s existing `allowedIds` boundary (their
+ * state/group/subset) is what confines this to their own rows; no new
+ * boundary is needed here.
+ *
+ * The admin path is unconditional: WRITABLE_BY_ADMIN includes `locked` and
+ * `lockedFinal` directly, which have no column and no visibility, so
+ * filtering them through `editableFields` would quietly break locking.
  *
  * A revoked user needs no branch here: `scopeForUser` returns null for them,
  * so they never reach a Scope in the first place, and every route already
@@ -90,10 +89,22 @@ export function writableFields(scope: Scope): readonly WritableField[] {
   if (scope.rule.type === "full") return WRITABLE_BY_ADMIN;
   const granted = new Set<string>(scope.rule.editableFields);
   const visible = new Set<string>(scope.visibleFields);
-  return WRITABLE_BY_LEAD.filter((f) => {
+  const fields = WRITABLE_BY_LEAD.filter((f) => {
     const column = COLUMN_FOR_FIELD[f];
     return !!column && granted.has(column) && visible.has(column);
   });
+  if (scope.rule.canLock) return [...fields, "locked", "lockedFinal"];
+  return fields;
+}
+
+/**
+ * Whether this scope may lock/unlock a row at all, independent of which (if
+ * any) figures it may edit. One source of truth for the payload builder and
+ * anything else that needs a plain boolean rather than the writable-fields
+ * list.
+ */
+export function canLockRows(scope: Scope): boolean {
+  return writableFields(scope).includes("locked");
 }
 
 /** Whose rows this scope may change. */

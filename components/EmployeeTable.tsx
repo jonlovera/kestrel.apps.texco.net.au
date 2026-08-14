@@ -10,9 +10,11 @@ import { fmtValue } from "@/lib/fmt";
  *
  * Presentational — it owns no data. Every edit is handed straight back through
  * `handlers`, and which cells are editable is decided by the column flags the
- * orchestrator passes in. Outside edit mode it renders plain text with no
- * inputs at all, which is what makes the dashboard presentable on a shared
- * screen.
+ * orchestrator passes in — there is no separate edit mode any more: a cell
+ * renders as an input whenever it's permitted (`editable`/`dsEditable`), not
+ * locked, and its row is revealed. Masked (unrevealed) figures still render
+ * as plain "••••" with no input at all, which is what keeps the dashboard
+ * presentable on a shared screen until a row is clicked open.
  */
 
 export interface TableColumn {
@@ -30,17 +32,20 @@ export interface TableColumn {
 
 export interface TableHandlers {
   updateDA: (id: string, val: string) => void;
+  updateIPM: (id: string, current: number, raw: string) => void;
   updateDatasetFigure: (id: string, current: number, raw: string) => void;
   updateSplit: (id: string, field: "vp" | "np", current: number, raw: string) => void;
   toggleLock: (id: string) => void;
   renameColumn: (key: string, label: string) => void;
+  excludeEmployee: (id: string, name: string) => void;
 }
 
 interface Props {
   columns: TableColumn[];
   rows: DisplayRow[];
   totals: Partial<Record<NumericField, number>>;
-  editing: boolean;
+  /** admin, not viewing as someone — governs the header double-click-to-rename affordance only */
+  canRenameColumns: boolean;
   busy: boolean;
   showAll: boolean;
   isRevealed: (id: string) => boolean;
@@ -106,7 +111,7 @@ export default function EmployeeTable({
   columns,
   rows,
   totals,
-  editing,
+  canRenameColumns,
   busy,
   showAll,
   isRevealed,
@@ -138,8 +143,10 @@ export default function EmployeeTable({
   }
 
   function cell(r: DisplayRow, c: TableColumn, rowIdx: number) {
-    // privacy mask: figures hidden until the row (or everything) is revealed.
-    // Edit mode forces reveal on, so this never hides a cell being typed into.
+    // privacy mask: figures — editable or not — hidden until the row (or
+    // everything) is revealed. This is the only thing standing between an
+    // editable cell and a click: reveal the row, then its permitted cells
+    // are directly editable, with no separate mode to turn on first.
     if ((NUMERIC_FIELDS as readonly string[]).includes(c.key) && !isRevealed(r.id)) {
       if (c.key === "da" && (r.sm || !r.inPool))
         return <span className="text-neutral-300">—</span>;
@@ -192,14 +199,27 @@ export default function EmployeeTable({
       case "pkg":
         return show(c, r.pkg!);
       case "bp":
+        // Comes from the spreadsheet and is read-only for everyone, admin
+        // included — hardcoded rather than left to fall out of `c.editable`
+        // alone, belt-and-braces against that flag ever being set for this
+        // column by mistake.
+        return show(c, r.bp!);
       case "ipm": {
-        const v = c.key === "bp" ? r.bp! : r.ipm!;
-        // Both come from the spreadsheet and are read-only for everyone. IPM
-        // is a formula-derived figure; a manual override on it corrupts the
-        // calculation, so this is hardcoded rather than left to fall out of
-        // `c.editable` alone — belt-and-braces against that flag ever being
-        // set for this column by mistake.
-        return show(c, v);
+        if (!c.editable || r.locked) return show(c, r.ipm!);
+        return (
+          <input
+            key={`${r.id}-ipm-${r.ipm}`}
+            type="text"
+            data-row={rowIdx}
+            data-col={c.key}
+            defaultValue={`${Math.round(r.ipm! * 100)}%`}
+            disabled={busy}
+            onFocus={(e) => e.target.select()}
+            onBlur={(e) => handlers.updateIPM(r.id, r.ipm!, e.target.value)}
+            onKeyDown={(e) => gridKeys(e, rowIdx, c.key)}
+            className={`${cellInput} w-[58px] text-right tabular-nums`}
+          />
+        );
       }
       case "potential":
         // pkg × bp × cpm — before IPM, with the company-modifier correction
@@ -207,7 +227,7 @@ export default function EmployeeTable({
         // applied. Never editable: it's the engine's own intermediate figure.
         return show(c, r.potential!);
       case "bipm":
-        if (!editing || !c.dsEditable || r.locked) return show(c, r.bipm!);
+        if (!c.dsEditable || r.locked) return show(c, r.bipm!);
         return moneyCell(r, rowIdx, c, r.bipm!, 85);
       case "vp":
       case "np": {
@@ -216,7 +236,7 @@ export default function EmployeeTable({
         if (r.st !== "SHARED") return <span className="text-neutral-300">—</span>;
         const field: "vp" | "np" = c.key === "vp" ? "vp" : "np";
         const v = field === "vp" ? r.vp! : r.np!;
-        if (!editing || !c.dsEditable || r.locked) return show(c, v);
+        if (!c.dsEditable || r.locked) return show(c, v);
         return (
           <input
             key={`${r.id}-${c.key}-${v}`}
@@ -238,7 +258,7 @@ export default function EmployeeTable({
         return <span className="text-neutral-400">{show(c, r.f25!)}</span>;
       case "da": {
         if (r.sm || !r.inPool) return <span className="text-neutral-300">—</span>;
-        if (!editing || !c.editable || r.locked) return show(c, r.da!);
+        if (!c.editable || r.locked) return show(c, r.da!);
         return (
           <input
             key={`${r.id}-da-${r.da}`}
@@ -286,6 +306,17 @@ export default function EmployeeTable({
           </button>
         );
       }
+      case "edit":
+        return (
+          <button
+            type="button"
+            title={`Remove ${r.name} from the model`}
+            onClick={() => handlers.excludeEmployee(r.id, r.name)}
+            className="h-7 w-7 border-[1.5px] border-neutral-300 bg-transparent text-sm text-neutral-400 transition-colors hover:border-error hover:text-error"
+          >
+            ✕
+          </button>
+        );
       default:
         return null;
     }
@@ -304,7 +335,7 @@ export default function EmployeeTable({
                 key={c.key}
                 onClick={c.noSort ? undefined : () => onSort(c.key)}
                 onDoubleClick={
-                  editing && c.key !== "lock" && c.key !== "edit"
+                  canRenameColumns && c.key !== "lock" && c.key !== "edit"
                     ? () => {
                         const next = prompt(`Rename the "${c.label}" column to:`, c.label);
                         if (next && next.trim() && next.trim() !== c.label)
@@ -312,7 +343,7 @@ export default function EmployeeTable({
                       }
                     : undefined
                 }
-                title={editing && !c.noSort ? "Double-click to rename" : undefined}
+                title={canRenameColumns && !c.noSort ? "Double-click to rename" : undefined}
                 className={`sticky top-0 whitespace-nowrap bg-brand-95 px-2 py-2.5 text-left text-[11px] tracking-wide text-white select-none ${
                   // Pinned corner cell: stuck to both edges, above every other
                   // sticky cell (the header row at z-10, the name column's own
@@ -333,9 +364,11 @@ export default function EmployeeTable({
             <tr
               key={r.id}
               className="group cursor-pointer"
-              title={editing ? undefined : "Click to show/hide this row's figures"}
+              title="Click to show/hide this row's figures"
               onClick={(e) => {
-                if (editing) return; // clicking a cell should focus it, not mask the row
+                // clicking an already-rendered input/button focuses it rather
+                // than masking the row back — this is the only guard needed
+                // now that there's no separate edit mode forcing reveal on.
                 if ((e.target as HTMLElement).closest("input,button,a,select,label")) return;
                 toggleRow(r.id);
               }}

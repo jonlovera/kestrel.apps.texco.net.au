@@ -119,7 +119,7 @@ describe("the summary sheet", () => {
 describe("an export can be imported straight back", () => {
   it("round-trips through the import parser without an error", async () => {
     const buffer = await buildWorkbook(data, {}, META);
-    const raw = await parseImportFile("export.xlsx", buffer);
+    const { rows: raw } = await parseImportFile("export.xlsx", buffer);
     expect(raw).toHaveLength(data.emp.length);
 
     const result = rowsToEmployees(raw);

@@ -17,13 +17,23 @@ export interface Preview {
   removedWithData: string[];
   totalBefore: number;
   totalAfter: number;
+  /** in the file, but on the permanent exclude list — named so it's obvious */
+  excludedInFile: string[];
+  /** will import with a frozen bonus, from the sheet's own Locked Amount column */
+  lockedInFile: string[];
 }
 
 export type Stage =
   | { step: "pick" }
   | { step: "checking" }
   | { step: "errors"; errors: string[] }
-  | { step: "preview"; preview: Preview; rows: Employee[]; confirm: boolean }
+  | {
+      step: "preview";
+      preview: Preview;
+      rows: Employee[];
+      lockedAmounts: Record<string, number>;
+      confirm: boolean;
+    }
   | { step: "done"; preview: Preview };
 
 export function useImportFlow(onApplied?: () => void) {
@@ -58,7 +68,13 @@ export function useImportFlow(onApplied?: () => void) {
           errors: data.errors ?? [data.error ?? "Upload failed"],
         });
       } else {
-        commit({ step: "preview", preview: data.preview, rows: data.rows, confirm: false });
+        commit({
+          step: "preview",
+          preview: data.preview,
+          rows: data.rows,
+          lockedAmounts: data.lockedAmounts ?? {},
+          confirm: false,
+        });
       }
     } catch {
       if (id !== runId.current) return;
@@ -82,6 +98,7 @@ export function useImportFlow(onApplied?: () => void) {
           rows: snapshot.rows,
           confirmRemovals: snapshot.confirm,
           totalAfter: snapshot.preview.totalAfter,
+          lockedAmounts: snapshot.lockedAmounts,
         }),
       });
       const data = await res.json();
@@ -190,6 +207,28 @@ export function ImportPreview({
           <span className="text-brand-70">{preview.removed.join(", ") || "none"}</span>
         </div>
       </div>
+
+      {preview.excludedInFile.length > 0 && (
+        <div className="mb-3 border-2 border-neutral-200 bg-surface-sunken p-3 text-[13px]">
+          <strong>
+            {preview.excludedInFile.length} permanently excluded
+            {preview.excludedInFile.length === 1 ? " person is" : " people are"} still in
+            this file and will not be imported:
+          </strong>{" "}
+          <span className="text-brand-70">{preview.excludedInFile.join(", ")}</span>
+        </div>
+      )}
+
+      {preview.lockedInFile.length > 0 && (
+        <div className="mb-3 border-2 border-neutral-200 bg-surface-sunken p-3 text-[13px]">
+          <strong>
+            {preview.lockedInFile.length} employee
+            {preview.lockedInFile.length === 1 ? "" : "s"} will import with a bonus
+            frozen at the spreadsheet&apos;s own figure (its Locked Amount column):
+          </strong>{" "}
+          <span className="text-brand-70">{preview.lockedInFile.join(", ")}</span>
+        </div>
+      )}
 
       {needsConfirm && (
         <div className="mb-3 border-2 border-error bg-error-tint p-3 text-[13px]">

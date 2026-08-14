@@ -1,5 +1,7 @@
+import { cookies } from "next/headers";
 import { signOut } from "@/auth";
 import { identityLogoutUrl } from "@/lib/identity";
+import { ADMIN_GATE_COOKIE } from "@/lib/admin-gate";
 
 export const dynamic = "force-dynamic";
 
@@ -14,5 +16,9 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   await signOut({ redirect: false });
+  // Doesn't verify anything on its own — proxy.ts re-derives who's a full
+  // admin from the database every time — but no reason to leave it sitting
+  // in the browser for whoever signs in next on this machine.
+  (await cookies()).delete(ADMIN_GATE_COOKIE);
   return Response.redirect(identityLogoutUrl(), 302);
 }

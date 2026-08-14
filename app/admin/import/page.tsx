@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
 import { resolveViewer } from "@/lib/view-as";
+import { getDataset } from "@/lib/data";
+import { loadHistory, loadStoredDatasetVersion } from "@/lib/store";
+import { excludedRoster } from "@/lib/dataset-edit";
 import ImportPanel from "@/components/ImportPanel";
 
 export const metadata = { title: "Texco" };
@@ -16,5 +19,12 @@ export default async function ImportPage() {
     `[audit] pageview page=admin/import email=${email} ts=${new Date().toISOString()}`
   );
 
-  return <ImportPanel />;
+  const [data, history, datasetVersion] = await Promise.all([
+    getDataset(),
+    loadHistory(),
+    loadStoredDatasetVersion(),
+  ]);
+  const excluded = excludedRoster(data.excludedIds, history);
+
+  return <ImportPanel excluded={excluded} datasetVersion={datasetVersion} />;
 }

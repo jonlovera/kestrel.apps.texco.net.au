@@ -174,6 +174,74 @@ describe("EBS Group workbook", () => {
     expect(parsed.employees.find((e) => e.id === "AAA")!.sm).toBe(0);
   });
 
+  it("matches a Position containing 'Site Manager', not just an exact title", () => {
+    // Mirrors the sheet's own AS-column formula, SEARCH("Site Manager",
+    // Position) — a case-insensitive substring, not an exact match. A title
+    // variation must flag here the same way it flags in Excel, or that
+    // person gets pro-rated against the pool instead of paid their fixed,
+    // unscaled figure.
+    const wb = new ExcelJS.Workbook();
+    const ws = addGroupSheet(wb, "EBS Group - FY26", HEADERS, [
+      vicRow("AAA"),
+      vicRow("DDD", { 10: "Senior Site Manager" }),
+      vicRow("EEE", { 10: "site manager (acting)" }),
+    ]);
+    ws.getRow(19).getCell(3).value = "TOTALS";
+    const { rows } = readModelWorkbook(wb);
+    const parsed = rowsToEmployees(rows);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.employees.find((e) => e.id === "AAA")!.sm).toBe(0);
+    expect(parsed.employees.find((e) => e.id === "DDD")!.sm).toBe(1);
+    expect(parsed.employees.find((e) => e.id === "EEE")!.sm).toBe(1);
+  });
+
+  it("imports Locked Amount as a frozen bonus, never as an Employee field", () => {
+    const { wb, ws } = groupWorkbook();
+    ws.getRow(15).getCell(30).value = "Locked Amount";
+    ws.getRow(16).getCell(30).value = 23520; // AAA
+    const { rows, lockedAmounts } = readModelWorkbook(wb);
+    expect(lockedAmounts).toEqual({ AAA: 23520 });
+    const parsed = rowsToEmployees(rows);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const aaa = parsed.employees.find((e) => e.id === "AAA") as unknown as Record<
+      string,
+      unknown
+    >;
+    expect(aaa.lockedAmount).toBeUndefined();
+  });
+
+  it("a blank Locked Amount cell means nobody is locked", () => {
+    const { wb, ws } = groupWorkbook();
+    ws.getRow(15).getCell(30).value = "Locked Amount";
+    const { lockedAmounts } = readModelWorkbook(wb);
+    expect(lockedAmounts).toEqual({});
+  });
+
+  it("omitting the Locked Amount column entirely still imports everything else", () => {
+    const { rows, lockedAmounts } = readModelWorkbook(groupWorkbook().wb);
+    expect(lockedAmounts).toEqual({});
+    expect(rows.length).toBe(3);
+  });
+
+  it("refuses an uncomputed formula in Locked Amount, the same as any other cell", () => {
+    // The bug this closes was a silent drop, not a loud one — a fault here
+    // must fail the whole import rather than quietly importing everyone as
+    // unlocked.
+    const { wb, ws } = groupWorkbook();
+    ws.getRow(15).getCell(30).value = "Locked Amount";
+    ws.getRow(16).getCell(30).value = { formula: "A1*2" } as ExcelJS.CellValue;
+    let thrown: ModelReadError | null = null;
+    try {
+      readModelWorkbook(wb);
+    } catch (e) {
+      thrown = e as ModelReadError;
+    }
+    expect(thrown).not.toBeNull();
+    expect(thrown!.errors.join("\n")).toContain("Locked Amount");
+  });
+
   it("never mistakes 'EBS Group - FY26 SM Scenario' for the real data", () => {
     const { wb } = groupWorkbook();
     // The scenario tab sits alongside the real one in the actual workbook.

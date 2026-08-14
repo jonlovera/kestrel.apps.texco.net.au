@@ -45,6 +45,7 @@ const vicScope: Scope = {
     states: ["VIC"],
     visibleFields: ["ipm", "bipm", "calc", "f25", "da", "yoy", "final"],
     editableFields: ["da"],
+  canLock: false,
   },
   canEdit: false,
   visibleFields: ["ipm", "bipm", "calc", "f25", "da", "yoy", "final"],
@@ -215,6 +216,7 @@ describe("entitlement is unaffected by column config (non-negotiable #2)", () =>
         states: ["VIC", "NSW"],
         visibleFields: ["final"],
         editableFields: ["da"],
+      canLock: false,
       },
       visibleFields: ["final"],
     };

@@ -20,6 +20,11 @@ const ApplySchema = z.object({
   rows: z.array(EmployeeSchema).min(1).max(10_000),
   confirmRemovals: z.boolean().optional(),
   totalAfter: z.number(), // echoed from the preview, for the history entry
+  // The sheet's "Locked Amount" column, echoed back from the preview the
+  // same way `rows` is — re-filtered against the candidate roster below
+  // rather than trusted, the same defence-in-depth reasoning as re-deriving
+  // `candidate` itself.
+  lockedAmounts: z.record(z.string(), z.number()).default({}),
 });
 
 /**
@@ -44,7 +49,13 @@ export async function POST(req: Request) {
   }
 
   const [current, overrides] = await Promise.all([getDataset(), loadOverrides()]);
-  const preview = buildImportPreview(current.emp, body.rows, overrides);
+  // Re-derived here rather than trusted from the client: the preview already
+  // sends back the filtered rows, but re-filtering means a permanently
+  // excluded person can never end up saved regardless of what the request
+  // actually contains — the same reasoning as re-validating everything else
+  // on this route rather than trusting what was previewed.
+  const candidate = candidateDataset(current, body.rows);
+  const preview = buildImportPreview(current.emp, candidate.emp, overrides);
   if (preview.removedWithData.length > 0 && !body.confirmRemovals) {
     return NextResponse.json(
       {
@@ -57,10 +68,24 @@ export async function POST(req: Request) {
   }
 
   await takeSnapshot(email, "import");
-  await saveStoredDataset(candidateDataset(current, body.rows));
+  await saveStoredDataset(candidate);
+  const survivingIds = new Set(candidate.emp.map((e) => e.id));
   const survivingOverrides: Overrides = Object.fromEntries(
-    Object.entries(overrides).filter(([id]) => ids.has(id))
+    Object.entries(overrides).filter(([id]) => survivingIds.has(id))
   );
+
+  // The sheet's "Locked Amount" column becomes a lock override, the same
+  // mechanism the dashboard's own Lock button writes to — overwriting
+  // whatever lock state that id already had, since the spreadsheet is
+  // authoritative for this figure the same way it is for every other
+  // imported one.
+  const importedLocks = Object.entries(body.lockedAmounts).filter(([id]) =>
+    survivingIds.has(id)
+  );
+  for (const [id, amount] of importedLocks) {
+    survivingOverrides[id] = { ...survivingOverrides[id], locked: true, lockedFinal: amount };
+  }
+
   // Force-write bumps the version so open editors reload cleanly.
   await saveOverridesForce(survivingOverrides);
 
@@ -69,11 +94,11 @@ export async function POST(req: Request) {
       ts: new Date().toISOString(),
       actor: email,
       kind: "import",
-      summary: `Imported ${body.rows.length} employees (${preview.added.length} added, ${preview.removed.length} removed) — total pool now ${fmt(body.totalAfter)}`,
+      summary: `Imported ${candidate.emp.length} employees (${preview.added.length} added, ${preview.removed.length} removed, ${importedLocks.length} locked) — total pool now ${fmt(body.totalAfter)}`,
     },
   ]);
   console.log(
-    `[audit] import-apply email=${email} rows=${body.rows.length} added=${preview.added.length} removed=${preview.removed.length} ts=${new Date().toISOString()}`
+    `[audit] import-apply email=${email} rows=${candidate.emp.length} added=${preview.added.length} removed=${preview.removed.length} locked=${importedLocks.length} ts=${new Date().toISOString()}`
   );
   revalidatePath("/");
 

@@ -197,11 +197,21 @@ export function rowsToEmployees(rawRows: Record<string, unknown>[]): ParseResult
   return { ok: true, employees };
 }
 
+export interface ParsedFile {
+  rows: Record<string, unknown>[];
+  /**
+   * employee id → the sheet's own frozen bonus figure, from the model
+   * workbook's "Locked Amount" column. Always empty for a flat file/CSV —
+   * that format has no equivalent concept, and this is never asked of it.
+   */
+  lockedAmounts: Record<string, number>;
+}
+
 /** Parse an uploaded file (xlsx or csv) into header-keyed raw rows. */
 export async function parseImportFile(
   filename: string,
   buf: Buffer
-): Promise<Record<string, unknown>[]> {
+): Promise<ParsedFile> {
   if (/\.(xlsx|xlsm)$/i.test(filename)) {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf as unknown as ArrayBuffer);
@@ -210,10 +220,13 @@ export async function parseImportFile(
     // own terms (lib/import-model.ts) rather than being rejected for not
     // looking like a flat export. Detection is by its per-state FY sheets, so
     // an ordinary spreadsheet can never take this path by accident.
-    if (isModelWorkbook(wb)) return readModelWorkbook(wb).rows;
+    if (isModelWorkbook(wb)) {
+      const { rows, lockedAmounts } = readModelWorkbook(wb);
+      return { rows, lockedAmounts };
+    }
 
     const ws = wb.worksheets[0];
-    if (!ws) return [];
+    if (!ws) return { rows: [], lockedAmounts: {} };
     const headers: string[] = [];
     ws.getRow(1).eachCell({ includeEmpty: true }, (cell, col) => {
       headers[col] = String(cell.value ?? "").trim();
@@ -265,7 +278,7 @@ export async function parseImportFile(
       if (uncomputedCount > 0) summary.push(uncomputedSummary(uncomputedCount));
       throw new ImportError([...summary, ...formulaErrors]);
     }
-    return rows;
+    return { rows, lockedAmounts: {} };
   }
 
   const text = buf.toString("utf-8");
@@ -280,7 +293,7 @@ export async function parseImportFile(
       `The CSV file couldn't be read (row ${(e.row ?? 0) + 2}): ${e.message}`
     );
   }
-  return result.data;
+  return { rows: result.data, lockedAmounts: {} };
 }
 
 export interface ImportPreview {
@@ -291,14 +304,24 @@ export interface ImportPreview {
   removedWithData: string[];
 }
 
-/** Shape imported employees into a dataset (caps kept, filter lists derived). */
+/**
+ * Shape imported employees into a dataset: caps and the permanent exclude
+ * list both carry over from the current dataset (neither comes from a
+ * spreadsheet), and anyone on that list is dropped here — before the
+ * added/removed diff is even computed — so a future import can never quietly
+ * bring an excluded person back just because the spreadsheet still lists
+ * them.
+ */
 export function candidateDataset(current: Dataset, employees: Employee[]): Dataset {
+  const excluded = new Set(current.excludedIds);
+  const kept = employees.filter((e) => !excluded.has(e.id));
   return {
-    emp: employees,
+    emp: kept,
     vCap: current.vCap,
     nCap: current.nCap,
     gCap: current.gCap,
-    ...deriveFacets(employees),
+    excludedIds: current.excludedIds,
+    ...deriveFacets(kept),
   };
 }
 

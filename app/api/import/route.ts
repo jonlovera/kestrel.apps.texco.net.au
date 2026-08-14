@@ -32,9 +32,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "File too large (max 5 MB)" }, { status: 400 });
   }
 
-  let rawRows;
+  let rawRows, lockedAmounts;
   try {
-    rawRows = await parseImportFile(file.name, Buffer.from(await file.arrayBuffer()));
+    ({ rows: rawRows, lockedAmounts } = await parseImportFile(
+      file.name,
+      Buffer.from(await file.arrayBuffer())
+    ));
   } catch (err) {
     // The model reader finds many faults at once (a whole column left
     // uncalculated, say); listing only the first would mean fixing the file
@@ -56,26 +59,52 @@ export async function POST(req: Request) {
     getParams(),
     loadOverrides(),
   ]);
-  const preview = buildImportPreview(current.emp, parsed.employees, overrides);
+
+  // Excluded people are dropped before anything else looks at this list —
+  // the added/removed diff, the reconciliation total, and what Apply would
+  // actually save all need to agree on the same, already-filtered roster.
+  const candidate = candidateDataset(current, parsed.employees);
+  const preview = buildImportPreview(current.emp, candidate.emp, overrides);
+  const excludedIds = new Set(current.excludedIds);
+  const excludedInFile = parsed.employees
+    .filter((e) => excludedIds.has(e.id))
+    .map((e) => `${e.gn} ${e.sn}`);
+
+  const survivingIds = new Set(candidate.emp.map((e) => e.id));
+
+  // Named before it happens, the same as the exclude list above: the sheet's
+  // "Locked Amount" column fixes a person's bonus and excludes them from the
+  // pool entirely (lib/import-model.ts) — applying an import shouldn't
+  // silently start freezing people without saying so. Filtered to whoever
+  // actually survives into the candidate roster (an excluded or removed
+  // person's locked amount is meaningless).
+  const importedLocks = Object.fromEntries(
+    Object.entries(lockedAmounts).filter(([id]) => survivingIds.has(id))
+  );
+  const empById = new Map(candidate.emp.map((e) => [e.id, e]));
+  const lockedInFile = Object.keys(importedLocks)
+    .map((id) => empById.get(id))
+    .filter((e): e is NonNullable<typeof e> => !!e)
+    .map((e) => `${e.gn} ${e.sn}`);
 
   // Reconciliation figures through the normal pipeline (params applied,
   // overrides restricted to surviving employees).
   const effBefore = applyParams(current, params);
   const totalBefore = totalPool(effBefore, overrides);
-  const survivingIds = new Set(parsed.employees.map((e) => e.id));
   const survivingOverrides: Overrides = Object.fromEntries(
     Object.entries(overrides).filter(([id]) => survivingIds.has(id))
   );
-  const effAfter = applyParams(candidateDataset(current, parsed.employees), params);
+  const effAfter = applyParams(candidate, params);
   const totalAfter = totalPool(effAfter, survivingOverrides);
 
   console.log(
-    `[audit] import-preview email=${guard.email} rows=${preview.rowCount} added=${preview.added.length} removed=${preview.removed.length} ts=${new Date().toISOString()}`
+    `[audit] import-preview email=${guard.email} rows=${preview.rowCount} added=${preview.added.length} removed=${preview.removed.length} excluded=${excludedInFile.length} locked=${lockedInFile.length} ts=${new Date().toISOString()}`
   );
 
   const res = NextResponse.json({
-    preview: { ...preview, totalBefore, totalAfter },
-    rows: parsed.employees,
+    preview: { ...preview, totalBefore, totalAfter, excludedInFile, lockedInFile },
+    rows: candidate.emp,
+    lockedAmounts: importedLocks,
   });
   res.headers.set("Cache-Control", "no-store, max-age=0");
   return res;

@@ -35,10 +35,10 @@ import { loadAccessOverlay, saveAccessOverlay, appendHistory } from "./store";
  * ============================================================================
  */
 const ACCESS: Record<string, AccessRule> = {
-  'jlovera@texco.net.au': { type: 'full' },
-  'dgibson@texco.net.au': { type: 'full' },
-  'tbull@texco.net.au': { type: 'full' },
-  'jbull@texco.net.au': { type: 'full' },
+  'jlovera@texco.net.au': { type: 'full', canEditCaps: false },
+  'dgibson@texco.net.au': { type: 'full', canEditCaps: false },
+  'tbull@texco.net.au': { type: 'full', canEditCaps: false },
+  'jbull@texco.net.au': { type: 'full', canEditCaps: false },
 };
 
 /** Resolved scope handed to the rest of the server code. */

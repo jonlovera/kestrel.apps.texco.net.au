@@ -150,6 +150,18 @@ export const GROUP_COLUMNS: Record<string, Matcher> = {
     test: (h) => norm(h) === "eligibility %",
     optional: true,
   },
+  // Not an Employee field at all — it lives in Overrides, not the dataset
+  // (lib/schema.ts), so it's read here alongside everything else but carried
+  // out of readModelWorkbook separately (`lockedAmounts`), never merged into
+  // `rec`. See the module comment's reconciliation note: the sheet fixes a
+  // person's bonus to this literal figure and excludes them from the pool
+  // entirely (`IF(ISNUMBER(AD), AD, …)` in the sheet's own formula) — this
+  // was previously silently dropped on import.
+  lockedAmount: {
+    label: "Locked Amount",
+    test: (h) => norm(h) === "locked amount",
+    optional: true,
+  },
 };
 
 /** Resolve every field to a column index. */
@@ -176,6 +188,8 @@ export interface ModelReadResult {
   rows: Record<string, unknown>[];
   year: number;
   sheetsRead: string[];
+  /** employee id → the sheet's own frozen bonus figure (Locked Amount column) */
+  lockedAmounts: Record<string, number>;
 }
 
 const REQUIRED_FIELDS = [
@@ -201,6 +215,7 @@ export function readModelWorkbook(wb: ExcelJS.Workbook): ModelReadResult {
 
   const errors: string[] = [];
   const rows: Record<string, unknown>[] = [];
+  const lockedAmounts: Record<string, number> = {};
   const seen = new Map<string, number>();
   // Counted as they're found rather than recovered by matching message text
   // afterwards — a genuine #VALUE! and "no calculated value" need different
@@ -295,6 +310,32 @@ export function readModelWorkbook(wb: ExcelJS.Workbook): ModelReadResult {
       }
     }
 
+    // Optional, and never merged into `rec` — this fixes the person's bonus
+    // to a literal figure and excludes them from the pool entirely
+    // (lib/import-parse.ts's caller turns this into an Overrides lock, not
+    // an Employee field). A blank cell means "not locked"; a fault here is a
+    // hard error rather than a silent skip, because silently skipping it is
+    // exactly the bug this closes — it would pay the person the wrong
+    // (pro-rated) amount with nothing to say why.
+    if (cols.lockedAmount !== undefined) {
+      const lockedValue = cellValue(row.getCell(cols.lockedAmount));
+      if (lockedValue === UNCOMPUTED) {
+        errors.push(
+          `'${ws.name}' row ${r} (${id}), '${GROUP_COLUMNS.lockedAmount.label}': the spreadsheet has a formula here with ${UNCOMPUTED_HINT}.`
+        );
+        uncomputedCount++;
+        rowFailed = true;
+      } else if (isFormulaFault(lockedValue)) {
+        errors.push(
+          `'${ws.name}' row ${r} (${id}), '${GROUP_COLUMNS.lockedAmount.label}': ${formulaFaultHint(lockedValue.code)}.`
+        );
+        formulaFaultCount++;
+        rowFailed = true;
+      } else if (typeof lockedValue === "number") {
+        lockedAmounts[id] = lockedValue;
+      }
+    }
+
     // State comes straight from each employee's own split — no cross-sheet
     // ratio to reconcile, unlike the old three-sheet reader. A tolerance
     // rather than exact equality: VIC/NSW-only staff show a clean 1/0 in the
@@ -308,8 +349,13 @@ export function readModelWorkbook(wb: ExcelJS.Workbook): ModelReadResult {
 
     // The sheet has its own Site Manager column, but in practice it's a
     // formula that's often uncomputed where Position is always readable —
-    // the position-text flag is the whole of the rule, so it stays.
-    rec.sm = norm(String(rec.pos ?? "")) === "site manager" ? 1 : 0;
+    // the position-text flag is the whole of the rule, so it stays. A
+    // substring match, not exact: the sheet's own formula is
+    // `SEARCH("Site Manager", Position)`, case-insensitive and unanchored, so
+    // a title like "Senior Site Manager" flags there. An exact match here
+    // would silently disagree and pro-rate that person against the pool
+    // instead of paying them their fixed, unscaled figure.
+    rec.sm = norm(String(rec.pos ?? "")).includes("site manager") ? 1 : 0;
 
     const dup = seen.get(id);
     if (dup) {
@@ -336,7 +382,7 @@ export function readModelWorkbook(wb: ExcelJS.Workbook): ModelReadResult {
   if (rows.length === 0) {
     throw new ModelReadError([`'${ws.name}' contains no employee rows.`]);
   }
-  return { rows, year, sheetsRead: [ws.name] };
+  return { rows, year, sheetsRead: [ws.name], lockedAmounts };
 }
 
 /**

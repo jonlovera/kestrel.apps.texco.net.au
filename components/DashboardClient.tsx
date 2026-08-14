@@ -13,8 +13,6 @@ import {
   applyOverrides,
   computeScalesAndBonuses,
   getMaxDA,
-  getVicAlloc,
-  getNswAlloc,
   parsePercentInput,
   parseDaInput,
   type CalcEmployee,
@@ -22,13 +20,13 @@ import {
 } from "@/lib/calc";
 import { fmt } from "@/lib/fmt";
 import { TexcoX, TexcoWordmark } from "./TexcoBrand";
-import { PoolCard, type PoolMetric } from "./PoolCard";
+import { PoolCard } from "./PoolCard";
 import { MultiSelect } from "./MultiSelect";
 import EmployeeTable, { type TableColumn } from "./EmployeeTable";
 import ColumnMenu from "./ColumnMenu";
 import EditableText from "./EditableText";
 import Dropzone from "./Dropzone";
-import { ViewAsBanner, ViewAsPicker, type ViewAsState } from "./ViewAsBar";
+import { ViewAsPicker, type ViewAsState } from "./ViewAsBar";
 import {
   useImportFlow,
   ImportErrors,
@@ -43,14 +41,12 @@ type SaveStatus = "idle" | "saving" | "saved" | "error";
  * Which columns can be typed into, and down which write path.
  *
  * Bonus % left this list when it became spreadsheet-only, and so did package,
- * FY25 and every identity field. IPM left it too: it's a formula-derived
- * figure and a manual override on it corrupts the calculation, so nobody —
- * lead or admin — may set it any more. What remains is Discretionary through
- * the overrides doc, and After IPM through the dataset. The server re-decides
- * all of it on every write (lib/write-scope.ts) — this only governs which
- * cells look typeable.
+ * FY25 and every identity field. What remains is Discretionary and IPM
+ * through the overrides doc, and After IPM through the dataset. The server
+ * re-decides all of it on every write (lib/write-scope.ts) — this only
+ * governs which cells look typeable.
  */
-const OVERRIDE_EDITABLE = ["da"];
+const OVERRIDE_EDITABLE = ["da", "ipm"];
 const DATASET_EDITABLE = ["bipm", "vp", "np"];
 /** localStorage key for the build-up group's collapse state (per browser). */
 const BUILDUP_KEY = "kestrel:buildup-open";
@@ -81,6 +77,13 @@ export default function DashboardClient({
     [isEditor, payload]
   );
   const canEditAnything = canEditFields.length > 0;
+  /**
+   * Whether this person may lock/unlock a row at all — its own grant,
+   * independent of `canEditFields`. An admin always has it; a lead's comes
+   * straight off the payload (lib/write-scope.ts decides again on every
+   * write).
+   */
+  const canLockAnything = isEditor || payload.canLock;
 
   // ── editor state: the SOURCE dataset, persisted per-change to /api/dataset ─
   // Held in state (not read straight off the payload) so an inline edit
@@ -98,21 +101,18 @@ export default function DashboardClient({
   const [dsBusy, setDsBusy] = useState(false);
   const [dsError, setDsError] = useState<string | null>(null);
 
-  // ── edit mode ─────────────────────────────────────────────────────────────
-  // One switch. Off, the dashboard is plain text and presentable; on, every
-  // cell, heading, pool cap and column is typeable.
-  const [editing, setEditing] = useState(false);
   /**
-   * Edit mode minus everything that commits the moment you leave the field.
-   *
-   * The cell inputs are deferred behind Save, so they can stay live while
-   * viewing as: typing runs the what-if through /api/preview, which persists
-   * nothing, and there is no Save button to press. The dataset figure, the
-   * pool caps, the headings and the column config are different — each fires
-   * its write on blur — so they are switched off rather than left to fail
-   * against the server's 403.
+   * There is no edit mode any more — every cell is directly editable in
+   * place, gated only by permission (`c.editable`/`c.dsEditable`), lock
+   * state, and the privacy mask (reveal a row, then its permitted cells are
+   * inputs). `configuring` is what's left of the old mode boolean: it now
+   * just means "a full-access admin, not viewing as someone", and gates the
+   * site-configuration affordances (column rename, pool titles, banner,
+   * scheme name) that only ever made sense for that role — these fire their
+   * write on blur, so they're switched off entirely while viewing as, rather
+   * than left to fail against the server's 403.
    */
-  const configuring = editing && !viewingAs;
+  const configuring = isEditor && !viewingAs;
   const [columnConfig, setColumnConfig] = useState<ColumnConfig>(
     isEditor ? payload.columnConfig : []
   );
@@ -126,6 +126,15 @@ export default function DashboardClient({
   const [params, setParams] = useState<Params>(
     isEditor ? payload.params : { vCap: 0, nCap: 0, gCap: 0, companyModifier: 1 }
   );
+  /**
+   * Pool caps are their own grant now (`canEditCaps` on a full-access rule),
+   * separate from `isEditor`/`configuring` — a full admin doesn't get this
+   * unless it was explicitly ticked for them on the access screen. The
+   * server (`app/api/params/route.ts`) enforces the real boundary; this only
+   * decides whether the cap on each pool card renders as an input.
+   */
+  const canEditCapsNow =
+    isEditor && payload.canEditCaps && !viewingAs;
 
   // ── drop a spreadsheet anywhere to replace the roster ─────────────────────
   // An import replaces the dataset wholesale and re-versions the overrides, so
@@ -178,19 +187,6 @@ export default function DashboardClient({
     () => JSON.stringify(overrides) !== JSON.stringify(savedOverrides),
     [overrides, savedOverrides]
   );
-
-  /** How many people have an unsaved change against them. */
-  const pendingCount = useMemo(() => {
-    const ids = new Set([
-      ...Object.keys(overrides),
-      ...Object.keys(savedOverrides),
-    ]);
-    let n = 0;
-    for (const id of ids) {
-      if (JSON.stringify(overrides[id] ?? {}) !== JSON.stringify(savedOverrides[id] ?? {})) n++;
-    }
-    return n;
-  }, [overrides, savedOverrides]);
 
   // A lead's what-if: send the scratch overrides, get their own rows back
   // recalculated. Debounced, because it runs while they type.
@@ -260,17 +256,21 @@ export default function DashboardClient({
     }
   }
 
-  function discard() {
-    if (pendingCount === 0) return;
-    if (
-      !confirm(
-        `Discard ${pendingCount} unsaved ${pendingCount === 1 ? "change" : "changes"}?\n\nThe figures go back to the last saved version.`
-      )
-    )
-      return;
-    setOverrides(savedOverrides);
-    setSaveStatus("idle");
-  }
+  /**
+   * Replaces the old explicit Save button: whenever the overrides doc has
+   * unsaved changes, commit them in the background a moment after typing
+   * settles — the same request `save()` always made, just no longer waiting
+   * for a click. Debounced so tabbing through several cells in a burst
+   * becomes one write, not one per field's blur. There's no "Discard" any
+   * more either: with nothing staged, undoing a change just means typing the
+   * old value back.
+   */
+  useEffect(() => {
+    if (viewingAs || !canEditAnything || !dirty || saveStatus === "saving") return;
+    const timer = setTimeout(() => void save(), 900);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overrides, dirty, viewingAs, canEditAnything, saveStatus]);
 
   // ── calc (editor mode runs the prototype's engine client-side) ──
   const { emps, pool } = useMemo<{
@@ -384,10 +384,8 @@ export default function DashboardClient({
     void saveConfig("copy", next);
   }
 
-  function updateCap(field: "vCap" | "nCap" | "gCap", raw: string) {
-    const value = parseDaInput(raw);
-    if (!value || value === params[field]) return;
-    const next = { ...params, [field]: value };
+  function updateParams(patch: Partial<Params>) {
+    const next = { ...params, ...patch };
     setParams(next);
     void saveConfig("params", next);
   }
@@ -443,24 +441,6 @@ export default function DashboardClient({
     });
   }
 
-  /**
-   * Edit mode forces the figures visible — you cannot type into `••••` — and
-   * puts the mask back exactly as it was on the way out.
-   */
-  const maskBeforeEditing = useRef(false);
-  function toggleEditing() {
-    setEditing((wasEditing) => {
-      if (!wasEditing) {
-        maskBeforeEditing.current = showAll;
-        setShowAll(true);
-      } else {
-        setShowAll(maskBeforeEditing.current);
-        if (!maskBeforeEditing.current) setRevealedIds(new Set());
-      }
-      return !wasEditing;
-    });
-  }
-
   function toggleRow(id: string) {
     setRevealedIds((prev) => {
       const next = new Set(prev);
@@ -473,8 +453,6 @@ export default function DashboardClient({
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== " " || e.metaKey || e.ctrlKey || e.altKey) return;
-      // edit mode keeps everything revealed; a stray Space must not re-mask
-      if (editing) return;
       const t = e.target as HTMLElement | null;
       if (
         t &&
@@ -491,7 +469,7 @@ export default function DashboardClient({
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [editing]);
+  }, []);
 
   // ── history tab (editors only, fetched lazily) ──
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
@@ -570,19 +548,27 @@ export default function DashboardClient({
       format: c.format,
       decimals: c.decimals,
     }));
-    // Not while viewing as: the lock is deferred behind Save like the cells,
-    // but with no Save button it would only strand the view in an unsaved
-    // state and arm the leave-page warning.
-    const tools: TableColumn[] = isEditor && !viewingAs
-      ? [
-        // the lock stays visible outside edit mode so you can still see who is
-        // settled; only the pencil is an edit-mode affordance
-        { key: "lock", label: "Lock", noSort: true },
-        ...(editing ? [{ key: "edit", label: "", noSort: true }] : []),
-      ]
-      : [];
+    // NOT blanked while viewing as, same as canEditFields above and for the
+    // same reason: the point of a view is to show what that person can
+    // actually do, and hiding their tools answers the wrong question.
+    // Nothing can actually be written during a view either way — save()
+    // refuses outright while viewingAs is set, and the beforeunload warning
+    // already skips it too — so showing the control is free.
+    //
+    // The lock is its own grant (canLockAnything, from the access screen's
+    // "Can lock" checkbox), independent of whether this lead may edit any
+    // figure at all (lib/write-scope.ts enforces the boundary server-side).
+    // The exclude (pencil) column stays admin-only: removing someone from
+    // the model entirely is a different, heavier action than freezing their
+    // bonus.
+    const tools: TableColumn[] = [
+      ...(canLockAnything
+        ? [{ key: "lock", label: "Lock", noSort: true }]
+        : []),
+      ...(isEditor ? [{ key: "edit", label: "", noSort: true }] : []),
+    ];
     return [...configured, ...tools];
-  }, [isEditor, editing, viewingAs, columnConfig, payload, canEditFields]);
+  }, [isEditor, viewingAs, columnConfig, payload, canEditFields, canLockAnything]);
 
   /** Which of the build-up figures this person is entitled to at all. */
   const buildupColumnCount = useMemo(
@@ -700,6 +686,27 @@ export default function DashboardClient({
   }
 
   /**
+   * IPM is the one figure a site manager's own bonus does still move with
+   * (`lib/calc.ts`: their finalBonus is pkg × bpEdit × cpm × ipmEdit, just
+   * never pro-rated against the pool) — so unlike Discretionary, this is not
+   * blocked for `sm` rows. Locked rows are blocked: their bonus is already
+   * frozen, so editing IPM would only move the unseen "Calc bonus" figure,
+   * not anything actually paid.
+   */
+  function updateIPM(id: string, current: number, raw: string) {
+    const next = parsePercentInput(raw);
+    if (next === null || Math.round(next * 100) === Math.round(current * 100)) return;
+    if (isEditor) {
+      const emp = empById.get(id);
+      if (!emp || emp.locked) return;
+    } else {
+      const row = rowById.get(id);
+      if (!row || row.locked) return;
+    }
+    setOverride(id, { ipmEdit: next });
+  }
+
+  /**
    * The one remaining dataset edit: After IPM. No-ops if unchanged.
    * Package, FY25 and bonus % are read-only for everyone now — they come from
    * the spreadsheet, because a typo in one cascades through every figure.
@@ -721,22 +728,72 @@ export default function DashboardClient({
     void patchDataset({ op: "field", id, field, value: next });
   }
 
+  /**
+   * Locking used to be admin-only. A lead now gets the same ability, within
+   * their own scope, gated on the access screen's own "Can lock" grant
+   * (`canLockAnything`) — independent of whether they may edit any figure at
+   * all. The server enforces the identical boundary
+   * (`writableFields`/`sanitiseOverrideWrite`, lib/write-scope.ts), this only
+   * decides whether the control does anything client-side.
+   */
   function toggleLock(id: string) {
-    const emp = empById.get(id);
-    if (!emp || emp.sm) return;
-    if (emp.locked) {
-      const hasChanges =
-        emp.bpEdit !== emp.bp || emp.ipmEdit !== emp.ipm || emp.daEdit !== emp.da;
-      if (hasChanges) {
-        const msg = `Unlock ${emp.gn} ${emp.sn}?\n\nTheir bonus of ${fmt(
-          emp.finalBonus
+    if (isEditor) {
+      const emp = empById.get(id);
+      if (!emp || emp.sm) return;
+      if (emp.locked) {
+        const hasChanges =
+          emp.bpEdit !== emp.bp || emp.ipmEdit !== emp.ipm || emp.daEdit !== emp.da;
+        if (hasChanges) {
+          const msg = `Unlock ${emp.gn} ${emp.sn}?\n\nTheir bonus of ${fmt(
+            emp.finalBonus
+          )} will be released back into the pool and all unlocked bonuses will be redistributed.\n\nChanges made while locked will be kept.`;
+          if (!confirm(msg)) return;
+        }
+        setOverride(id, { locked: false, lockedFinal: undefined });
+      } else {
+        // finalBonus is the actual payout to freeze — identical to calcBonus
+        // for an unlocked row, but it's the one that means "what gets paid".
+        setOverride(id, { locked: true, lockedFinal: emp.finalBonus });
+      }
+      return;
+    }
+
+    // A lead has no local recompute engine — scopedRows/rowById is already
+    // the server's latest figures for their own rows.
+    if (!canLockAnything) return;
+    const row = rowById.get(id);
+    if (!row || row.sm || row.final === undefined) return;
+    if (row.locked) {
+      const hasPendingChanges =
+        overrides[id]?.daEdit !== undefined || overrides[id]?.ipmEdit !== undefined;
+      if (hasPendingChanges) {
+        const msg = `Unlock ${row.name}?\n\nTheir bonus of ${fmt(
+          row.final
         )} will be released back into the pool and all unlocked bonuses will be redistributed.\n\nChanges made while locked will be kept.`;
         if (!confirm(msg)) return;
       }
       setOverride(id, { locked: false, lockedFinal: undefined });
     } else {
-      setOverride(id, { locked: true, lockedFinal: emp.calcBonus });
+      setOverride(id, { locked: true, lockedFinal: row.final });
     }
+  }
+
+  /**
+   * Permanently remove someone from the model — not just this dataset, every
+   * import after this one too (lib/import-parse.ts's candidateDataset keeps
+   * honouring lib/schema.ts's excludedIds even if a future spreadsheet still
+   * lists them). Reversible from /admin/import, but the row itself isn't
+   * restored by un-excluding — only a later import that still has them
+   * brings them back.
+   */
+  function excludeEmployee(id: string, name: string) {
+    if (
+      !confirm(
+        `Remove ${name} from the model?\n\nThey won't reappear even if a future import still lists them. This can be undone from Admin → Import.`
+      )
+    )
+      return;
+    void patchDataset({ op: "exclude", id });
   }
 
   // ── totals row ──
@@ -765,104 +822,77 @@ export default function DashboardClient({
   const poolCardEls = useMemo(() => {
     if (!isEditor) {
       // A state lead sees their own pool and nothing wider: no group total, no
-      // other state, no shared-services breakdown.
-      return scopedCards.map((c) => {
-        const remaining = c.available - c.stateBonuses;
-        return (
-          <PoolCard
-            key={c.title}
-            title={c.title}
-            metrics={[
-              { label: "Pool available", value: fmt(c.available) },
-              { label: "Total allocated", value: fmt(c.stateBonuses), bold: true },
-              {
-                label: "Remaining to allocate",
-                value: fmt(remaining),
-                negative: remaining < 0,
-              },
-            ]}
-            utilPct={c.utilPct}
-          />
-        );
-      });
+      // other state, no shared-services breakdown. stateBonuses, not
+      // available: the card should read the same as "Total bonuses" on this
+      // person's own tab, not the theoretical cap.
+      return scopedCards.map((c) => (
+        <PoolCard key={c.title} title={c.title} value={fmt(c.stateBonuses)} />
+      ));
     }
     if (!pool) return null;
-    const { vCap, nCap, gCap } = params;
-    const vicTotal = emps.reduce((s, e) => s + getVicAlloc(e, pool.vicScale), 0);
-    const nswTotal = emps.reduce((s, e) => s + getNswAlloc(e, pool.nswScale), 0);
-    const groupTotal = emps.reduce((s, e) => s + e.finalBonus, 0);
-    const sharedVic = emps
-      .filter((e) => e.st === "SHARED")
-      .reduce((s, e) => s + getVicAlloc(e, pool.vicScale), 0);
-    const sharedNsw = emps
-      .filter((e) => e.st === "SHARED")
-      .reduce((s, e) => s + getNswAlloc(e, pool.nswScale), 0);
 
-    const card = (
-      which: "vic" | "nsw" | "group",
-      capField: "vCap" | "nCap" | "gCap",
-      title: string,
-      cap: number,
-      total: number,
-      sharedDeduction: number | null
-    ) => {
-      const remain = cap - total;
-      // The shared-services split only makes sense while looking at shared
-      // services, so it is surfaced on that tab alone; every other tab shows
-      // the plain cap / allocated / remaining the leads actually work against.
-      const showShared = sharedDeduction !== null && activeTab === "SHARED";
-      const metrics: PoolMetric[] = [
-        // in edit mode the cap is typed here and everything above recalculates
-        {
-          label: "Pool cap",
-          value: fmt(cap),
-          ...(configuring
-            ? { onEdit: (raw: string) => updateCap(capField, raw), editValue: cap }
-            : {}),
-        },
-        ...(showShared
-          ? [
-            { label: `${title.split(" ")[0]} bonuses`, value: fmt(total - sharedDeduction) },
-            { label: "Shared services", value: fmt(sharedDeduction) },
-          ]
-          : []),
-        { label: "Total allocated", value: fmt(total), bold: true },
-        { label: "Remaining to allocate", value: fmt(remain), negative: remain < 0 },
-      ];
-      return (
-        <PoolCard
-          key={which}
-          title={title}
-          titleNode={
-            <EditableText
-              value={title}
-              editing={configuring}
-              disabled={dsBusy}
-              label={`${which} pool card title`}
-              maxLength={40}
-              onCommit={(next) =>
-                updateCopy({ poolTitles: { ...copy.poolTitles, [which]: next } })
-              }
-              inputClassName="w-[190px]"
-            />
-          }
-          metrics={metrics}
-          utilPct={total / cap}
-          busy={dsBusy}
+    // The actual paid-out total for that state/group, not the pool cap —
+    // this is deliberately the same figure "Total bonuses" sums for the
+    // matching tab (ALL for group, VIC/NSW for each state card), so the two
+    // agree whenever no search/filter narrows the footer's count. Computed
+    // the same way lib/scope-core.ts computes a lead's own stateBonuses:
+    // finalBonus summed per state. Shared Services gets its own card (it
+    // draws from both pools without appearing on either state's tab) so
+    // VIC + NSW + Shared Services sums to Group exactly, instead of the two
+    // state cards silently falling short of it.
+    const vicTotal = emps.filter((e) => e.st === "VIC").reduce((s, e) => s + e.finalBonus, 0);
+    const nswTotal = emps.filter((e) => e.st === "NSW").reduce((s, e) => s + e.finalBonus, 0);
+    const sharedTotal = emps.filter((e) => e.st === "SHARED").reduce((s, e) => s + e.finalBonus, 0);
+    const groupTotal = emps.reduce((s, e) => s + e.finalBonus, 0);
+
+    // The cap itself, underneath the total — visible to every admin, but
+    // only ever an input for the ones holding canEditCapsNow (its own grant,
+    // separate from isEditor). The server decides again on every write
+    // (lib/params-apply.ts's canChangeCaps), this only renders the affordance.
+    const { vCap, nCap, gCap } = params;
+    const capFooter = (label: string, cap: number, onCommit: (next: string) => void) => (
+      <div className="mt-1.5 flex items-center gap-1 text-[11px] text-brand-70">
+        Cap:
+        <EditableText
+          value={fmt(cap)}
+          editing={canEditCapsNow}
+          disabled={dsBusy}
+          label={label}
+          onCommit={onCommit}
+          inputClassName="w-[110px]"
         />
-      );
-    };
+      </div>
+    );
+    const card = (which: string, title: string, value: number, footer?: React.ReactNode) => (
+      <PoolCard key={which} title={title} value={fmt(value)} footer={footer} />
+    );
 
     const t = copy.poolTitles;
     return [
-      card("vic", "vCap", t.vic, vCap, vicTotal, sharedVic),
-      card("nsw", "nCap", t.nsw, nCap, nswTotal, sharedNsw),
-      card("group", "gCap", t.group, gCap, groupTotal, null),
+      card(
+        "vic",
+        t.vic,
+        vicTotal,
+        capFooter("VIC pool cap", vCap, (next) => updateParams({ vCap: parseDaInput(next) }))
+      ),
+      card(
+        "nsw",
+        t.nsw,
+        nswTotal,
+        capFooter("NSW pool cap", nCap, (next) => updateParams({ nCap: parseDaInput(next) }))
+      ),
+      card("shared", "Shared Services", sharedTotal),
+      card(
+        "group",
+        t.group,
+        groupTotal,
+        capFooter("Group pool cap", gCap, (next) => updateParams({ gCap: parseDaInput(next) }))
+      ),
     ];
-    // updateCap/updateCopy are recreated every render and would defeat the
-    // memo; they only ever read the same `params`/`copy` already listed here.
+    // updateParams is recreated every render and would defeat the memo; it
+    // only ever reads the same `params` already listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEditor, payload, emps, pool, params, copy, editing, dsBusy, activeTab]);
+  }, [isEditor, scopedCards, pool, emps, copy, params, canEditCapsNow, dsBusy]);
 
   function doSort(key: string) {
     if (sortCol === key) setSortDir((d) => -d);
@@ -893,94 +923,44 @@ export default function DashboardClient({
         </div>
         <div className="flex items-center gap-3">
           {canEditAnything && !viewingAs && (
-            <>
-              <span className="text-[11px] text-brand-orange-soft">
-                {saveStatus === "saving"
-                  ? "Saving…"
-                  : saveStatus === "error"
-                    ? "⚠ Save failed — nothing was written"
-                    : dirty
-                      ? "Unsaved — visible only to you"
-                      : saveStatus === "saved"
-                        ? "Saved"
-                        : ""}
-              </span>
-              {dirty && (
+            <span className="text-[11px] text-brand-orange-soft">
+              {saveStatus === "saving"
+                ? "Saving…"
+                : saveStatus === "error"
+                  ? "⚠ Couldn't save — "
+                  : dirty
+                    ? "Unsaved — visible only to you"
+                    : saveStatus === "saved"
+                      ? "Saved"
+                      : ""}
+              {saveStatus === "error" && (
                 <button
                   type="button"
-                  onClick={discard}
-                  disabled={saveStatus === "saving"}
-                  className="border border-brand-orange/50 px-3 py-1.5 text-[11px] font-semibold text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white disabled:opacity-40"
+                  onClick={() => void save()}
+                  className="font-bold underline underline-offset-2"
                 >
-                  Discard
+                  retry
                 </button>
               )}
-              <button
-                type="button"
-                onClick={save}
-                disabled={!dirty || saveStatus === "saving"}
-                title={
-                  dirty
-                    ? "Commit these figures and publish them to everyone with access"
-                    : "Nothing to save"
-                }
-                className="bg-brand-orange px-3.5 py-1.5 text-[11px] font-bold text-white transition-colors hover:bg-brand-orange-hover disabled:bg-transparent disabled:text-brand-orange-soft/50"
-              >
-                {saveStatus === "saving"
-                  ? "Saving…"
-                  : pendingCount > 0
-                    ? `Save ${pendingCount} ${pendingCount === 1 ? "change" : "changes"}`
-                    : "Save"}
-              </button>
-            </>
+            </span>
           )}
           <span className="text-right text-xs leading-tight text-brand-orange-soft">
             {payload.user.name}
             <br />
             <span className="text-[10px] opacity-80">{payload.user.scopeLabel}</span>
           </span>
-          {buildupColumnCount > 0 && (
-            <button
-              type="button"
-              onClick={toggleBuildup}
-              className="border border-brand-orange/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white"
-              title="Eligibility %, Package, Bonus %, Potential Bonus and After IPM, side by side"
-            >
-              {buildupOpen ? "Hide build-up" : `Show build-up (${buildupColumnCount})`}
-            </button>
+          <button
+            type="button"
+            onClick={toggleShowAll}
+            className="border border-brand-orange/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white"
+            title="Or press Space"
+          >
+            {showAll ? "Hide everything" : "Show everything"}
+          </button>
+          {viewAs && (
+            <ViewAsPicker candidates={viewAs.candidates} viewingAs={viewingAs} />
           )}
-          {!editing && (
-            <button
-              type="button"
-              onClick={toggleShowAll}
-              className="border border-brand-orange/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white"
-              title="Or press Space"
-            >
-              {showAll ? "Hide everything" : "Show everything"}
-            </button>
-          )}
-          {canEditAnything && (
-            <button
-              type="button"
-              onClick={toggleEditing}
-              className={`px-3.5 py-1.5 text-[11px] font-bold tracking-wide transition-colors ${
-                editing
-                  ? "bg-brand-orange text-white hover:bg-brand-orange-hover"
-                  : "border border-brand-orange/50 text-brand-orange-soft hover:bg-brand-orange hover:text-white"
-              }`}
-              title={
-                editing
-                  ? "Finish editing and go back to the clean view"
-                  : isEditor
-                    ? "Edit the allocation, columns and headings in place"
-                    : "Set IPM and Discretionary for your people"
-              }
-            >
-              {editing ? "Done editing" : "Edit mode"}
-            </button>
-          )}
-          {viewAs && !viewingAs && <ViewAsPicker candidates={viewAs.candidates} />}
-          {isEditor && !editing && !viewingAs && (
+          {isEditor && !viewingAs && (
             <a
               href="/api/export"
               title="Download the current figures as an Excel workbook, for the HR folder"
@@ -989,7 +969,7 @@ export default function DashboardClient({
               Export
             </a>
           )}
-          {isEditor && !editing && !viewingAs && (
+          {isEditor && !viewingAs && (
             <Link
               href="/admin"
               className="border border-brand-orange/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white"
@@ -1005,8 +985,6 @@ export default function DashboardClient({
           </a>
         </div>
       </div>
-
-      {viewAs && <ViewAsBanner {...viewAs} />}
 
       {/* Status banner — editable in place, and switchable off once final */}
       {(copy.bannerVisible || configuring) && (
@@ -1038,7 +1016,10 @@ export default function DashboardClient({
         </div>
       )}
 
-      <div className="mx-auto w-full max-w-[1600px] flex-1 px-5 py-4">
+      {/* Widened from 1600px so the build-up columns have real room once
+          expanded — the table's own horizontal scroll (EmployeeTable.tsx)
+          remains the fallback on a narrower screen. */}
+      <div className="mx-auto w-full max-w-[2400px] flex-1 px-5 py-4">
         {/* Tabs (editors only, like the prototype master view) */}
         {isEditor && (
           <div className="mb-4 flex gap-1">
@@ -1191,16 +1172,39 @@ export default function DashboardClient({
                 {typeof totFinal === "number" && (
                   <span className="bg-neutral-100 px-2.5 py-1">
                     Total bonuses: {fmt(totFinal)}
+                    {(activeTab === "VIC" || activeTab === "NSW") && (
+                      // Matches the pool card above exactly when nothing is
+                      // filtered — this figure narrows with any search or
+                      // category filter, the pool card doesn't.
+                      <span className="font-normal text-neutral-400">
+                        {" "}(this tab&apos;s filtered rows — see the pool card above for the true total)
+                      </span>
+                    )}
                   </span>
                 )}
               </div>
             </div>
 
+            {/* Sits right above its own columns rather than up in the top
+                toolbar — easier to find exactly where it takes effect, and
+                just as easy to collapse again once you're done. */}
+            {buildupColumnCount > 0 && (
+              <button
+                type="button"
+                onClick={toggleBuildup}
+                className="mb-2 flex items-center gap-1.5 border border-brand-orange/50 px-3 py-1 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white"
+                title="Eligibility %, Package, Bonus %, Potential Bonus and After IPM, side by side"
+              >
+                <span className="text-[9px]">{buildupOpen ? "▾" : "▸"}</span>
+                {buildupOpen ? "Hide build-up" : `Show build-up (${buildupColumnCount})`}
+              </button>
+            )}
+
             <EmployeeTable
               columns={visibleColumns}
               rows={visibleRows}
               totals={totals}
-              editing={editing}
+              canRenameColumns={configuring}
               busy={dsBusy}
               showAll={showAll}
               isRevealed={isRevealed}
@@ -1210,10 +1214,12 @@ export default function DashboardClient({
               onSort={doSort}
               handlers={{
                 updateDA,
+                updateIPM,
                 updateDatasetFigure,
                 updateSplit,
                 toggleLock,
                 renameColumn,
+                excludeEmployee,
               }}
             />
           </>

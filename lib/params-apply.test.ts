@@ -2,8 +2,9 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Dataset } from "./schema";
+import type { Scope } from "./access";
 import { applyOverrides, computeScalesAndBonuses } from "./calc";
-import { applyParams, defaultParams, ParamsSchema } from "./params-apply";
+import { applyParams, defaultParams, ParamsSchema, canChangeCaps } from "./params-apply";
 
 const data = JSON.parse(
   readFileSync(join(__dirname, "..", "data", "bonus.json"), "utf-8")
@@ -48,5 +49,47 @@ describe("applyParams", () => {
     expect(ParamsSchema.safeParse({ vCap: 1, nCap: 1, gCap: 1, companyModifier: 3 }).success).toBe(false);
     expect(ParamsSchema.safeParse({ vCap: 1, nCap: 1, gCap: 1, companyModifier: 0.05 }).success).toBe(false);
     expect(ParamsSchema.safeParse(defaultParams(data)).success).toBe(true);
+  });
+});
+
+/**
+ * Whether a scope may change the pool caps — its own grant, not implied by
+ * full access. A state lead can never reach this at all (requireWriter
+ * refuses them before the route gets this far), so the only real question is
+ * which full-access admins hold the extra tick.
+ */
+describe("canChangeCaps", () => {
+  const admin = (grant: boolean): Scope => ({
+    email: "admin@texco.net.au",
+    rule: { type: "full", canEditCaps: grant },
+    canEdit: true,
+    visibleFields: [],
+    label: "Full access",
+  });
+
+  const lead: Scope = {
+    email: "vic@texco.net.au",
+    rule: {
+      type: "state",
+      states: ["VIC"],
+      visibleFields: [],
+      editableFields: ["da", "ipm"],
+      canLock: true,
+    },
+    canEdit: false,
+    visibleFields: [],
+    label: "VIC",
+  };
+
+  it("a full admin explicitly granted the permission may change caps", () => {
+    expect(canChangeCaps(admin(true))).toBe(true);
+  });
+
+  it("a full admin without it may not, even though they're otherwise full access", () => {
+    expect(canChangeCaps(admin(false))).toBe(false);
+  });
+
+  it("a state lead may never change caps, regardless of their other grants", () => {
+    expect(canChangeCaps(lead)).toBe(false);
   });
 });

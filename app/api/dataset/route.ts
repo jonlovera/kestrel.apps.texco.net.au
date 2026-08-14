@@ -106,7 +106,12 @@ function unscale(
   patch: z.infer<typeof DatasetPatchSchema>,
   companyModifier: number
 ): z.infer<typeof DatasetPatchSchema> {
-  if (patch.field !== "bipm" || companyModifier === 1 || companyModifier <= 0) {
+  if (
+    patch.op !== "field" ||
+    patch.field !== "bipm" ||
+    companyModifier === 1 ||
+    companyModifier <= 0
+  ) {
     return patch;
   }
   return { ...patch, value: patch.value / companyModifier };

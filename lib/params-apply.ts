@@ -13,6 +13,7 @@
  */
 import { z } from "zod";
 import type { Employee, Dataset } from "./schema";
+import type { Scope } from "./access";
 
 export const ParamsSchema = z.object({
   vCap: z.number().positive().max(50_000_000),
@@ -34,6 +35,18 @@ export function defaultParams(caps: {
     gCap: caps.gCap,
     companyModifier: 1,
   };
+}
+
+/**
+ * Whether this scope may change the pool caps themselves — its own grant
+ * (`canEditCaps`), not implied by full access. Full access still lets
+ * someone change the company modifier through the same route; this only
+ * decides the caps. One place the decision lives so the API route and its
+ * tests agree, the same way lib/write-scope.ts keeps write authorisation out
+ * of the route handler itself.
+ */
+export function canChangeCaps(scope: Scope): boolean {
+  return scope.rule.type === "full" && scope.rule.canEditCaps === true;
 }
 
 /**

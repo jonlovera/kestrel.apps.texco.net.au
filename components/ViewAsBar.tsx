@@ -4,7 +4,7 @@ import { useState } from "react";
 import { beginViewAs, endViewAs } from "@/app/actions/view-as";
 
 /**
- * The View as control and its banner.
+ * The View as control.
  *
  * A view is faithful, not flattened: the target's own cells are live, so an
  * admin can see what that person can change and try a figure to see what they
@@ -13,13 +13,11 @@ import { beginViewAs, endViewAs } from "@/app/actions/view-as";
  * on blur rather than on Save are switched off in the dashboard instead of
  * being left to fail against that refusal.
  *
- * The banner therefore has to say two things at once: what this person may
- * change, and that none of it will be saved. An admin who forgets which view
- * they are in and then can't save would reasonably think the tool was broken.
- *
- * The banner is deliberately not brand orange — that already means "Draft" on
- * this screen, and two different meanings in the same colour is how someone
- * misreads a figure.
+ * While a view is active the button itself carries that state — styled
+ * lavender rather than brand orange, since orange already means "Draft" on
+ * this screen and two different meanings in the same colour is how someone
+ * misreads a figure — and reads "Viewing as {name}". Clicking it exits the
+ * view immediately.
  */
 
 export interface ViewAsState {
@@ -37,43 +35,29 @@ export interface ViewAsState {
   targetCanEdit?: string[];
 }
 
-export function ViewAsBanner({ actor, viewingAs, targetCanEdit }: ViewAsState) {
-  if (!viewingAs) return null;
-  const canEdit = targetCanEdit ?? [];
-  return (
-    <div className="flex flex-wrap items-center justify-center gap-3 bg-brand-lavender px-6 py-2 text-center text-xs font-bold text-brand-95">
-      <span>
-        Viewing as <strong>{viewingAs}</strong> — you are {actor}
-      </span>
-      <span className="font-normal">
-        {canEdit.length > 0 ? (
-          <>
-            They can set <strong className="font-bold">{canEdit.join(", ")}</strong>
-          </>
-        ) : (
-          "They can't change anything."
-        )}
-      </span>
-      <span className="font-normal">
-        {canEdit.length > 0
-          ? "Try figures freely, nothing here can be saved."
-          : "Changes are disabled in this view."}
-      </span>
+export function ViewAsPicker({
+  candidates,
+  viewingAs,
+}: {
+  candidates: ViewAsState["candidates"];
+  viewingAs: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+
+  if (viewingAs) {
+    return (
       <form action={endViewAs}>
         <button
           type="submit"
-          className="border border-brand-95 px-3 py-1 text-[11px] font-bold text-brand-95 transition-colors hover:bg-brand-95 hover:text-white"
+          title="Exit this view"
+          className="bg-brand-lavender px-3.5 py-1.5 text-[11px] font-bold tracking-wide text-brand-95 transition-colors hover:bg-brand-lavender/80"
         >
-          Exit
+          Viewing as {viewingAs}
         </button>
       </form>
-    </div>
-  );
-}
-
-export function ViewAsPicker({ candidates }: { candidates: ViewAsState["candidates"] }) {
-  const [open, setOpen] = useState(false);
-  const [filter, setFilter] = useState("");
+    );
+  }
 
   if (candidates.length === 0) return null;
 

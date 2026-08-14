@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * A piece of the dashboard's wording that becomes typeable in edit mode and is
- * plain text otherwise. Commits on blur or Enter; Escape abandons the edit.
+ * A piece of the dashboard's wording that's typeable when `editing` is true
+ * (an admin, not viewing as someone) and plain text otherwise. Commits on
+ * blur or Enter; Escape abandons the edit.
  *
  * Sized and coloured by the caller so it sits invisibly inside whatever it is
  * replacing — the header eyebrow, the banner, a card title, the footer.

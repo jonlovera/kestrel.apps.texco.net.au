@@ -7,30 +7,19 @@ import { NUMERIC_FIELDS } from "./access-types";
  * store (lib/store.ts) and the Vitest suite.
  */
 /**
- * The only figure anyone below full access can ever be allowed to change.
- * Everything else on a row comes from the spreadsheet, and the lock is the
- * admin's alone (WRITABLE_BY_LEAD in lib/write-scope.ts).
+ * The figures anyone below full access can be granted the right to change.
+ * Everything else on a row comes from the spreadsheet. Locking is its own
+ * grant (`canLock`, below) — it used to ride on holding any of these, but
+ * that conflated two different questions ("can they change a figure" and
+ * "can they freeze a row") that an admin may reasonably want to answer
+ * differently.
  *
- * IPM was here too, grantable per person. It no longer is, for anyone: IPM is
- * a formula-derived figure, and a manual override corrupts the calculation.
- * See DEPRECATED_EDITABLE_FIELDS below for what that means for rules already
- * stored with "ipm" in this list.
+ * IPM used to be removed from here (a formula-derived figure a manual
+ * override could corrupt) and has since been reopened: it's grantable again,
+ * on the same terms as Discretionary.
  */
-export const EDITABLE_FIELDS = ["da"] as const;
+export const EDITABLE_FIELDS = ["da", "ipm"] as const;
 export type EditableField = (typeof EDITABLE_FIELDS)[number];
-
-/**
- * Values `editableFields` used to accept and no longer does.
- *
- * A rule stored with "ipm" in its editableFields array before this change
- * would otherwise fail the zod enum outright — and because the overlay is
- * validated one rule at a time with drop-on-failure (dropInvalidRules below),
- * that failure would silently revoke the person's WHOLE access grant, not
- * just their IPM permission. dropInvalidRules strips these out before
- * validating, so the rule survives with exactly the meaning this change
- * intends: they simply can no longer set IPM, same as everyone else.
- */
-const DEPRECATED_EDITABLE_FIELDS = new Set(["ipm"]);
 
 /**
  * Defaulted, never required, and the reason matters.
@@ -46,19 +35,42 @@ const editableFields = z
   .array(z.enum(EDITABLE_FIELDS))
   .default([...EDITABLE_FIELDS]);
 
+/**
+ * Independent of `editableFields` — a lead can hold Discretionary/IPM
+ * without this, or hold this without either. Defaulted to `false` rather
+ * than mirrored off `editableFields` the way that field defaults to "grant
+ * everything": there is no stored data predating this permission whose
+ * implicit behaviour needs preserving, so an unset value is treated as "not
+ * granted" rather than assumed.
+ */
+const canLock = z.boolean().default(false);
+
+/**
+ * A full-access admin does not get this just by being full access — it's a
+ * narrower grant on top, for the same reason `canLock` is separate from
+ * `editableFields`: "may see and change everything about the bonus scheme"
+ * and "may change the pool caps themselves" are different questions, and an
+ * owner may reasonably want most admins to have the first without the
+ * second. No stored data predates this either, so it defaults to false the
+ * same way `canLock` does.
+ */
+const canEditCaps = z.boolean().default(false);
+
 export const AccessRuleSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("full") }),
+  z.object({ type: z.literal("full"), canEditCaps }),
   z.object({
     type: z.literal("state"),
     states: z.array(z.enum(["VIC", "NSW", "SHARED"])).min(1),
     visibleFields: z.array(z.enum(NUMERIC_FIELDS)),
     editableFields,
+    canLock,
   }),
   z.object({
     type: z.literal("subset"),
     employeeIds: z.array(z.string()).min(1),
     visibleFields: z.array(z.enum(NUMERIC_FIELDS)),
     editableFields,
+    canLock,
   }),
   // A standing group rather than a fixed list: "all VIC site managers" keeps
   // meaning that as people come and go, where a subset would go stale.
@@ -68,6 +80,7 @@ export const AccessRuleSchema = z.discriminatedUnion("type", [
     positions: z.array(z.string().trim().min(1)),
     visibleFields: z.array(z.enum(NUMERIC_FIELDS)),
     editableFields,
+    canLock,
   }).refine(
     (r) => r.states.length > 0 || r.positions.length > 0,
     "a group needs at least one state or position, or it would match everyone"
@@ -78,9 +91,10 @@ export const AccessRuleSchema = z.discriminatedUnion("type", [
 export type AccessRule = z.infer<typeof AccessRuleSchema>;
 export type GrantingRule = Exclude<AccessRule, { type: "none" }>;
 
-/** Human name for the one editable figure, for the sentence below. */
+/** Human names for the editable figures, for the sentence below. */
 const EDITABLE_LABELS: Record<EditableField, string> = {
   da: "Discretionary",
+  ipm: "IPM",
 };
 
 /**
@@ -100,17 +114,6 @@ export function describeEditing(rule: GrantingRule): string {
   return `can set ${names.join(" and ")}`;
 }
 
-/** Drop values `editableFields` no longer accepts, so the rule still parses. */
-function stripDeprecatedGrants(rule: unknown): unknown {
-  if (!rule || typeof rule !== "object" || Array.isArray(rule)) return rule;
-  const r = rule as Record<string, unknown>;
-  if (!Array.isArray(r.editableFields)) return rule;
-  return {
-    ...r,
-    editableFields: r.editableFields.filter((f) => !DEPRECATED_EDITABLE_FIELDS.has(f)),
-  };
-}
-
 /**
  * Keep the rules that still parse, drop the ones that don't.
  *
@@ -119,17 +122,12 @@ function stripDeprecatedGrants(rule: unknown): unknown {
  * loadDoc falls back to {}, silently revoking every db-granted user. Same
  * reasoning as dropRetiredFields in lib/columns.ts, and applied the same way,
  * at the load site only. Saving stays strict.
- *
- * Each rule is normalised (stripDeprecatedGrants) before it's judged, not
- * after — a rule that only fails because it still lists "ipm" should lose
- * that one stale grant, not its owner's entire access.
  */
 export function dropInvalidRules(raw: unknown): unknown {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
   const out: Record<string, unknown> = {};
   for (const [email, stored] of Object.entries(raw as Record<string, unknown>)) {
-    const rule = stripDeprecatedGrants(stored);
-    if (AccessRuleSchema.safeParse(rule).success) out[email] = rule;
+    if (AccessRuleSchema.safeParse(stored).success) out[email] = stored;
     else console.error(`[access] stored rule for ${email} is invalid; ignoring it`);
   }
   return out;

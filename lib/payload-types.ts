@@ -89,6 +89,13 @@ export interface ReadonlyPayload {
    * decides again on every write (lib/write-scope.ts).
    */
   canEditFields: string[];
+  /**
+   * Whether this user may lock/unlock a row at all, independent of
+   * `canEditFields` — a purely read-only lead can hold this, and a lead who
+   * may edit a figure need not. lib/write-scope.ts decides again on every
+   * write, same as `canEditFields`.
+   */
+  canLock: boolean;
   showStateColumn: boolean;
   poolCards: StatePoolCard[];
   cats: string[];
@@ -121,9 +128,16 @@ export interface EditorPayload {
   columnConfig: ColumnConfig;
   /** editable wording (presentation only — never gates data) */
   copy: Copy;
-  /** editable on the pool cards; `caps` mirrors the first three */
+  /** editable on the pool cards, for admins holding `canEditCaps`; `caps` mirrors the first three */
   params: Params;
   caps: { vCap: number; nCap: number; gCap: number };
+  /**
+   * Whether this admin may actually change the pool caps — its own grant,
+   * not implied by full access. lib/api-guard.ts + lib/params-apply.ts
+   * decide again on every write; this only governs whether the cap on each
+   * pool card renders as an input.
+   */
+  canEditCaps: boolean;
   cats: string[];
   depts: string[];
   mgrs: string[];

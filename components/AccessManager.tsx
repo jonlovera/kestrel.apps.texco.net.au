@@ -86,6 +86,19 @@ export default function AccessManager({
    * IPM can't be granted to anyone. Empty means read only.
    */
   const [editable, setEditable] = useState<EditableField[]>([...EDITABLE_FIELDS]);
+  /**
+   * Whether this person may lock/unlock a row at all — independent of
+   * `editable` above. Defaults to ticked so a freshly-configured lead ends up
+   * with the same ability today's leads already have, even though the two
+   * are no longer tied together.
+   */
+  const [canLock, setCanLock] = useState(true);
+  /**
+   * Full access only — whether this admin may change the pool caps
+   * themselves. Not implied by full access any more; defaults to unticked
+   * so granting someone full access doesn't quietly also hand them this.
+   */
+  const [canEditCaps, setCanEditCaps] = useState(false);
   const [empSearch, setEmpSearch] = useState("");
   /** set while amending someone, so the form knows it is replacing not adding */
   const [editingEmail, setEditingEmail] = useState<string | null>(null);
@@ -107,6 +120,8 @@ export default function AccessManager({
     setEditable(
       row.rule.type === "full" ? [...EDITABLE_FIELDS] : [...row.rule.editableFields]
     );
+    setCanLock(row.rule.type === "full" ? true : row.rule.canLock);
+    setCanEditCaps(row.rule.type === "full" ? row.rule.canEditCaps : false);
     window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
   }
 
@@ -119,6 +134,8 @@ export default function AccessManager({
     setIds([]);
     setFields(DEFAULT_FIELDS);
     setEditable([...EDITABLE_FIELDS]);
+    setCanLock(true);
+    setCanEditCaps(false);
     setError("");
   }
 
@@ -154,13 +171,14 @@ export default function AccessManager({
     const editableFields = editable.filter((f) => fields.includes(f));
     const rule: GrantingRule =
       type === "full"
-        ? { type: "full" }
+        ? { type: "full", canEditCaps }
         : type === "state"
           ? {
               type: "state",
               states: states as ("VIC" | "NSW" | "SHARED")[],
               visibleFields: fields,
               editableFields,
+              canLock,
             }
           : type === "group"
             ? {
@@ -169,12 +187,14 @@ export default function AccessManager({
                 positions: roles,
                 visibleFields: fields,
                 editableFields,
+                canLock,
               }
             : {
                 type: "subset",
                 employeeIds: ids,
                 visibleFields: fields,
                 editableFields,
+                canLock,
               };
     if (rule.type === "state" && rule.states.length === 0) {
       setError("Pick at least one state");
@@ -193,11 +213,12 @@ export default function AccessManager({
   }
 
   function describe(rule: GrantingRule): string {
-    if (rule.type === "full") return "Everyone · all fields · can edit";
+    if (rule.type === "full")
+      return "Everyone · all fields · can edit" + (rule.canEditCaps ? ", can edit pool caps" : "");
     // describeEditing rather than a literal: this used to assert "can set IPM
     // and Discretionary" for everyone, which was only ever true because there
     // was no way to say otherwise.
-    const editing = describeEditing(rule);
+    const editing = describeEditing(rule) + (rule.canLock ? ", can lock" : "");
     if (rule.type === "state") return `${rule.states.join(" + ")} · ${editing}`;
     if (rule.type === "group") {
       const where = rule.states.length ? rule.states.join(" + ") : "all states";
@@ -492,6 +513,54 @@ export default function AccessManager({
                 })}
                 <span className="text-[12px] text-brand-70">
                   Tick none for read only.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {type !== "full" && (
+            <div className="mb-4">
+              <div className="mb-1 text-[11px] font-semibold tracking-wide text-brand-70">
+                Can lock
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-1.5 text-[13px]">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-brand-orange"
+                    checked={canLock}
+                    onChange={() => setCanLock((v) => !v)}
+                  />
+                  Can lock/unlock rows
+                </label>
+                <span className="text-[12px] text-brand-70">
+                  Independent of Discretionary/IPM above — someone can hold
+                  this with no edit grant at all, or an edit grant with this
+                  unticked.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {type === "full" && (
+            <div className="mb-4">
+              <div className="mb-1 text-[11px] font-semibold tracking-wide text-brand-70">
+                Can edit pool caps
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-1.5 text-[13px]">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-brand-orange"
+                    checked={canEditCaps}
+                    onChange={() => setCanEditCaps((v) => !v)}
+                  />
+                  Can edit VIC/NSW/Group pool caps
+                </label>
+                <span className="text-[12px] text-brand-70">
+                  Separate from full access itself — most admins won&apos;t
+                  need this. Unticked by default even for a new full-access
+                  grant.
                 </span>
               </div>
             </div>
