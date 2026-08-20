@@ -134,6 +134,50 @@ describe("an export can be imported straight back", () => {
     expect(after.sm).toBe(before.sm);
     expect(after.vp).toBeCloseTo(before.vp, 10);
   });
+
+  it("round-trips Eligibility % and Total Package instead of dropping them", async () => {
+    // The regression this guards: the export used to omit both columns, so
+    // exporting and re-importing silently erased them from the record even
+    // though the importer has always understood them.
+    const withOptional = data.emp.find(
+      (e) => e.elig !== undefined && e.totalPkg !== undefined
+    );
+    const buffer = await buildWorkbook(data, {}, META);
+    const { rows: raw } = await parseImportFile("export.xlsx", buffer);
+    const result = rowsToEmployees(raw);
+    if ("errors" in result) throw new Error(result.errors.join("; "));
+    if (withOptional) {
+      const after = result.employees.find((e) => e.id === withOptional.id)!;
+      expect(after.elig).toBeCloseTo(withOptional.elig!, 10);
+      expect(after.totalPkg).toBeCloseTo(withOptional.totalPkg!, 10);
+    }
+    // and a person WITHOUT the figures must still parse (blank optional cell)
+    const bare = { ...data.emp[0], id: "BARE1" };
+    delete (bare as Partial<typeof bare>).elig;
+    delete (bare as Partial<typeof bare>).totalPkg;
+    const buffer2 = await buildWorkbook({ ...data, emp: [bare] }, {}, META);
+    const { rows: raw2 } = await parseImportFile("export.xlsx", buffer2);
+    const result2 = rowsToEmployees(raw2);
+    if ("errors" in result2) throw new Error(result2.errors.join("; "));
+    expect(result2.employees[0].elig).toBeUndefined();
+    expect(result2.employees[0].totalPkg).toBeUndefined();
+  });
+
+  it("carries the frozen dollar amount for a locked row, not just Yes/No", async () => {
+    const lockedId = data.emp[0].id;
+    const frozen: Overrides = { [lockedId]: { locked: true, lockedFinal: 12345 } };
+    const { rows } = await readBack(await buildWorkbook(data, frozen, META));
+    const header = rows[0] as string[];
+    const lockedCol = header.indexOf("Locked");
+    const amountCol = header.indexOf("Locked amount");
+    expect(amountCol).toBeGreaterThan(-1);
+    const row = rows.find((r) => String(r[0]) === lockedId)!;
+    expect(row[lockedCol]).toBe("Yes");
+    expect(Number(row[amountCol])).toBe(12345);
+    // unlocked rows leave the cell blank rather than writing a misleading $0
+    const other = rows.find((r) => String(r[0]) === data.emp[1].id)!;
+    expect(other[amountCol] ?? "").toBe("");
+  });
 });
 
 describe("exportFilename", () => {

@@ -12,7 +12,9 @@ Identity, the company's single sign-on provider — no passwords in this app.
   not hidden with CSS — and can set IPM and Discretionary on their own people.
 - Employee ID, package and bonus % are read-only for **everyone**. They come
   from the spreadsheet, because a typo in one cascades through every figure.
-- Nothing is written until Save; unsaved figures never leave the browser.
+- Changes commit on **Save** (button or Ctrl/Cmd+S), and unsaved work also
+  saves itself every 3 minutes and when the tab closes, so nothing is lost.
+  Concurrent editors are merged, never overwritten.
 
 ## Stack
 
@@ -160,15 +162,22 @@ out. Every access change is audit-logged (who, whom, what, when).
 
 ## 4. Data, parameters and presentation (self-service, no deploy)
 
-Editing happens **in place on the dashboard**: press **Edit mode** (top right)
-and the figures you're allowed to change become typeable. Press **Done
-editing** and it goes back to plain text — the view to share on a screen.
+Editing happens **in place on the dashboard**: every figure you're allowed to
+change is directly typeable (reveal the row first if it's masked). There is no
+edit mode any more.
 
-**Nothing is written until you press Save.** Unsaved figures are local to your
-browser, invisible to everyone else, and gone if the tab closes — the tool is
-used to ask "if I move this person to $15k, what happens to everyone else?",
-and those experiments must not reach anyone else or the record. Discard puts
-them back. Each save takes one snapshot.
+**Saving.** The **Save** button (top right, or Ctrl/Cmd+S) commits your
+changes. Unsaved work is local to your browser and shown as "Unsaved, visible
+only to you" — but it does not stay at risk: it autosaves every 3 minutes,
+and a closing tab flushes a final save on its way out (a value still sitting
+in a focused cell commits on blur, so tab out of the cell first). If a
+colleague saved while you were editing, the two sets of changes are merged;
+only when you both changed the same figure on the same person are you asked
+which value to keep. Nothing is ever silently overwritten, and a conflict
+never costs you your other changes.
+
+Each manual Save takes one snapshot (restore point); autosaves within ten
+minutes coalesce onto one, so the snapshot history stays useful.
 
 Who can change what:
 
@@ -191,9 +200,9 @@ server-side and returns only their own scope-stripped rows, persisting
 nothing. `lib/write-scope.ts` decides every write, and `lib/scope-core.ts`
 every read; both share one definition of "in scope".
 
-Also in edit mode: bulk IPM across everyone shown, the pool caps typed onto
-the cards (the summary is frozen so "remaining to allocate" stays visible),
-the column menu, and the headings, banner and footer.
+Also editable in place for admins: bulk IPM across everyone shown, the pool
+caps typed onto the cards (the summary is frozen so "remaining to allocate"
+stays visible), the column menu, and the headings, banner and footer.
 
 **Export** — the Export button downloads an Excel workbook: one sheet of data
 with employee ID and headers matching the import, plus a Summary sheet with

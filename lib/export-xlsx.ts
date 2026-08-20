@@ -49,7 +49,12 @@ const COLUMNS: Column[] = [
   { header: "State", width: 9, value: (e) => e.st },
   { header: "VIC %", width: 8, value: (e) => e.vp, format: PERCENT },
   { header: "NSW %", width: 8, value: (e) => e.np, format: PERCENT },
+  // Optional on import (lib/import-parse.ts OPTIONAL_FIELD_LABELS), but the
+  // importer does understand both — leaving them out of the export meant a
+  // round trip silently dropped them from the record.
+  { header: "Eligibility %", width: 11, value: (e) => e.elig ?? "", format: PERCENT },
   { header: "Package", width: 13, value: (e) => e.pkg, format: MONEY },
+  { header: "Total Package", width: 13, value: (e) => e.totalPkg ?? "", format: MONEY },
   { header: "Bonus %", width: 9, value: (e) => e.bpEdit, format: PERCENT },
   { header: "IPM %", width: 9, value: (e) => e.ipmEdit, format: PERCENT },
   { header: "After IPM", width: 13, value: (e) => e.bipmCalc, format: MONEY },
@@ -61,6 +66,15 @@ const COLUMNS: Column[] = [
   { header: "Final bonus", width: 14, value: (e) => e.finalBonus, format: MONEY },
   { header: "YoY change", width: 13, value: (e) => e.finalBonus - e.f25, format: MONEY },
   { header: "Locked", width: 9, value: (e) => (e.locked ? "Yes" : "No") },
+  // The dollar figure frozen when the row was locked — the actual payout for
+  // a locked person. "Locked: Yes" without it left the record unable to say
+  // what the lock had frozen. Blank when unlocked.
+  {
+    header: "Locked amount",
+    width: 13,
+    value: (e) => (e.locked ? e.finalBonus : ""),
+    format: MONEY,
+  },
 ];
 
 export interface ExportMeta {

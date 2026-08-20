@@ -168,6 +168,37 @@ export function writeVerdict(
   return "ok";
 }
 
+/**
+ * The overrides document narrowed to exactly what this scope may write: their
+ * rows, their fields. The precise mirror of sanitiseOverrideWrite's window,
+ * so a baseline handed out here round-trips through a save losslessly — send
+ * it back unchanged and nothing moves.
+ *
+ * This exists for the payload builder and /api/state's responses: a lead
+ * needs a real baseline (so their save doesn't read as "cleared everything
+ * else in my scope") without being sent anyone else's figures.
+ */
+export function scopeOverridesView(
+  scope: Scope,
+  employees: readonly ScopableEmployee[],
+  doc: Overrides
+): Overrides {
+  if (scope.rule.type === "full") return doc;
+  const allowedIds = writableEmployeeIds(scope, employees);
+  const allowedFields = new Set<string>(writableFields(scope));
+  const out: Overrides = {};
+  for (const [id, entry] of Object.entries(doc)) {
+    if (!allowedIds.has(id)) continue;
+    const kept = Object.fromEntries(
+      Object.entries(entry).filter(
+        ([field, value]) => allowedFields.has(field) && value !== undefined
+      )
+    );
+    if (Object.keys(kept).length > 0) out[id] = kept as Overrides[string];
+  }
+  return out;
+}
+
 export interface SanitisedWrite {
   /** the stored document with only the permitted changes applied */
   overrides: Overrides;

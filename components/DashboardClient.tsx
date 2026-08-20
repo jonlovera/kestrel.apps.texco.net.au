@@ -10,6 +10,11 @@ import type { Params } from "@/lib/params-apply";
 import type { Employee, Overrides, HistoryEntry } from "@/lib/schema";
 import type { DatasetPatch } from "@/lib/dataset-edit";
 import {
+  mergeOverrides,
+  resolveConflicts,
+  type OverrideConflict,
+} from "@/lib/merge-overrides";
+import {
   applyOverrides,
   computeScalesAndBonuses,
   getMaxDA,
@@ -153,9 +158,10 @@ export default function DashboardClient({
   }
 
   // ── the overrides doc: scratch until Save ────────────────────────────────
-  const [overrides, setOverrides] = useState<Overrides>(
-    isEditor ? payload.overrides : {}
-  );
+  // Both payload shapes carry a baseline now. A lead's is scoped to their own
+  // window (lib/write-scope.ts scopeOverridesView); starting them from {}
+  // used to make their first save read as "cleared everything in my scope".
+  const [overrides, setOverrides] = useState<Overrides>(payload.overrides);
   /**
    * A lead's figures are computed server-side and arrive already scoped, so
    * a what-if means asking the server again rather than recalculating here —
@@ -169,8 +175,10 @@ export default function DashboardClient({
   );
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   // optimistic-concurrency token; a stale save gets a 409 instead of
-  // silently overwriting a colleague's changes
-  const versionRef = useRef(isEditor ? payload.overridesVersion : 0);
+  // silently overwriting a colleague's changes. On the payload in BOTH modes
+  // now — a lead used to start at 0, which made their every save a
+  // guaranteed 409 and cost people real work.
+  const versionRef = useRef(payload.overridesVersion);
 
   /**
    * The last committed state. Everything typed since is scratch: local to this
@@ -181,12 +189,47 @@ export default function DashboardClient({
    * anyone else's view, or into the record, until Save says so.
    */
   const [savedOverrides, setSavedOverrides] = useState<Overrides>(
-    isEditor ? payload.overrides : {}
+    payload.overrides
   );
   const dirty = useMemo(
     () => JSON.stringify(overrides) !== JSON.stringify(savedOverrides),
     [overrides, savedOverrides]
   );
+
+  /**
+   * A save that came back 409 with changes both sides made to the SAME
+   * figure. Everything non-overlapping has already been combined into
+   * `merged` (holding OUR values for the contested slots); the banner asks
+   * the user to settle the rest. Autosave pauses while this is open.
+   */
+  const [conflict, setConflict] = useState<{
+    items: OverrideConflict[];
+    merged: Overrides;
+    theirs: Overrides;
+  } | null>(null);
+  /** A dismissible one-liner ("a colleague saved, changes combined"). */
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // Refs kept current so the long-lived timers and unload handlers below
+  // always see fresh state without re-registering. conflictRef and
+  // savedOverridesRef are also written at their mutation sites, because
+  // save() may need the new value before the next render commits.
+  const overridesRef = useRef(overrides);
+  const savedOverridesRef = useRef(savedOverrides);
+  const dirtyRef = useRef(dirty);
+  const viewingAsRef = useRef(viewingAs);
+  const conflictRef = useRef(conflict);
+  useEffect(() => {
+    overridesRef.current = overrides;
+    savedOverridesRef.current = savedOverrides;
+    dirtyRef.current = dirty;
+    viewingAsRef.current = viewingAs;
+    conflictRef.current = conflict;
+  });
+  /** True while a request is in flight — a plain ref, so timers can check it. */
+  const savingRef = useRef(false);
+  /** Consecutive silent 409 retries within one save attempt, capped at 2. */
+  const retriesRef = useRef(0);
 
   // A lead's what-if: send the scratch overrides, get their own rows back
   // recalculated. Debounced, because it runs while they type.
@@ -221,56 +264,246 @@ export default function DashboardClient({
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty, viewingAs]);
 
-  async function save() {
+  /**
+   * Commit the overrides doc, without ever throwing the user's work away.
+   *
+   * A 409 no longer reloads the page. The response carries what is actually
+   * stored, so this three-way merges: base is our last committed state,
+   * ours is what we tried to save, theirs is the colleague's document.
+   * Non-overlapping changes combine and the save retries itself (twice at
+   * most); only a figure both sides changed differently is put to the user
+   * via the conflict banner.
+   *
+   * `docOverride` exists for the conflict banner's buttons: React state
+   * hasn't committed yet when they call straight back in, so the resolved
+   * document is passed explicitly rather than read from the ref.
+   */
+  async function save(
+    source: "manual" | "auto" = "manual",
+    docOverride?: Overrides
+  ): Promise<boolean> {
     // Belt-and-braces: the Save button is not rendered while viewing as, and
-    // requireWriter would 403 anyway. Neither is a reason to let the request
-    // leave the browser.
-    if (viewingAs) return;
+    // requireScopedWriter would refuse anyway. Neither is a reason to let
+    // the request leave the browser.
+    if (viewingAsRef.current || savingRef.current) return false;
+    if (conflictRef.current && !docOverride) return false;
+    if (!docOverride) retriesRef.current = 0;
+    const sent = docOverride ?? overridesRef.current;
+    const base = savedOverridesRef.current;
+    savingRef.current = true;
     setSaveStatus("saving");
     try {
       const res = await fetch("/api/state", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: versionRef.current, overrides }),
+        body: JSON.stringify({ version: versionRef.current, overrides: sent, source }),
       });
       if (res.status === 409) {
-        alert(
-          "Someone else saved changes since this page loaded. Reloading to pick up the latest figures — your changes were not saved."
-        );
-        window.location.reload();
-        return;
+        const body = await res.json().catch(() => ({}) as Record<string, unknown>);
+        const theirs = (body.overrides ?? {}) as Overrides;
+        if (typeof body.current === "number") versionRef.current = body.current;
+        const ours = overridesRef.current;
+        const result = mergeOverrides(base, ours, theirs);
+        savedOverridesRef.current = theirs;
+        setSavedOverrides(theirs);
+        overridesRef.current = result.merged;
+        setOverrides(result.merged);
+        if (result.conflicts.length === 0) {
+          // Quiet when the merge changed nothing we can see — that is our own
+          // pagehide flush having landed, not a colleague's work.
+          if (JSON.stringify(result.merged) !== JSON.stringify(ours)) {
+            setNotice(
+              "A colleague saved changes while you were editing. Their changes have been combined with yours."
+            );
+          }
+          if (retriesRef.current < 2) {
+            retriesRef.current += 1;
+            savingRef.current = false;
+            return await save(source, result.merged);
+          }
+          setSaveStatus("error");
+        } else {
+          conflictRef.current = { items: result.conflicts, merged: result.merged, theirs };
+          setConflict(conflictRef.current);
+          setSaveStatus("idle");
+        }
+        return false;
       }
       if (!res.ok) {
         setSaveStatus("error");
-        return;
+        return false;
       }
       const body = await res.json();
       if (typeof body.version === "number") versionRef.current = body.version;
-      // adopt what the server actually stored, not what we sent: it re-clamps
-      // discretionary adjustments and refuses anything out of scope
-      setOverrides(body.overrides ?? overrides);
-      setSavedOverrides(body.overrides ?? overrides);
+      const stored = (body.overrides ?? sent) as Overrides;
+      retriesRef.current = 0;
+      savedOverridesRef.current = stored;
+      setSavedOverrides(stored);
+      // adopt what the server actually stored (it re-clamps discretionary
+      // adjustments and refuses anything out of scope) — but never clobber
+      // keystrokes committed while the request was in flight: those land in
+      // `overrides` after `sent` was captured, so merge them over the result
+      setOverrides((prev) =>
+        prev === sent ? stored : mergeOverrides(sent, prev, stored).merged
+      );
       setSaveStatus("saved");
+      return true;
     } catch {
       setSaveStatus("error");
+      return false;
+    } finally {
+      savingRef.current = false;
     }
   }
 
+  // The timers and document-level handlers below live for the whole session;
+  // they reach the current closure through this ref.
+  const saveRef = useRef(save);
+  useEffect(() => {
+    saveRef.current = save;
+  });
+
   /**
-   * Replaces the old explicit Save button: whenever the overrides doc has
-   * unsaved changes, commit them in the background a moment after typing
-   * settles — the same request `save()` always made, just no longer waiting
-   * for a click. Debounced so tabbing through several cells in a burst
-   * becomes one write, not one per field's blur. There's no "Discard" any
-   * more either: with nothing staged, undoing a change just means typing the
-   * old value back.
+   * Export used to be a bare link to /api/export, which reads the database —
+   * so clicking it with unsaved changes (or after a failed save) produced a
+   * file of stale figures stamped with a fresh timestamp. Now it flushes the
+   * unsaved work first, waiting out any in-flight save rather than racing
+   * it, and only falls back to asking when the save genuinely won't go
+   * through (offline, or an unresolved conflict banner).
+   */
+  const [exporting, setExporting] = useState(false);
+  async function exportNow() {
+    setExporting(true);
+    try {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        while (savingRef.current) await new Promise((r) => setTimeout(r, 150));
+        if (!dirtyRef.current) break;
+        await save("manual");
+      }
+      if (
+        dirtyRef.current &&
+        !confirm(
+          "Your latest changes could not be saved, so the export will not include them. Export anyway?"
+        )
+      ) {
+        return;
+      }
+      // a download, not a navigation — the route answers with an attachment,
+      // so the page stays put and the router has no business here
+      const a = document.createElement("a");
+      a.href = "/api/export";
+      a.click();
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  /** The conflict banner's buttons: settle every contested figure one way. */
+  function settleConflicts(take: "ours" | "theirs") {
+    const c = conflictRef.current;
+    if (!c) return;
+    const resolved = resolveConflicts(c.merged, c.theirs, c.items, take);
+    conflictRef.current = null;
+    setConflict(null);
+    overridesRef.current = resolved;
+    setOverrides(resolved);
+    void save("manual", resolved);
+  }
+
+  /**
+   * The autosave: every 3 minutes, commit whatever is unsaved. This replaced
+   * a 900 ms debounce that hammered the snapshot ring and, for leads, force-
+   * reloaded the page on its guaranteed conflicts. A manual Save (button or
+   * Ctrl/Cmd+S) is always available in between; the pagehide flush below
+   * covers the tab that closes inside the window.
+   *
+   * On a tick with nothing to save, it instead asks the server for the doc
+   * version — one integer — so "a colleague has saved" surfaces without
+   * anyone attempting a write.
    */
   useEffect(() => {
-    if (viewingAs || !canEditAnything || !dirty || saveStatus === "saving") return;
-    const timer = setTimeout(() => void save(), 900);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overrides, dirty, viewingAs, canEditAnything, saveStatus]);
+    if (viewingAs || !canEditAnything) return;
+    const tick = () => {
+      if (savingRef.current || conflictRef.current) return;
+      if (dirtyRef.current) {
+        void saveRef.current("auto");
+        return;
+      }
+      void (async () => {
+        try {
+          const res = await fetch("/api/state/version");
+          if (!res.ok) return;
+          const body = await res.json();
+          if (typeof body.version === "number" && body.version > versionRef.current) {
+            setNotice(
+              "A colleague has saved changes since this page loaded. Refresh when convenient to see their figures."
+            );
+          }
+        } catch {
+          // a failed probe is nothing; the next save merges regardless
+        }
+      })();
+    };
+    const timer = setInterval(tick, 180_000);
+    return () => clearInterval(timer);
+  }, [viewingAs, canEditAnything]);
+
+  // Ctrl/Cmd+S saves, because that is what hands will do anyway.
+  useEffect(() => {
+    if (!canEditAnything) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+      if (e.key.toLowerCase() !== "s") return;
+      e.preventDefault(); // the browser's own save-page dialog helps nobody here
+      if (dirtyRef.current) void saveRef.current("manual");
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [canEditAnything]);
+
+  /**
+   * Last-ditch flush when the page is going away or being hidden, so a tab
+   * closed inside the autosave window doesn't cost the last few edits.
+   * `keepalive` lets the request outlive the page; the response is
+   * unreadable by then, which is fine — if it conflicts, the server refuses
+   * and nothing is lost that wasn't already. A value still sitting in a
+   * focused cell has not reached React state yet and cannot be captured
+   * here; cells commit on blur.
+   */
+  useEffect(() => {
+    if (!canEditAnything) return;
+    let flushedThisHide = false;
+    const flush = () => {
+      if (flushedThisHide) return;
+      if (!dirtyRef.current || viewingAsRef.current || conflictRef.current) return;
+      flushedThisHide = true;
+      try {
+        void fetch("/api/state", {
+          method: "POST",
+          keepalive: true,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            version: versionRef.current,
+            overrides: overridesRef.current,
+            source: "auto",
+          }),
+        });
+      } catch {
+        // nothing sensible left to do while the page is being torn down
+      }
+    };
+    const onPageHide = () => flush();
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+      else flushedThisHide = false; // back again: re-arm for the next hide
+    };
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [canEditAnything]);
 
   // ── calc (editor mode runs the prototype's engine client-side) ──
   const { emps, pool } = useMemo<{
@@ -310,10 +543,19 @@ export default function DashboardClient({
         body: JSON.stringify({ version: datasetVersionRef.current, patch }),
       });
       if (res.status === 409) {
-        alert(
-          "Someone else changed the employee data since this page loaded. Reloading to pick up the latest — your last change was not saved."
+        // Adopt the latest roster in place instead of force-reloading, which
+        // used to throw away the user's unsaved override scratch as
+        // collateral. Their one unapplied dataset figure is re-entered.
+        const conflictBody = await res.json().catch(() => ({}) as Record<string, unknown>);
+        if (typeof conflictBody.current === "number") {
+          datasetVersionRef.current = conflictBody.current;
+        }
+        if (Array.isArray(conflictBody.employees)) {
+          setEmployees(conflictBody.employees);
+        }
+        setDsError(
+          "Someone else changed the employee data while you were editing. The latest figures have been loaded. Your last change was not applied, so please re-enter it if it still applies."
         );
-        window.location.reload();
         return false;
       }
       const body = await res.json().catch(() => ({}));
@@ -357,7 +599,8 @@ export default function DashboardClient({
         setDsError(data.error ?? "That change could not be saved.");
         return false;
       }
-      setSaveStatus("saved");
+      // deliberately does not touch saveStatus: that now belongs to the Save
+      // button, which is about the overrides doc alone
       return true;
     } catch {
       setDsError("That change could not be saved — check your connection.");
@@ -894,6 +1137,27 @@ export default function DashboardClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditor, scopedCards, pool, emps, copy, params, canEditCapsNow, dsBusy]);
 
+  /** One human-readable line per contested figure in the conflict banner. */
+  function conflictLine(c: OverrideConflict): string {
+    const name = isEditor
+      ? (() => {
+          const e = empById.get(c.empId);
+          return e ? `${e.gn} ${e.sn}` : c.empId;
+        })()
+      : (rowById.get(c.empId)?.name ?? c.empId);
+    const label =
+      c.field === "lock"
+        ? "Lock"
+        : (columns.find((col) => col.key === (c.field === "daEdit" ? "da" : "ipm"))
+            ?.label ?? (c.field === "daEdit" ? "Discretionary" : "IPM"));
+    const show = (v: number | boolean | undefined): string => {
+      if (v === undefined) return "cleared";
+      if (typeof v === "boolean") return v ? "locked" : "unlocked";
+      return c.field === "ipmEdit" ? `${Math.round(v * 100)}%` : fmt(v);
+    };
+    return `${name}: ${label} yours ${show(c.ours)}, theirs ${show(c.theirs)}`;
+  }
+
   function doSort(key: string) {
     if (sortCol === key) setSortDir((d) => -d);
     else {
@@ -925,11 +1189,11 @@ export default function DashboardClient({
           {canEditAnything && !viewingAs && (
             <span className="text-[11px] text-brand-orange-soft">
               {saveStatus === "saving"
-                ? "Saving…"
+                ? ""
                 : saveStatus === "error"
-                  ? "⚠ Couldn't save — "
+                  ? "⚠ Couldn't save, "
                   : dirty
-                    ? "Unsaved — visible only to you"
+                    ? "Unsaved, visible only to you"
                     : saveStatus === "saved"
                       ? "Saved"
                       : ""}
@@ -943,6 +1207,17 @@ export default function DashboardClient({
                 </button>
               )}
             </span>
+          )}
+          {canEditAnything && !viewingAs && (
+            <button
+              type="button"
+              onClick={() => void save()}
+              disabled={saveStatus === "saving" || (!dirty && saveStatus !== "error")}
+              title="Or press Ctrl+S (Cmd+S on Mac). Unsaved work also saves itself every 3 minutes."
+              className="border border-brand-orange/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-brand-orange-soft"
+            >
+              {saveStatus === "saving" ? "Saving…" : dirty || saveStatus === "error" ? "Save" : "Saved"}
+            </button>
           )}
           <span className="text-right text-xs leading-tight text-brand-orange-soft">
             {payload.user.name}
@@ -961,13 +1236,15 @@ export default function DashboardClient({
             <ViewAsPicker candidates={viewAs.candidates} viewingAs={viewingAs} />
           )}
           {isEditor && !viewingAs && (
-            <a
-              href="/api/export"
-              title="Download the current figures as an Excel workbook, for the HR folder"
-              className="border border-brand-orange/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white"
+            <button
+              type="button"
+              onClick={() => void exportNow()}
+              disabled={exporting}
+              title="Download the current figures as an Excel workbook, for the HR folder. Unsaved changes are saved first."
+              className="border border-brand-orange/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white disabled:opacity-40"
             >
-              Export
-            </a>
+              {exporting ? "Exporting…" : "Export"}
+            </button>
           )}
           {isEditor && !viewingAs && (
             <Link
@@ -1119,6 +1396,56 @@ export default function DashboardClient({
                 >
                   Dismiss
                 </button>
+              </div>
+            )}
+
+            {/* A colleague saved and everything combined cleanly — worth a
+                line, not an interruption. */}
+            {notice && !conflict && (
+              <div className="mb-4 flex items-start justify-between gap-4 border-2 border-brand-orange/60 bg-white px-4 py-2 text-[13px] font-semibold">
+                <span>{notice}</span>
+                <button
+                  type="button"
+                  onClick={() => setNotice(null)}
+                  className="shrink-0 text-[11px] tracking-wide underline"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {/* The same figure changed by two people: the one situation the
+                merge cannot settle on its own. The page stays usable; only
+                saving waits on the choice. */}
+            {conflict && (
+              <div className="mb-4 border-2 border-error bg-error-tint px-4 py-3 text-[13px]">
+                <p className="font-semibold">
+                  You and a colleague have both changed the same figures since
+                  this page loaded. Everything changed by only one of you has
+                  already been combined; choose which values to keep for the
+                  figures below.
+                </p>
+                <ul className="mt-2 list-disc pl-5">
+                  {conflict.items.map((c) => (
+                    <li key={`${c.empId}:${c.field}`}>{conflictLine(c)}</li>
+                  ))}
+                </ul>
+                <div className="mt-3 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => settleConflicts("ours")}
+                    className="border border-neutral-400 bg-white px-3.5 py-1.5 text-[11px] font-bold transition-colors hover:border-brand-orange hover:text-brand-orange"
+                  >
+                    Keep my values
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => settleConflicts("theirs")}
+                    className="border border-neutral-400 bg-white px-3.5 py-1.5 text-[11px] font-bold transition-colors hover:border-brand-orange hover:text-brand-orange"
+                  >
+                    Use their values
+                  </button>
+                </div>
               </div>
             )}
 

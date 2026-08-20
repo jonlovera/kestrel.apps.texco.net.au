@@ -6,7 +6,7 @@ import { OverridesSchema, type Overrides } from "@/lib/schema";
 import { z } from "zod";
 import { diffOverrides } from "@/lib/history-diff";
 import { takeSnapshot } from "@/lib/snapshots";
-import { sanitiseOverrideWrite } from "@/lib/write-scope";
+import { sanitiseOverrideWrite, scopeOverridesView } from "@/lib/write-scope";
 import { applyOverrides, computeScalesAndBonuses, clampDaToPool } from "@/lib/calc";
 
 export const dynamic = "force-dynamic";
@@ -37,12 +37,21 @@ export async function POST(req: Request) {
 
   let incoming: Overrides;
   let clientVersion: number;
+  let source: "manual" | "auto";
   try {
     const body = z
-      .object({ version: z.number().int().min(0), overrides: OverridesSchema })
+      .object({
+        version: z.number().int().min(0),
+        overrides: OverridesSchema,
+        // "auto" marks the periodic autosave and the tab-close flush, so the
+        // snapshot policy can coalesce them; a manual Save stays one
+        // deliberate act with its own restore point
+        source: z.enum(["manual", "auto"]).optional().default("manual"),
+      })
       .parse(await req.json());
     incoming = body.overrides;
     clientVersion = body.version;
+    source = body.source;
   } catch {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
@@ -106,15 +115,23 @@ export async function POST(req: Request) {
 
   // Snapshot, then save with optimistic concurrency: a stale version means
   // someone else saved since this client loaded — 409, never silently clobber.
-  await takeSnapshot(email, "edit");
+  await takeSnapshot(email, source === "auto" ? "autosave" : "edit");
   const cas = await saveOverridesCas(sanitised, clientVersion);
   if (!cas.ok) {
     console.log(
       `[audit] state-write CONFLICT email=${email} sent=${clientVersion} current=${cas.current} ts=${new Date().toISOString()}`
     );
+    // Hand back what is actually stored (scoped to the caller's window) so
+    // the client can three-way merge and retry instead of throwing the
+    // user's work away. `previous` predates the CAS attempt, so re-load.
+    const latest = await loadOverrides();
     return noStore(
       NextResponse.json(
-        { error: "Version conflict — someone else saved changes", current: cas.current },
+        {
+          error: "Someone else saved changes since you loaded",
+          current: cas.current,
+          overrides: scopeOverridesView(scope, data.emp, latest),
+        },
         { status: 409 }
       )
     );
@@ -127,7 +144,13 @@ export async function POST(req: Request) {
   );
 
   return noStore(
-    NextResponse.json({ ok: true, overrides: sanitised, version: cas.version })
+    NextResponse.json({
+      ok: true,
+      // scoped: an admin gets the whole document back as before, a lead only
+      // their own window — the full merged doc would leak out-of-scope figures
+      overrides: scopeOverridesView(scope, data.emp, sanitised),
+      version: cas.version,
+    })
   );
 }
 

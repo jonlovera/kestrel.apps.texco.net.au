@@ -12,6 +12,7 @@ import { EDITABLE_FIELDS, AccessRuleSchema, type EditableField } from "./access-
 import type { Overrides } from "./schema";
 import {
   sanitiseOverrideWrite,
+  scopeOverridesView,
   writableEmployeeIds,
   writableFields,
   editableColumns,
@@ -360,6 +361,58 @@ describe("saving does not erase anyone else's work", () => {
   it("bonus % is preserved even from an admin — it's the one field nobody may write", () => {
     const res = write(admin, { V1: { daEdit: 100 } }, { V1: { bpEdit: 0.5 } });
     expect(res.overrides.V1).toEqual({ bpEdit: 0.5, daEdit: 100 });
+  });
+});
+
+/**
+ * The read-side mirror of the write window: what a scope is handed as its
+ * overrides baseline. The load-bearing property is the round trip — a
+ * baseline from scopeOverridesView, sent back through sanitiseOverrideWrite
+ * unchanged, must leave the stored document exactly as it was.
+ */
+describe("scopeOverridesView", () => {
+  const stored: Overrides = {
+    V1: { daEdit: 100, ipmEdit: 0.9, bpEdit: 0.2 },
+    V2: { locked: true, lockedFinal: 5000 },
+    N1: { daEdit: 500 },
+    S1: { ipmEdit: 0.7 },
+  };
+
+  it("is the identity for an admin", () => {
+    expect(scopeOverridesView(admin, EMPLOYEES, stored)).toEqual(stored);
+  });
+
+  it("gives a lead only their rows and only their fields", () => {
+    expect(scopeOverridesView(vicLead, EMPLOYEES, stored)).toEqual({
+      V1: { daEdit: 100, ipmEdit: 0.9 },
+      V2: { locked: true, lockedFinal: 5000 },
+    });
+  });
+
+  it("drops lockedFinal for a lead without Can lock", () => {
+    expect(scopeOverridesView(grantedNoLockLead, EMPLOYEES, stored)).toEqual({
+      V1: { daEdit: 100, ipmEdit: 0.9 },
+    });
+  });
+
+  it("gives a partially-granted lead only the granted figure", () => {
+    expect(scopeOverridesView(daOnlyLead, EMPLOYEES, stored)).toEqual({
+      V1: { daEdit: 100 },
+      V2: { locked: true, lockedFinal: 5000 },
+    });
+  });
+
+  it("gives a read-only lead nothing", () => {
+    expect(scopeOverridesView(readOnlyLead, EMPLOYEES, stored)).toEqual({});
+  });
+
+  it("round-trips: saving the baseline unchanged leaves the store as it was", () => {
+    for (const scope of [vicLead, daOnlyLead, grantedNoLockLead, lockOnlyLead]) {
+      const baseline = scopeOverridesView(scope, EMPLOYEES, stored);
+      const res = sanitiseOverrideWrite(scope, EMPLOYEES, baseline, stored);
+      expect(res.overrides).toEqual(stored);
+      expect(res.rejected).toEqual([]);
+    }
   });
 });
 

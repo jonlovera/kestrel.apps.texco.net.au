@@ -128,6 +128,13 @@ export const SnapshotSchema = z.object({
     columns: z.unknown().nullable(),
     /** absent in snapshots taken before the wording became editable */
     copy: z.unknown().nullable().optional(),
+    /**
+     * The access-rule overlay (admin-managed grants). Absent in snapshots
+     * taken before access joined the snapshot — the access API always
+     * snapshotted before a change, but nothing access-shaped was ever stored,
+     * so those restores silently could not undo an access change.
+     */
+    access: z.unknown().nullable().optional(),
   }),
 });
 

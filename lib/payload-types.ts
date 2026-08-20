@@ -96,6 +96,16 @@ export interface ReadonlyPayload {
    * write, same as `canEditFields`.
    */
   canLock: boolean;
+  /**
+   * The stored overrides narrowed to this scope's writable window (their
+   * rows, their fields) — see scopeOverridesView. Without a real baseline,
+   * a lead's first save would read as "cleared everything else in my scope"
+   * (sanitiseOverrideWrite treats an omitted in-scope id as cleared). Empty
+   * for a purely read-only scope.
+   */
+  overrides: Overrides;
+  /** optimistic-concurrency token; saves carrying a stale value get 409 */
+  overridesVersion: number;
   showStateColumn: boolean;
   poolCards: StatePoolCard[];
   cats: string[];

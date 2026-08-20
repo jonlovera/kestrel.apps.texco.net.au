@@ -64,11 +64,19 @@ export async function POST(req: Request) {
     console.log(
       `[audit] dataset-write CONFLICT email=${email} sent=${body.version} current=${cas.current} ts=${new Date().toISOString()}`
     );
+    // Hand back the current roster too, so the client can adopt the latest
+    // figures in place instead of force-reloading the page (which used to
+    // throw away the user's unsaved override scratch as collateral).
+    const latest = applyParams(data, params);
     return noStore(
       NextResponse.json(
         {
-          error: "Version conflict — someone else changed the data",
+          error: "Version conflict, someone else changed the data",
           current: cas.current,
+          employees: latest.emp,
+          cats: data.cats,
+          depts: data.depts,
+          mgrs: data.mgrs,
         },
         { status: 409 }
       )

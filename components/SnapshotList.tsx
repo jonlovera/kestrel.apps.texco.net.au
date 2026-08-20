@@ -12,11 +12,14 @@ interface SnapshotRow {
 
 const REASON_LABELS: Record<string, string> = {
   edit: "Bonus edits",
+  autosave: "Autosave",
+  dataset: "Data edit",
   "access-change": "Access change",
   "pre-restore": "Before a restore",
   import: "Data import",
   params: "Parameter change",
   columns: "Column change",
+  copy: "Wording change",
 };
 
 export default function SnapshotList({
@@ -33,11 +36,14 @@ export default function SnapshotList({
       <div className="mx-auto w-full max-w-[1100px] flex-1 px-5 py-6">
         <h1 className="mb-1 text-lg font-bold">Snapshots</h1>
         <p className="mb-4 text-[13px] text-brand-70">
-          A full copy of the data, edits, parameters and column settings is
-          taken automatically before every change. Restoring puts everything
-          back exactly as it was — and takes its own snapshot first, so a
-          restore can itself be undone. The most recent 50 are kept; download
-          any of them to keep a copy off the platform.
+          A full copy of the data, edits, parameters, column settings, wording
+          and access rules is taken automatically before every change (with
+          one exception: restoring a snapshot from before access rules were
+          included leaves today&apos;s access untouched, and the restoring
+          admin always keeps their own access either way). Restoring puts
+          everything back exactly as it was, and takes its own snapshot first,
+          so a restore can itself be undone. The most recent 50 are kept;
+          download any of them to keep a copy off the platform.
         </p>
 
         <div className="overflow-x-auto shadow-sm">

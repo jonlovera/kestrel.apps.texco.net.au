@@ -11,7 +11,7 @@
 import type { Dataset, Overrides } from "./schema";
 import type { Scope } from "./access";
 import { ruleMatches } from "./access-rules";
-import { editableColumns, canLockRows } from "./write-scope";
+import { editableColumns, canLockRows, scopeOverridesView } from "./write-scope";
 import { NUMERIC_FIELDS } from "./access-types";
 import {
   DEFAULT_COLUMNS,
@@ -181,6 +181,11 @@ export function buildPayloadCore(
     columns,
     canEditFields: editableColumns(scope),
     canLock: canLockRows(scope),
+    // the same window the write boundary enforces: their rows, their fields.
+    // A lead needs this baseline so a save doesn't clear rows they never
+    // touched, and the version so their save isn't a guaranteed 409.
+    overrides: scopeOverridesView(scope, data.emp, overrides),
+    overridesVersion,
     // pool titles are already baked into poolCards[].title above; sending the
     // map too would name the pools this user has no business seeing
     copy: {

@@ -102,7 +102,14 @@ function coerceCell(field: string, raw: unknown): unknown {
     const str = String(s ?? "");
     const isPercent = str.includes("%");
     const cleaned = str.replace(/[$,%\s]/g, "");
-    if (cleaned === "") return s === "" ? "" : s;
+    if (cleaned === "") {
+      // A blank cell in an optional column means "not provided", which is a
+      // legal value — the export writes blanks for people without these
+      // figures, and the round trip must accept its own output. A blank in a
+      // required column stays "" so zod names the fault loudly.
+      if (field in OPTIONAL_FIELD_LABELS) return undefined;
+      return s === "" ? "" : s;
+    }
     const n = Number(cleaned);
     if (Number.isNaN(n)) return s;
     // "20%" means the fraction 0.2 (matches how Excel shows these columns)

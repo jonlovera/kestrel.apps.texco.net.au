@@ -89,6 +89,51 @@ describe("field stripping strips bytes, not pixels", () => {
   });
 });
 
+describe("a read-only payload carries a save baseline scoped like everything else", () => {
+  const vicId = data.emp.find((e) => e.st === "VIC")!.id;
+  const nswId = data.emp.find((e) => e.st === "NSW")!.id;
+  const stored = {
+    [vicId]: { daEdit: 123, ipmEdit: 0.85 },
+    [nswId]: { daEdit: 456 },
+  };
+
+  it("carries the overrides version so a lead's save is not a guaranteed 409", () => {
+    const payload = buildPayloadCore(data, stored, vicScopeNoPkg, user, {
+      overridesVersion: 7,
+    });
+    if (payload.mode !== "readonly") throw new Error("expected readonly payload");
+    expect(payload.overridesVersion).toBe(7);
+  });
+
+  it("baselines only their rows and their granted fields — bytes, not pixels", () => {
+    const payload = buildPayloadCore(data, stored, vicScopeNoPkg, user, {
+      overridesVersion: 7,
+    });
+    if (payload.mode !== "readonly") throw new Error("expected readonly payload");
+    // granted Discretionary only, so ipmEdit is stripped even on their row
+    expect(payload.overrides).toEqual({ [vicId]: { daEdit: 123 } });
+    const json = JSON.stringify(payload.overrides);
+    expect(json).not.toContain(nswId);
+    expect(json).not.toContain("456");
+  });
+
+  it("a purely read-only scope gets an empty baseline", () => {
+    const readOnly: Scope = {
+      ...vicScopeNoPkg,
+      rule: {
+        type: "state",
+        states: ["VIC"],
+        visibleFields: vicScopeNoPkg.visibleFields,
+        editableFields: [],
+        canLock: false,
+      },
+    };
+    const payload = buildPayloadCore(data, stored, readOnly, user);
+    if (payload.mode !== "readonly") throw new Error("expected readonly payload");
+    expect(payload.overrides).toEqual({});
+  });
+});
+
 describe("a state lead sees their own pool and nothing wider", () => {
   const vic = buildPayloadCore(data, {}, vicScopeNoPkg, user);
   if (vic.mode !== "readonly") throw new Error("expected readonly");

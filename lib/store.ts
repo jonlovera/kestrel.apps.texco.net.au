@@ -333,6 +333,16 @@ export function saveParams(params: Params): Promise<void> {
   return saveDoc(PARAMS_KEY, PARAMS_FILE, params);
 }
 
+/**
+ * Back to "no explicit params stored" — a JSON null in the doc slot, which
+ * loadParams reads as its empty value so callers fall back to the dataset's
+ * own caps. Restoring a snapshot that predates any stored params needs this:
+ * without it, an old restore silently kept today's caps and modifier.
+ */
+export function clearParams(): Promise<void> {
+  return saveDoc(PARAMS_KEY, PARAMS_FILE, null);
+}
+
 // ── column presentation config (edited from the dashboard column menu) ──────
 const COLUMNS_KEY = "kestrel:columns:fy26";
 const COLUMNS_FILE = "columns.json";
@@ -357,6 +367,11 @@ export function saveColumnConfig(cfg: ColumnConfig): Promise<void> {
   return saveDoc(COLUMNS_KEY, COLUMNS_FILE, cfg);
 }
 
+/** Back to defaults (see clearParams — same restore-time reasoning). */
+export function clearColumnConfig(): Promise<void> {
+  return saveDoc(COLUMNS_KEY, COLUMNS_FILE, null);
+}
+
 // ── dashboard wording (edited in place on the dashboard) ────────────────────
 const COPY_KEY = "kestrel:copy:fy26";
 const COPY_FILE = "copy.json";
@@ -373,6 +388,11 @@ export async function loadCopy(): Promise<Copy> {
 
 export function saveCopy(copy: Copy): Promise<void> {
   return saveDoc(COPY_KEY, COPY_FILE, copy);
+}
+
+/** Back to default wording (see clearParams — same restore-time reasoning). */
+export function clearCopy(): Promise<void> {
+  return saveDoc(COPY_KEY, COPY_FILE, null);
 }
 
 // ── people who have signed in through Texco Identity ────────────────────────
