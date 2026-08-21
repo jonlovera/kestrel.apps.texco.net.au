@@ -106,10 +106,23 @@ export default function DashboardClient({
     isEditor ? payload.employees : []
   );
   // the roster only changes via import now, which reloads the page, so these
-  // are fixed for the life of the view
+  // are fixed for the life of the view. Roles (positions) are derived here
+  // rather than carried on the payload: both modes already ship `pos` on
+  // every row they are entitled to, so this can never widen what they see.
   const facets = useMemo(
-    () => ({ cats: payload.cats, depts: payload.depts, mgrs: payload.mgrs }),
-    [payload.cats, payload.depts, payload.mgrs]
+    () => ({
+      roles: [
+        ...new Set(
+          (payload.mode === "editor" ? payload.employees : payload.rows).map(
+            (e) => e.pos
+          )
+        ),
+      ].sort(),
+      cats: payload.cats,
+      depts: payload.depts,
+      mgrs: payload.mgrs,
+    }),
+    [payload]
   );
   const datasetVersionRef = useRef(isEditor ? payload.datasetVersion : 0);
   const [dsBusy, setDsBusy] = useState(false);
@@ -545,6 +558,7 @@ export default function DashboardClient({
   const [search, setSearch] = useState("");
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState(1);
+  const [selRoles, setSelRoles] = useState<string[]>(facets.roles);
   const [selCats, setSelCats] = useState<string[]>(payload.cats);
   const [selDepts, setSelDepts] = useState<string[]>(payload.depts);
   const [selMgrs, setSelMgrs] = useState<string[]>(payload.mgrs);
@@ -869,12 +883,23 @@ export default function DashboardClient({
           r.st.toLowerCase().includes(q)
       );
     }
-    const catAll = selCats.length === facets.cats.length;
-    if (!catAll) list = list.filter((r) => selCats.includes(r.cat));
-    const deptAll = selDepts.length === facets.depts.length;
-    if (!deptAll) list = list.filter((r) => selDepts.includes(r.dept));
-    const mgrAll = selMgrs.length === facets.mgrs.length;
-    if (!mgrAll) list = list.filter((r) => selMgrs.includes(r.mgr));
+    // A facet filters only when a real subset is ticked. An EMPTY selection
+    // means "no filter", not "match nothing": the picker's button reads
+    // "All {label}" for both the full and the empty set, and unticking its
+    // Select all used to blank the whole table underneath a button still
+    // claiming "All Roles". This also keeps a one-option facet usable (a
+    // lead whose team is all one category would otherwise only ever have
+    // "everything" or "nothing").
+    const applies = (sel: string[], all: readonly string[]) =>
+      sel.length > 0 && sel.length !== all.length;
+    if (applies(selRoles, facets.roles))
+      list = list.filter((r) => selRoles.includes(r.pos));
+    if (applies(selCats, facets.cats))
+      list = list.filter((r) => selCats.includes(r.cat));
+    if (applies(selDepts, facets.depts))
+      list = list.filter((r) => selDepts.includes(r.dept));
+    if (applies(selMgrs, facets.mgrs))
+      list = list.filter((r) => selMgrs.includes(r.mgr));
 
     if (sortCol !== null) {
       const val = (r: DisplayRow): string | number => {
@@ -901,7 +926,7 @@ export default function DashboardClient({
       });
     }
     return list;
-  }, [allRows, isEditor, activeTab, search, selCats, selDepts, selMgrs, sortCol, sortDir, facets]);
+  }, [allRows, isEditor, activeTab, search, selRoles, selCats, selDepts, selMgrs, sortCol, sortDir, facets]);
 
   // ── edit handlers (prototype updateBP/updateIPM/updateDA/toggleLock) ──
   const empById = useMemo(
@@ -1497,7 +1522,12 @@ export default function DashboardClient({
                 placeholder="Search employees..."
                 className="w-full border-2 border-neutral-200 px-3.5 py-2 text-[13px] outline-none focus:border-brand-orange sm:w-[220px]"
               />
-              <MultiSelect label="Roles" items={facets.cats} selected={selCats} onChange={setSelCats} />
+              {/* "Roles" = positions, matching what the word means on the
+                  access screen. The cat facet ("Employee" / "Texco
+                  Management") keeps its own picker under the name the rest
+                  of the app uses for that field: Category. */}
+              <MultiSelect label="Roles" items={facets.roles} selected={selRoles} onChange={setSelRoles} />
+              <MultiSelect label="Categories" items={facets.cats} selected={selCats} onChange={setSelCats} />
               <MultiSelect label="Departments" items={facets.depts} selected={selDepts} onChange={setSelDepts} />
               <MultiSelect label="Managers" items={facets.mgrs} selected={selMgrs} onChange={setSelMgrs} />
               {configuring && (
