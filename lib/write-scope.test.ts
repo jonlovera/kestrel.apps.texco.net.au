@@ -36,7 +36,7 @@ const FIELDS = ["ipm", "da", "calc", "final"] as const;
 
 const admin: Scope = {
   email: "admin@texco.net.au",
-  rule: { type: "full", canEditCaps: false },
+  rule: { type: "full", canEditCaps: false, canActAs: [] },
   canEdit: true,
   visibleFields: [...FIELDS],
   label: "Full access",
@@ -50,6 +50,7 @@ const vicLead: Scope = {
     visibleFields: [...FIELDS],
     editableFields: [...EDITABLE_FIELDS],
     canLock: true,
+    canActAs: [],
   },
   canEdit: false,
   visibleFields: [...FIELDS],
@@ -63,6 +64,7 @@ const subsetLead: Scope = {
     visibleFields: [...FIELDS],
     editableFields: [...EDITABLE_FIELDS],
     canLock: true,
+    canActAs: [],
   },
   canEdit: false,
   visibleFields: [...FIELDS],
@@ -77,6 +79,7 @@ const smGroupLead: Scope = {
     visibleFields: [...FIELDS],
     editableFields: [...EDITABLE_FIELDS],
     canLock: true,
+    canActAs: [],
   },
   canEdit: false,
   visibleFields: [...FIELDS],
@@ -91,6 +94,7 @@ const daOnlyLead: Scope = {
     visibleFields: [...FIELDS],
     editableFields: ["da"],
     canLock: true,
+    canActAs: [],
   },
   canEdit: false,
   visibleFields: [...FIELDS],
@@ -99,7 +103,7 @@ const daOnlyLead: Scope = {
 /** Granted nothing at all — no editable fields, and "Can lock" unticked. */
 const readOnlyLead: Scope = {
   email: "vic-ro@texco.net.au",
-  rule: { type: "state", states: ["VIC"], visibleFields: [...FIELDS], editableFields: [], canLock: false },
+  rule: { type: "state", states: ["VIC"], visibleFields: [...FIELDS], editableFields: [], canLock: false, canActAs: [] },
   canEdit: false,
   visibleFields: [...FIELDS],
   label: "VIC (read only)",
@@ -111,7 +115,7 @@ const readOnlyLead: Scope = {
  */
 const lockOnlyLead: Scope = {
   email: "vic-lock@texco.net.au",
-  rule: { type: "state", states: ["VIC"], visibleFields: [...FIELDS], editableFields: [], canLock: true },
+  rule: { type: "state", states: ["VIC"], visibleFields: [...FIELDS], editableFields: [], canLock: true, canActAs: [] },
   canEdit: false,
   visibleFields: [...FIELDS],
   label: "VIC (lock only)",
@@ -125,6 +129,7 @@ const grantedNoLockLead: Scope = {
     visibleFields: [...FIELDS],
     editableFields: [...EDITABLE_FIELDS],
     canLock: false,
+    canActAs: [],
   },
   canEdit: false,
   visibleFields: [...FIELDS],
@@ -450,7 +455,7 @@ describe("writeVerdict", () => {
     expect(writeVerdict("scoped", vicLead.email, vicLead, null)).toBe("ok");
   });
 
-  it("refuses everyone while viewing as someone, at either level", () => {
+  it("refuses everyone while viewing as someone WITHOUT a sanction, at either level", () => {
     expect(writeVerdict("scoped", admin.email, vicLead, "vic@texco.net.au")).toBe("viewing-as");
     expect(writeVerdict("admin", admin.email, admin, "other@texco.net.au")).toBe("viewing-as");
   });
@@ -464,11 +469,57 @@ describe("writeVerdict", () => {
     );
   });
 
+  it("lets a SANCTIONED scoped write through a view — the act-as delegation", () => {
+    // The scope in hand is the TARGET's (vicLead); sanitiseOverrideWrite then
+    // confines the write to that window, and the guard records the actor.
+    expect(
+      writeVerdict("scoped", "clint@texco.net.au", vicLead, "vic@texco.net.au", true)
+    ).toBe("ok");
+  });
+
+  it("a sanction never opens the admin-level routes during a view", () => {
+    // Those routes have no per-row boundary of their own; with the target's
+    // scope in hand, an actor acting for an admin-shaped scope would
+    // otherwise write with authority that is not theirs.
+    expect(
+      writeVerdict("admin", "clint@texco.net.au", admin, "other@texco.net.au", true)
+    ).toBe("viewing-as");
+  });
+
+  it("a sanction with no resolvable scope is still unauthenticated", () => {
+    expect(
+      writeVerdict("scoped", "clint@texco.net.au", null, "gone@texco.net.au", true)
+    ).toBe("unauthenticated");
+  });
+
   it("refuses a signed-out caller, and one with no access at all", () => {
     expect(writeVerdict("admin", null, null, null)).toBe("unauthenticated");
     expect(writeVerdict("scoped", "nobody@texco.net.au", null, null)).toBe(
       "unauthenticated"
     );
+  });
+});
+
+/**
+ * Schema compatibility for the act-as grant, mirroring the canLock case: a
+ * rule stored before `canActAs` existed must parse to "no delegation", never
+ * fail (one unparseable rule revokes the whole overlay).
+ */
+describe("the canActAs default", () => {
+  it("a stored lead rule without canActAs parses to an empty delegation", () => {
+    const stored = {
+      type: "state",
+      states: ["VIC"],
+      visibleFields: [...FIELDS],
+      editableFields: ["da"],
+      canLock: false,
+    };
+    expect(AccessRuleSchema.parse(stored)).toMatchObject({ canActAs: [] });
+  });
+
+  it("a stored full rule without canActAs parses the same way", () => {
+    const stored = { type: "full", canEditCaps: true };
+    expect(AccessRuleSchema.parse(stored)).toMatchObject({ canActAs: [] });
   });
 });
 
@@ -485,7 +536,7 @@ describe("the editable-fields grant", () => {
     visibleFields: Scope["visibleFields"] = [...FIELDS]
   ): Scope => ({
     ...vicLead,
-    rule: { type: "state", states: ["VIC"], visibleFields, editableFields, canLock: false },
+    rule: { type: "state", states: ["VIC"], visibleFields, editableFields, canLock: false, canActAs: [] },
     visibleFields,
   });
 
@@ -498,7 +549,7 @@ describe("the editable-fields grant", () => {
     // whatever editableFields happens to contain.
     const stored = { type: "state", states: ["VIC"], visibleFields: [...FIELDS] };
     const parsed = AccessRuleSchema.parse(stored);
-    expect(parsed).toMatchObject({ editableFields: ["da", "ipm"], canLock: false });
+    expect(parsed).toMatchObject({ editableFields: ["da", "ipm"], canLock: false, canActAs: [] });
   });
 
   it("writes nothing when no field is granted", () => {

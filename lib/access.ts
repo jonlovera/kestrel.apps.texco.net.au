@@ -5,6 +5,7 @@ import {
   AccessRuleSchema,
   describeEditing,
   effectiveRules,
+  rewriteActAsReferences,
   type AccessRule,
   type EffectiveRule,
   type GrantingRule,
@@ -35,10 +36,10 @@ import { loadAccessOverlay, saveAccessOverlay, appendHistory } from "./store";
  * ============================================================================
  */
 const ACCESS: Record<string, AccessRule> = {
-  'jlovera@texco.net.au': { type: 'full', canEditCaps: false },
-  'dgibson@texco.net.au': { type: 'full', canEditCaps: false },
-  'tbull@texco.net.au': { type: 'full', canEditCaps: false },
-  'jbull@texco.net.au': { type: 'full', canEditCaps: false },
+  'jlovera@texco.net.au': { type: 'full', canEditCaps: false, canActAs: [] },
+  'dgibson@texco.net.au': { type: 'full', canEditCaps: false, canActAs: [] },
+  'tbull@texco.net.au': { type: 'full', canEditCaps: false, canActAs: [] },
+  'jbull@texco.net.au': { type: 'full', canEditCaps: false, canActAs: [] },
 };
 
 /** Resolved scope handed to the rest of the server code. */
@@ -138,6 +139,12 @@ export async function adoptNewEmail(
   const overlay = await loadAccessOverlay();
   const rule = overlay[from];
 
+  // Delegations pointing AT the old address must follow it too, and they can
+  // exist regardless of whether the old address has a movable rule of its
+  // own — so this runs on every migration path, not just the happy one.
+  const { overlay: rewritten, changed } = rewriteActAsReferences(overlay, from, to);
+
+  let moveRule = false;
   if (!rule) {
     if (await isSeeded(from)) {
       console.warn(
@@ -145,32 +152,49 @@ export async function adoptNewEmail(
           `update lib/access.ts or BONUS_USERS, or they will lose access`
       );
     }
-    return false;
-  }
-  // Never overwrite a rule already sitting under the new address: that one was
-  // granted deliberately and is at least as current as the one being moved.
-  if (overlay[to]) {
+  } else if (overlay[to]) {
+    // Never overwrite a rule already sitting under the new address: that one
+    // was granted deliberately and is at least as current as the one moving.
     console.warn(
       `[access] ${from} is now ${to}, which already has its own rule — leaving both alone`
     );
-    return false;
+  } else {
+    moveRule = true;
   }
 
-  const { [from]: moved, ...rest } = overlay;
-  await saveAccessOverlay({ ...rest, [to]: moved });
-  await appendHistory([
-    {
+  if (!moveRule && changed.length === 0) return false;
+
+  let next = rewritten;
+  if (moveRule) {
+    const { [from]: moved, ...rest } = next;
+    next = { ...rest, [to]: moved };
+  }
+  await saveAccessOverlay(next);
+
+  const entries = [];
+  if (moveRule) {
+    entries.push({
       ts: new Date().toISOString(),
       actor: "texco-identity",
-      kind: "access",
+      kind: "access" as const,
       summary: `Email changed in identity: access for ${from} now applies to ${to}`,
       target: to,
-    },
-  ]);
+    });
+  }
+  if (changed.length > 0) {
+    entries.push({
+      ts: new Date().toISOString(),
+      actor: "texco-identity",
+      kind: "access" as const,
+      summary: `Email changed in identity: "can act for" on ${changed.join(", ")} now names ${to}`,
+      target: to,
+    });
+  }
+  await appendHistory(entries);
   console.log(
-    `[audit] access-email-migrated from=${from} to=${to} ts=${new Date().toISOString()}`
+    `[audit] access-email-migrated from=${from} to=${to} ruleMoved=${moveRule} actAsRewritten=${changed.length} ts=${new Date().toISOString()}`
   );
-  return true;
+  return moveRule;
 }
 
 export { AccessRuleSchema, type AccessRule };

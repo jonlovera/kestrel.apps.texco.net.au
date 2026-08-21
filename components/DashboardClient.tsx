@@ -66,6 +66,15 @@ export default function DashboardClient({
   const isEditor = payload.mode === "editor";
   const viewingAs = viewAs?.viewingAs ?? null;
   /**
+   * The "can act for" delegation: this view belongs to someone else, but the
+   * actor may save changes on it (through /api/state only), recorded against
+   * the actor. Constant per mount — the page remounts on any view change via
+   * its key — so no ref is needed for the timers below.
+   */
+  const canAct = viewAs?.canAct ?? false;
+  /** A view WITHOUT the delegation: every commit path below refuses. */
+  const viewReadOnly = viewingAs !== null && !canAct;
+  /**
    * Which table columns this person may type into. An admin gets the full set;
    * a state lead gets IPM and Discretionary for their own rows, decided
    * server-side and handed over on the payload. The server checks again on
@@ -255,14 +264,15 @@ export default function DashboardClient({
   }, [overrides, isEditor, canEditAnything, dirty]);
 
   // Losing an afternoon of what-ifs to a stray tab close is worse than a prompt.
-  // Not while viewing as, though: those figures were never savable, so there is
-  // nothing to lose and the prompt would just be in the way.
+  // Not in a read-only view, though: those figures were never savable, so there
+  // is nothing to lose and the prompt would just be in the way. An act-as view
+  // IS savable, so it warns like any other editing session.
   useEffect(() => {
-    if (!dirty || viewingAs) return;
+    if (!dirty || viewReadOnly) return;
     const warn = (e: BeforeUnloadEvent) => e.preventDefault();
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty, viewingAs]);
+  }, [dirty, viewReadOnly]);
 
   /**
    * Commit the overrides doc, without ever throwing the user's work away.
@@ -282,10 +292,11 @@ export default function DashboardClient({
     source: "manual" | "auto" = "manual",
     docOverride?: Overrides
   ): Promise<boolean> {
-    // Belt-and-braces: the Save button is not rendered while viewing as, and
-    // requireScopedWriter would refuse anyway. Neither is a reason to let
-    // the request leave the browser.
-    if (viewingAsRef.current || savingRef.current) return false;
+    // Belt-and-braces: the Save button is not rendered in a read-only view,
+    // and requireScopedWriter would refuse anyway. Neither is a reason to
+    // let the request leave the browser. An act-as view saves normally —
+    // the server confines it to the target's window and records the actor.
+    if (viewReadOnly || savingRef.current) return false;
     if (conflictRef.current && !docOverride) return false;
     if (!docOverride) retriesRef.current = 0;
     const sent = docOverride ?? overridesRef.current;
@@ -296,7 +307,15 @@ export default function DashboardClient({
       const res = await fetch("/api/state", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: versionRef.current, overrides: sent, source }),
+        body: JSON.stringify({
+          version: versionRef.current,
+          overrides: sent,
+          source,
+          // while acting for someone, name them: the server refuses the save
+          // if the view has meanwhile ended, so a lapsed cookie can never
+          // turn this document into a write against the actor's own scope
+          ...(viewingAs ? { viewFor: viewingAs } : {}),
+        }),
       });
       if (res.status === 409) {
         const body = await res.json().catch(() => ({}) as Record<string, unknown>);
@@ -422,7 +441,7 @@ export default function DashboardClient({
    * anyone attempting a write.
    */
   useEffect(() => {
-    if (viewingAs || !canEditAnything) return;
+    if (viewReadOnly || !canEditAnything) return;
     const tick = () => {
       if (savingRef.current || conflictRef.current) return;
       if (dirtyRef.current) {
@@ -446,7 +465,7 @@ export default function DashboardClient({
     };
     const timer = setInterval(tick, 180_000);
     return () => clearInterval(timer);
-  }, [viewingAs, canEditAnything]);
+  }, [viewReadOnly, canEditAnything]);
 
   // Ctrl/Cmd+S saves, because that is what hands will do anyway.
   useEffect(() => {
@@ -475,7 +494,7 @@ export default function DashboardClient({
     let flushedThisHide = false;
     const flush = () => {
       if (flushedThisHide) return;
-      if (!dirtyRef.current || viewingAsRef.current || conflictRef.current) return;
+      if (!dirtyRef.current || viewReadOnly || conflictRef.current) return;
       flushedThisHide = true;
       try {
         void fetch("/api/state", {
@@ -486,6 +505,9 @@ export default function DashboardClient({
             version: versionRef.current,
             overrides: overridesRef.current,
             source: "auto",
+            // the same lapsed-view refusal as save(); especially important
+            // here, where the response can never be read
+            ...(viewingAsRef.current ? { viewFor: viewingAsRef.current } : {}),
           }),
         });
       } catch {
@@ -503,7 +525,7 @@ export default function DashboardClient({
       window.removeEventListener("pagehide", onPageHide);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [canEditAnything]);
+  }, [canEditAnything, viewReadOnly]);
 
   // ── calc (editor mode runs the prototype's engine client-side) ──
   const { emps, pool } = useMemo<{
@@ -1186,7 +1208,7 @@ export default function DashboardClient({
           />
         </div>
         <div className="flex items-center gap-3">
-          {canEditAnything && !viewingAs && (
+          {canEditAnything && !viewReadOnly && (
             <span className="text-[11px] text-brand-orange-soft">
               {saveStatus === "saving"
                 ? ""
@@ -1208,7 +1230,7 @@ export default function DashboardClient({
               )}
             </span>
           )}
-          {canEditAnything && !viewingAs && (
+          {canEditAnything && !viewReadOnly && (
             <button
               type="button"
               onClick={() => void save()}
@@ -1233,7 +1255,11 @@ export default function DashboardClient({
             {showAll ? "Hide everything" : "Show everything"}
           </button>
           {viewAs && (
-            <ViewAsPicker candidates={viewAs.candidates} viewingAs={viewingAs} />
+            <ViewAsPicker
+              candidates={viewAs.candidates}
+              viewingAs={viewingAs}
+              canAct={canAct}
+            />
           )}
           {isEditor && !viewingAs && (
             <button
@@ -1366,7 +1392,10 @@ export default function DashboardClient({
                             minute: "2-digit",
                           })}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2">{h.actor}</td>
+                        <td className="whitespace-nowrap px-3 py-2">
+                          {h.actor}
+                          {h.viewingAs ? ` (as ${h.viewingAs})` : ""}
+                        </td>
                         <td className={`px-3 py-2 ${showAll ? "" : "blur-[6px] select-none"}`}>
                           {h.kind === "access" && (
                             <span className="mr-2 inline-block bg-neutral-200 px-1.5 py-px text-[10px] font-bold text-neutral-600">

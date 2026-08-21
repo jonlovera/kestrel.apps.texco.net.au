@@ -16,6 +16,12 @@ import { truncateIp, clientIpFrom } from "@/lib/pageviews";
  * server action's own button submits — in one place: full access is what
  * carries "View as" (impersonating anyone), and a same-day fix for a few IT
  * staff holding that needs to close every door, not just the dashboard's.
+ *
+ * Deliberately NOT gated: people whose only impersonation power is a
+ * per-target "can act for" delegation (canActAs on their rule). The gate
+ * exists because full access can view as ANYONE; a delegation is a narrow,
+ * explicitly configured grant of specific dashboards, and handing its
+ * holders the shared admin password would widen exposure, not narrow it.
  */
 const PUBLIC_PATHS = [
   "/login",

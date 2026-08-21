@@ -103,7 +103,8 @@ export function diffOverrides(
   prev: Overrides,
   next: Overrides,
   actor: string,
-  ts: string
+  ts: string,
+  viewingAs?: string
 ): HistoryEntry[] {
   return overrideChanges(base, prev, next).map((c) => ({
     ts,
@@ -114,5 +115,6 @@ export function diffOverrides(
     field: c.field,
     from: c.from,
     to: c.to,
+    ...(viewingAs ? { viewingAs } : {}),
   }));
 }

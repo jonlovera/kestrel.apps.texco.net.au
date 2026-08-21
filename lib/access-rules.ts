@@ -56,14 +56,29 @@ const canLock = z.boolean().default(false);
  */
 const canEditCaps = z.boolean().default(false);
 
+/**
+ * Emails of the people whose dashboards this person may open through View as
+ * AND make changes on. The change is always recorded against this person
+ * (the actor), never the dashboard's owner — that requirement is what the
+ * whole grant exists for. Empty means View as stays what it always was for
+ * them: unavailable below full access, read-only at full access.
+ *
+ * Element is a plain string, not a validated email, on purpose: this field
+ * is normalised at write time (app/api/access/route.ts), and a stored oddity
+ * must never fail the overlay parse — one unparseable rule revokes everyone
+ * (see the editableFields comment above). Defaulted for the same reason.
+ */
+const canActAs = z.array(z.string()).default([]);
+
 export const AccessRuleSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("full"), canEditCaps }),
+  z.object({ type: z.literal("full"), canEditCaps, canActAs }),
   z.object({
     type: z.literal("state"),
     states: z.array(z.enum(["VIC", "NSW", "SHARED"])).min(1),
     visibleFields: z.array(z.enum(NUMERIC_FIELDS)),
     editableFields,
     canLock,
+    canActAs,
   }),
   z.object({
     type: z.literal("subset"),
@@ -71,6 +86,7 @@ export const AccessRuleSchema = z.discriminatedUnion("type", [
     visibleFields: z.array(z.enum(NUMERIC_FIELDS)),
     editableFields,
     canLock,
+    canActAs,
   }),
   // A standing group rather than a fixed list: "all VIC site managers" keeps
   // meaning that as people come and go, where a subset would go stale.
@@ -81,6 +97,7 @@ export const AccessRuleSchema = z.discriminatedUnion("type", [
     visibleFields: z.array(z.enum(NUMERIC_FIELDS)),
     editableFields,
     canLock,
+    canActAs,
   }).refine(
     (r) => r.states.length > 0 || r.positions.length > 0,
     "a group needs at least one state or position, or it would match everyone"
@@ -121,19 +138,54 @@ export function describeEditing(rule: GrantingRule): string {
  */
 export function describeRule(rule: AccessRule): string {
   if (rule.type === "none") return "no access";
-  if (rule.type === "full") return "full access";
+  // "can act for" is part of the sentence for the same reason editing is:
+  // this grant is a delegation, and a history entry that omitted it would
+  // hide the most consequential thing the rule says.
+  const acting =
+    rule.canActAs.length > 0 ? `; can act for ${rule.canActAs.join(", ")}` : "";
+  if (rule.type === "full") return `full access${acting}`;
   // The history has to record what they may CHANGE, not just what they see:
   // a rule going read-only is the whole point of the entry.
   const editing = describeEditing(rule);
-  if (rule.type === "state") return `${rule.states.join(" + ")} / ${editing}`;
+  if (rule.type === "state")
+    return `${rule.states.join(" + ")} / ${editing}${acting}`;
   if (rule.type === "group") {
     const where = rule.states.length ? rule.states.join(" + ") : "all states";
     const who = rule.positions.length ? rule.positions.join(", ") : "all roles";
-    return `${where} / ${who} / ${editing}`;
+    return `${where} / ${who} / ${editing}${acting}`;
   }
   return `${rule.employeeIds.length} selected employee${
     rule.employeeIds.length === 1 ? "" : "s"
-  } / ${editing}`;
+  } / ${editing}${acting}`;
+}
+
+/**
+ * Rewrite every `canActAs` reference to `from` so it names `to` instead —
+ * the companion to adoptNewEmail (lib/access.ts) moving the rule itself.
+ * Without this, a delegation pointing at an email that changed would
+ * silently stop working. Pure so it is testable here.
+ */
+export function rewriteActAsReferences(
+  overlay: Record<string, AccessRule>,
+  from: string,
+  to: string
+): { overlay: Record<string, AccessRule>; changed: string[] } {
+  const f = from.toLowerCase();
+  const t = to.toLowerCase();
+  const changed: string[] = [];
+  const out: Record<string, AccessRule> = {};
+  for (const [email, rule] of Object.entries(overlay)) {
+    if (rule.type === "none" || !rule.canActAs.some((e) => e.toLowerCase() === f)) {
+      out[email] = rule;
+      continue;
+    }
+    const rewritten = [
+      ...new Set(rule.canActAs.map((e) => (e.toLowerCase() === f ? t : e.toLowerCase()))),
+    ];
+    out[email] = { ...rule, canActAs: rewritten };
+    changed.push(email);
+  }
+  return { overlay: out, changed };
 }
 
 /**

@@ -30,6 +30,7 @@ const vicScopeNoPkg: Scope = {
     visibleFields: ["ipm", "bipm", "calc", "f25", "da", "yoy", "final"],
     editableFields: ["da"],
   canLock: false,
+  canActAs: [],
   },
   canEdit: false,
   visibleFields: ["ipm", "bipm", "calc", "f25", "da", "yoy", "final"],
@@ -70,6 +71,7 @@ describe("field stripping strips bytes, not pixels", () => {
         visibleFields: ["final"],
         editableFields: ["da"],
       canLock: false,
+      canActAs: [],
       },
       canEdit: false,
       visibleFields: ["final"],
@@ -126,6 +128,7 @@ describe("a read-only payload carries a save baseline scoped like everything els
         visibleFields: vicScopeNoPkg.visibleFields,
         editableFields: [],
         canLock: false,
+        canActAs: [],
       },
     };
     const payload = buildPayloadCore(data, stored, readOnly, user);
@@ -179,6 +182,7 @@ describe("a state lead sees their own pool and nothing wider", () => {
         visibleFields: vicScopeNoPkg.visibleFields,
         editableFields: ["da"],
       canLock: false,
+      canActAs: [],
       },
     };
     const payload = buildPayloadCore(data, {}, both, user);
@@ -196,6 +200,7 @@ describe("a state lead sees their own pool and nothing wider", () => {
         visibleFields: ["final"],
         editableFields: ["da"],
       canLock: false,
+      canActAs: [],
       },
       visibleFields: ["final"],
     };

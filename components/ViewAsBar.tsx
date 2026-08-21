@@ -8,16 +8,18 @@ import { beginViewAs, endViewAs } from "@/app/actions/view-as";
  *
  * A view is faithful, not flattened: the target's own cells are live, so an
  * admin can see what that person can change and try a figure to see what they
- * would see. Nothing can be persisted, because every route that writes refuses
- * while a view is active (lib/api-guard.ts), and the affordances that commit
- * on blur rather than on Save are switched off in the dashboard instead of
- * being left to fail against that refusal.
+ * would see. By default nothing can be persisted — every route that writes
+ * refuses while a view is active (lib/api-guard.ts), and the affordances that
+ * commit on blur rather than on Save are switched off in the dashboard
+ * instead of being left to fail against that refusal. The one exception is
+ * the per-target "can act for" delegation (lib/view-as-core.ts): for those
+ * views the Save path works, within the target's own window, recorded
+ * against the actor, and the button reads "Editing as" instead.
  *
  * While a view is active the button itself carries that state — styled
  * lavender rather than brand orange, since orange already means "Draft" on
  * this screen and two different meanings in the same colour is how someone
- * misreads a figure — and reads "Viewing as {name}". Clicking it exits the
- * view immediately.
+ * misreads a figure. Clicking it exits the view immediately.
  */
 
 export interface ViewAsState {
@@ -25,22 +27,20 @@ export interface ViewAsState {
   viewingAs: string | null;
   candidates: { email: string; summary: string }[];
   /**
-   * What the person being viewed may change, in their own column names, e.g.
-   * "IPM %, Discretionary". Empty when they can change nothing.
-   *
-   * Stated plainly because it is the question a view is usually asked to
-   * answer, and the table alone cannot answer it: an empty Discretionary
-   * column looks the same whether they may type in it or not.
+   * Whether the active view is one the actor may make changes in (the
+   * "can act for" delegation). Always false outside a view.
    */
-  targetCanEdit?: string[];
+  canAct: boolean;
 }
 
 export function ViewAsPicker({
   candidates,
   viewingAs,
+  canAct,
 }: {
   candidates: ViewAsState["candidates"];
   viewingAs: string | null;
+  canAct: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
@@ -50,10 +50,14 @@ export function ViewAsPicker({
       <form action={endViewAs}>
         <button
           type="submit"
-          title="Exit this view"
+          title={
+            canAct
+              ? "You can make changes in this view. Click to exit."
+              : "Exit this view"
+          }
           className="bg-brand-lavender px-3.5 py-1.5 text-[11px] font-bold tracking-wide text-brand-95 transition-colors hover:bg-brand-lavender/80"
         >
-          Viewing as {viewingAs}
+          {canAct ? "Editing as" : "Viewing as"} {viewingAs}
         </button>
       </form>
     );

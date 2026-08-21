@@ -3,34 +3,15 @@ import { resolveViewer } from "@/lib/view-as";
 import { buildDashboardPayload } from "@/lib/scope";
 import { listViewableUsers } from "@/lib/view-as-users";
 import DashboardClient from "@/components/DashboardClient";
-import type { DashboardPayload } from "@/lib/payload-types";
 
 // Bland on purpose — browser tab titles end up in history and window lists.
 export const metadata = { title: "Texco" };
 export const dynamic = "force-dynamic";
 
-/**
- * The columns the person being viewed may type into, named as their own table
- * names them, for the View as banner.
- *
- * Taken from the payload rather than re-derived, so it can never drift from
- * the cells actually rendered, and read through `columns` so a renamed
- * heading reaches the banner too. A full-access target reports nothing: their
- * view is the editor view, whose affordances all commit on blur and are
- * therefore switched off while a view is active.
- */
-function describeWritableColumns(payload: DashboardPayload): string[] {
-  if (payload.mode !== "readonly") return [];
-  const byKey = new Map<string, string>(
-    payload.columns.map((c) => [c.key, c.label])
-  );
-  return payload.canEditFields.map((k) => byKey.get(k) ?? k);
-}
-
 export default async function DashboardPage() {
   // Resolves through the view-as layer: an admin looking at a lead's view is
   // rendered exactly as that lead, from the same payload builder.
-  const { actor, viewingAs, scope, actorScope } = await resolveViewer();
+  const { actor, viewingAs, scope, actorScope, canAct } = await resolveViewer();
   if (!actor) redirect("/login"); // proxy already enforces this; belt-and-braces
 
   if (!scope) {
@@ -79,9 +60,10 @@ export default async function DashboardPage() {
       viewAs={{
         actor,
         viewingAs,
-        // only a full-access actor may start a view; everyone else gets nothing
-        candidates: actorScope?.canEdit ? await listViewableUsers(actor) : [],
-        targetCanEdit: describeWritableColumns(payload),
+        // authorisation lives inside: admins get everyone, a person holding
+        // "can act for" gets exactly their delegated targets, others get []
+        candidates: await listViewableUsers(actor, actorScope),
+        canAct,
       }}
     />
   );

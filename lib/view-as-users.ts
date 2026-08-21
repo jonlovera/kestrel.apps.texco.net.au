@@ -1,16 +1,21 @@
 import "server-only";
 import { cookies } from "next/headers";
-import { allRules } from "./access";
+import { allRules, scopeForUser, type Scope } from "./access";
 import { describeEditing, type GrantingRule } from "./access-rules";
 import { appendHistory } from "./store";
 import { resolveViewer, VIEW_AS_COOKIE } from "./view-as";
+import { viewAsTarget, canActOn } from "./view-as-core";
 
 /**
- * Who an admin can view as, and the actions that start and stop it.
+ * Who a person can view as, and the actions that start and stop it.
  *
  * The candidates are the access list rather than the company directory: those
  * are the only people whose view of this app differs from anyone else's, and
  * everyone else would just show the "no access" page.
+ *
+ * A full-access actor gets the whole list (read-only views, as always).
+ * Anyone else gets exactly the people on their own rule's `canActAs` — the
+ * per-target delegation, whose views they can also edit.
  */
 
 export interface ViewableUser {
@@ -34,45 +39,63 @@ function summarise(rule: GrantingRule): string {
   return `${n} employee${n === 1 ? "" : "s"} · ${editing}`;
 }
 
-export async function listViewableUsers(actor: string): Promise<ViewableUser[]> {
+export async function listViewableUsers(
+  actor: string,
+  actorScope: Scope | null
+): Promise<ViewableUser[]> {
+  if (!actorScope) return [];
   const rules = await allRules();
+  const delegated = new Set(
+    actorScope.canEdit ? [] : actorScope.rule.canActAs.map((e) => e.toLowerCase())
+  );
   return Object.entries(rules)
-    .filter(([email]) => email !== actor.toLowerCase())
-    .map(([email, eff]) => ({ email, summary: summarise(eff.rule) }))
+    .filter(
+      ([email]) =>
+        email !== actor.toLowerCase() &&
+        (actorScope.canEdit || delegated.has(email))
+    )
+    .map(([email, eff]) => ({
+      email,
+      // for a non-admin, every candidate is one they were delegated, so say
+      // what that means up front rather than leaving it to be discovered
+      summary:
+        summarise(eff.rule) + (actorScope.canEdit ? "" : " · you can make changes"),
+    }))
     .sort((a, b) => a.email.localeCompare(b.email));
 }
 
 /**
- * Start viewing as someone. Refuses unless the caller is genuinely
- * full-access — the same check `resolveViewer` makes before honouring the
- * cookie, so a forged one is inert either way.
+ * Start viewing as someone. Authorised by the same decision `resolveViewer`
+ * makes before honouring the cookie (lib/view-as-core.ts), so a forged
+ * cookie and a forged form post are inert in exactly the same way.
  */
 export async function startViewAs(target: string): Promise<void> {
   const { actor, actorScope } = await resolveViewer();
-  if (!actor || !actorScope?.canEdit) return;
+  if (!actor) return;
 
   const email = target.trim().toLowerCase();
-  if (!email || email === actor) return;
+  if (viewAsTarget(actorScope, actor, email) !== email || !email) return;
 
   (await cookies()).set(VIEW_AS_COOKIE, email, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: 60 * 60, // an hour is longer than anyone needs to check a view
+    maxAge: 60 * 60, // an hour; a lapse mid-edit is made safe by /api/state's viewFor check
   });
 
+  const canAct = canActOn(actorScope, await scopeForUser(email));
   await appendHistory([
     {
       ts: new Date().toISOString(),
       actor,
       kind: "access",
-      summary: `Started viewing the dashboard as ${email} (read-only)`,
+      summary: `Started viewing the dashboard as ${email} (${canAct ? "can edit" : "read-only"})`,
       target: email,
     },
   ]);
   console.log(
-    `[audit] view-as-start actor=${actor} target=${email} ts=${new Date().toISOString()}`
+    `[audit] view-as-start actor=${actor} target=${email} canAct=${canAct} ts=${new Date().toISOString()}`
   );
 }
 

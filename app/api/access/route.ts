@@ -85,6 +85,31 @@ export async function POST(req: Request) {
     }
   }
 
+  // Normalise the "can act for" delegation once, here, so the stored list is
+  // always clean emails: the schema deliberately keeps the element a plain
+  // string (a stored oddity must never fail the whole overlay parse).
+  {
+    const seen = new Set<string>();
+    const cleaned: string[] = [];
+    for (const raw of body.rule.canActAs) {
+      const parsed = EmailSchema.safeParse(raw);
+      if (!parsed.success) {
+        return noStore(
+          NextResponse.json(
+            { error: `Invalid email in Can act for: ${raw}` },
+            { status: 400 }
+          )
+        );
+      }
+      // self-delegation is inert by construction (viewing yourself is a
+      // no-op), so dropping it keeps the stored list honest
+      if (parsed.data === body.email || seen.has(parsed.data)) continue;
+      seen.add(parsed.data);
+      cleaned.push(parsed.data);
+    }
+    body.rule.canActAs = cleaned;
+  }
+
   await takeSnapshot(admin.email, "access-change");
   const overlay = await loadAccessOverlay();
   const existed = (await allRules())[body.email] !== undefined;

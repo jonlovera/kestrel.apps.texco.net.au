@@ -61,7 +61,7 @@ describe("applyParams", () => {
 describe("canChangeCaps", () => {
   const admin = (grant: boolean): Scope => ({
     email: "admin@texco.net.au",
-    rule: { type: "full", canEditCaps: grant },
+    rule: { type: "full", canEditCaps: grant, canActAs: [] },
     canEdit: true,
     visibleFields: [],
     label: "Full access",
@@ -75,6 +75,7 @@ describe("canChangeCaps", () => {
       visibleFields: [],
       editableFields: ["da", "ipm"],
       canLock: true,
+      canActAs: [],
     },
     canEdit: false,
     visibleFields: [],

@@ -33,11 +33,12 @@ export async function POST(req: Request) {
   // rows and fields they may touch is sanitiseOverrideWrite's call, below.
   const guard = await requireScopedWriter("state-write");
   if ("response" in guard) return guard.response;
-  const { email, scope } = guard;
+  const { email, scope, viewingAs } = guard;
 
   let incoming: Overrides;
   let clientVersion: number;
   let source: "manual" | "auto";
+  let viewFor: string | undefined;
   try {
     const body = z
       .object({
@@ -47,13 +48,36 @@ export async function POST(req: Request) {
         // snapshot policy can coalesce them; a manual Save stays one
         // deliberate act with its own restore point
         source: z.enum(["manual", "auto"]).optional().default("manual"),
+        // Sent while an act-as view is active: the target the client believes
+        // it is saving for. Checked below.
+        viewFor: z.string().optional(),
       })
       .parse(await req.json());
     incoming = body.overrides;
     clientVersion = body.version;
     source = body.source;
+    viewFor = body.viewFor;
   } catch {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+  }
+
+  // The view-expiry safeguard. A client mounted for someone else's dashboard
+  // holds THAT person's baseline; if the view cookie lapses (or the view is
+  // stopped in another tab) before an autosave lands, the same request would
+  // be judged against the actor's OWN scope — for an admin, a full window,
+  // where the incoming doc is authoritative for everyone and would clear
+  // every override outside the target's rows. So the client names who it
+  // thinks it is saving for, and a mismatch is refused outright.
+  if (viewFor !== undefined && viewFor.trim().toLowerCase() !== (viewingAs ?? "")) {
+    console.log(
+      `[audit] state-write STALE-VIEW email=${email} viewFor=${viewFor} actual=${viewingAs ?? "none"} ts=${new Date().toISOString()}`
+    );
+    return noStore(
+      NextResponse.json(
+        { error: "Your View as session has ended. Reopen the view before saving." },
+        { status: 403 }
+      )
+    );
   }
 
   const data = await getEffectiveDataset();
@@ -137,10 +161,17 @@ export async function POST(req: Request) {
     );
   }
   await appendHistory(
-    diffOverrides(data.emp, previous, sanitised, email, new Date().toISOString())
+    diffOverrides(
+      data.emp,
+      previous,
+      sanitised,
+      email,
+      new Date().toISOString(),
+      viewingAs ?? undefined
+    )
   );
   console.log(
-    `[audit] state-write email=${email} scope=${scope.rule.type} entries=${Object.keys(sanitised).length} version=${cas.version} ts=${new Date().toISOString()}`
+    `[audit] state-write email=${email}${viewingAs ? ` viewing-as=${viewingAs}` : ""} scope=${scope.rule.type} entries=${Object.keys(sanitised).length} version=${cas.version} ts=${new Date().toISOString()}`
   );
 
   return noStore(

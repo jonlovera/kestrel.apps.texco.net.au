@@ -99,6 +99,13 @@ export default function AccessManager({
    * so granting someone full access doesn't quietly also hand them this.
    */
   const [canEditCaps, setCanEditCaps] = useState(false);
+  /**
+   * The "can act for" delegation: whose dashboards this person may open
+   * through View as AND make changes on, recorded against their own name.
+   * A list of emails from the access list itself (a target not on the list
+   * has nothing to act on). Meaningful for every rule type, full included.
+   */
+  const [actAs, setActAs] = useState<string[]>([]);
   const [empSearch, setEmpSearch] = useState("");
   /** set while amending someone, so the form knows it is replacing not adding */
   const [editingEmail, setEditingEmail] = useState<string | null>(null);
@@ -122,6 +129,7 @@ export default function AccessManager({
     );
     setCanLock(row.rule.type === "full" ? true : row.rule.canLock);
     setCanEditCaps(row.rule.type === "full" ? row.rule.canEditCaps : false);
+    setActAs([...row.rule.canActAs]);
     window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
   }
 
@@ -136,6 +144,7 @@ export default function AccessManager({
     setEditable([...EDITABLE_FIELDS]);
     setCanLock(true);
     setCanEditCaps(false);
+    setActAs([]);
     setError("");
   }
 
@@ -169,9 +178,11 @@ export default function AccessManager({
     // A figure they cannot see is not offered for editing either, so the two
     // rows on the form can never be saved contradicting each other.
     const editableFields = editable.filter((f) => fields.includes(f));
+    // the person being edited can never act for themselves
+    const canActAs = actAs.filter((e) => e !== email.trim().toLowerCase());
     const rule: GrantingRule =
       type === "full"
-        ? { type: "full", canEditCaps }
+        ? { type: "full", canEditCaps, canActAs }
         : type === "state"
           ? {
               type: "state",
@@ -179,6 +190,7 @@ export default function AccessManager({
               visibleFields: fields,
               editableFields,
               canLock,
+              canActAs,
             }
           : type === "group"
             ? {
@@ -188,6 +200,7 @@ export default function AccessManager({
                 visibleFields: fields,
                 editableFields,
                 canLock,
+                canActAs,
               }
             : {
                 type: "subset",
@@ -195,6 +208,7 @@ export default function AccessManager({
                 visibleFields: fields,
                 editableFields,
                 canLock,
+                canActAs,
               };
     if (rule.type === "state" && rule.states.length === 0) {
       setError("Pick at least one state");
@@ -213,12 +227,18 @@ export default function AccessManager({
   }
 
   function describe(rule: GrantingRule): string {
+    const acting =
+      rule.canActAs.length > 0 ? `, can act for ${rule.canActAs.join(", ")}` : "";
     if (rule.type === "full")
-      return "Everyone · all fields · can edit" + (rule.canEditCaps ? ", can edit pool caps" : "");
+      return (
+        "Everyone · all fields · can edit" +
+        (rule.canEditCaps ? ", can edit pool caps" : "") +
+        acting
+      );
     // describeEditing rather than a literal: this used to assert "can set IPM
     // and Discretionary" for everyone, which was only ever true because there
     // was no way to say otherwise.
-    const editing = describeEditing(rule) + (rule.canLock ? ", can lock" : "");
+    const editing = describeEditing(rule) + (rule.canLock ? ", can lock" : "") + acting;
     if (rule.type === "state") return `${rule.states.join(" + ")} · ${editing}`;
     if (rule.type === "group") {
       const where = rule.states.length ? rule.states.join(" + ") : "all states";
@@ -272,8 +292,10 @@ export default function AccessManager({
           amend someone in place rather than removing and re-adding them.
           Everyone except full access sees only their own rows.{" "}
           <strong>Can edit</strong> decides what they may change on those rows:
-          leave both unticked and they can look but not touch. Changes apply
-          immediately — no deploy needed. Entries marked{" "}
+          leave both unticked and they can look but not touch.{" "}
+          <strong>Can act for</strong> lets a person make changes on someone
+          else&apos;s dashboard through View as, recorded against their own
+          name. Changes apply immediately — no deploy needed. Entries marked{" "}
           <span className="font-semibold">code</span> are seeded in the repo and
           reappear unless removed here.
         </p>
@@ -565,6 +587,59 @@ export default function AccessManager({
               </div>
             </div>
           )}
+
+          {/* Rendered for every rule type, full included — the delegation is
+              about the TARGETS' dashboards, so the grantee's own access type
+              doesn't decide whether it makes sense. */}
+          <div className="mb-4">
+            <div className="mb-1 text-[11px] font-semibold tracking-wide text-brand-70">
+              Can act for
+            </div>
+            <p className="mb-2 max-w-[640px] text-[12px] text-brand-70">
+              This person can open the ticked people&apos;s dashboards through
+              View as and make changes there. Every change is recorded against
+              this person&apos;s name, not the dashboard owner&apos;s. Full
+              access dashboards stay read only in View as.
+            </p>
+            <div className="flex max-h-[200px] max-w-[640px] flex-col gap-1 overflow-auto border border-neutral-200 bg-white p-2">
+              {rules.filter((r) => r.email !== email.trim().toLowerCase()).length ===
+                0 && (
+                <span className="px-1 py-1 text-[12px] text-brand-70">
+                  Nobody else is on the access list yet.
+                </span>
+              )}
+              {rules
+                .filter((r) => r.email !== email.trim().toLowerCase())
+                .map((r) => (
+                  <label
+                    key={r.email}
+                    className="flex items-start gap-1.5 px-1 text-[13px]"
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-3.5 w-3.5 accent-brand-orange"
+                      checked={actAs.includes(r.email)}
+                      onChange={() => toggle(actAs, r.email, setActAs)}
+                    />
+                    <span>
+                      <span className="font-semibold">{r.email}</span>{" "}
+                      <span className="text-[12px] text-brand-70">
+                        · {describe(r.rule)}
+                      </span>
+                      {actAs.includes(r.email) &&
+                        r.rule.type !== "full" &&
+                        r.rule.editableFields.length === 0 && (
+                          <span className="block text-[12px] text-brand-70">
+                            This person&apos;s own access is read only, so
+                            acting for them changes nothing until you grant
+                            them an editable figure.
+                          </span>
+                        )}
+                    </span>
+                  </label>
+                ))}
+            </div>
+          </div>
 
           <button
             type="button"

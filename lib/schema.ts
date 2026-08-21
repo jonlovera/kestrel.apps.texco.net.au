@@ -103,6 +103,12 @@ export const HistoryEntrySchema = z.object({
   summary: z.string(), // human-readable sentence
   empId: z.string().optional(),
   target: z.string().optional(), // email affected by an access change
+  /**
+   * Set when the actor made this change from inside someone else's View as
+   * (the act-as delegation). The change is still the actor's — this only
+   * records whose dashboard they were standing on when they made it.
+   */
+  viewingAs: z.string().optional(),
   field: z.string().optional(),
   from: z.union([z.number(), z.string(), z.null()]).optional(),
   to: z.union([z.number(), z.string(), z.null()]).optional(),

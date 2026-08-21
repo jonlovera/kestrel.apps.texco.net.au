@@ -152,18 +152,25 @@ export type WriteVerdict = "ok" | "unauthenticated" | "viewing-as" | "forbidden"
  * because the guard's `canEdit` check was described in its comment and never
  * written, and no test could see it. This encodes the rule where a test can.
  *
- * Order matters. Viewing as is refused before the scope is judged, because
- * while a view is active `scope` is the TARGET's, so an admin viewing another
- * admin would otherwise pass on someone else's authority.
+ * Order matters. Viewing as is judged before the scope, because while a view
+ * is active `scope` is the TARGET's, so an admin viewing another admin would
+ * otherwise pass on someone else's authority. A view blocks every write
+ * except one narrow case: a "scoped" write under an explicit act-as sanction
+ * (`canActAs` on the actor's rule — lib/view-as-core.ts decides, the guard
+ * passes the verdict in). That is safe where admin-level never is, because
+ * sanitiseOverrideWrite then confines the write to the target's own window;
+ * the admin routes have no such per-row boundary and stay refused during any
+ * view, sanctioned or not.
  */
 export function writeVerdict(
   level: WriteLevel,
   actor: string | null,
   scope: Scope | null,
-  viewingAs: string | null
+  viewingAs: string | null,
+  actAsSanctioned = false
 ): WriteVerdict {
   if (!actor || !scope) return "unauthenticated";
-  if (viewingAs) return "viewing-as";
+  if (viewingAs && !(level === "scoped" && actAsSanctioned)) return "viewing-as";
   if (level === "admin" && !scope.canEdit) return "forbidden";
   return "ok";
 }

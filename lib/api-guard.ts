@@ -12,6 +12,12 @@ import type { Scope } from "./access";
 export interface Guarded {
   email: string;
   scope: Scope;
+  /**
+   * The active view's target when this write passed under an act-as
+   * sanction, null otherwise. /api/state uses it to stamp history ("Clint,
+   * as Jon") and to verify the client's `viewFor` safeguard.
+   */
+  viewingAs: string | null;
 }
 
 /**
@@ -38,7 +44,7 @@ export async function requireEditor(
       response: NextResponse.json({ error: "Forbidden" }, { status: 403 }),
     };
   }
-  return { email: actor, scope };
+  return { email: actor, scope, viewingAs: null };
 }
 
 /**
@@ -50,12 +56,14 @@ async function gate(
   level: WriteLevel,
   action: string
 ): Promise<Guarded | { response: NextResponse }> {
-  const { actor, scope, viewingAs } = await resolveViewer();
-  const verdict = writeVerdict(level, actor, scope, viewingAs);
+  const { actor, scope, viewingAs, canAct } = await resolveViewer();
+  const verdict = writeVerdict(level, actor, scope, viewingAs, canAct);
 
   // Narrowed rather than asserted: "ok" already implies both are present, and
   // a security path should not be the place where that is taken on trust.
-  if (verdict === "ok" && actor && scope) return { email: actor, scope };
+  if (verdict === "ok" && actor && scope) {
+    return { email: actor, scope, viewingAs };
+  }
 
   if (verdict === "unauthenticated" || !actor || !scope) {
     return {

@@ -6,16 +6,19 @@ import {
   OWNER_EMAIL,
   type AccessRule,
   describeEditing,
+  describeRule,
   dropInvalidRules,
+  rewriteActAsReferences,
 } from "./access-rules";
 
-const full: AccessRule = { type: "full", canEditCaps: false };
+const full: AccessRule = { type: "full", canEditCaps: false, canActAs: [] };
 const vic: AccessRule = {
   type: "state",
   states: ["VIC"],
   visibleFields: ["final"],
   editableFields: ["da"],
   canLock: false,
+  canActAs: [],
 };
 const none: AccessRule = { type: "none" };
 
@@ -74,6 +77,7 @@ describe("group rules: state and/or role, standing rather than a fixed list", ()
       visibleFields: [],
       editableFields: [],
       canLock: false,
+      canActAs: [],
     });
 
   it("state and role together intersect", () => {
@@ -115,6 +119,7 @@ describe("describeEditing", () => {
       visibleFields: [],
       editableFields,
       canLock: false,
+      canActAs: [],
     });
 
   it("names what they may set", () => {
@@ -128,7 +133,7 @@ describe("describeEditing", () => {
   });
 
   it("full access is never read only", () => {
-    expect(describeEditing({ type: "full", canEditCaps: false })).toBe("can edit");
+    expect(describeEditing({ type: "full", canEditCaps: false, canActAs: [] })).toBe("can edit");
   });
 });
 
@@ -197,5 +202,81 @@ describe("dropInvalidRules", () => {
   it("leaves a non-object alone rather than inventing an overlay", () => {
     expect(dropInvalidRules(null)).toBe(null);
     expect(dropInvalidRules([1, 2])).toEqual([1, 2]);
+  });
+
+  it("keeps a rule stored before canActAs existed", () => {
+    const stored = {
+      "lead@texco.net.au": {
+        type: "state",
+        states: ["VIC"],
+        visibleFields: ["final"],
+        editableFields: ["da"],
+        canLock: false,
+      },
+    };
+    expect(Object.keys(dropInvalidRules(stored) as object)).toEqual([
+      "lead@texco.net.au",
+    ]);
+  });
+});
+
+/**
+ * The act-as delegation on the rule sentence and across an email change.
+ */
+describe("the canActAs delegation", () => {
+  it("describeRule names the delegation — the history must record it", () => {
+    expect(
+      describeRule({ ...vic, canActAs: ["jglick@texco.net.au"] })
+    ).toBe("VIC / can set Discretionary; can act for jglick@texco.net.au");
+    expect(
+      describeRule({ type: "full", canEditCaps: false, canActAs: ["jglick@texco.net.au"] })
+    ).toBe("full access; can act for jglick@texco.net.au");
+    expect(describeRule(vic)).not.toContain("can act for");
+  });
+
+  it("rewriteActAsReferences moves a reference to a changed email", () => {
+    const overlay: Record<string, AccessRule> = {
+      "clint@texco.net.au": { ...vic, canActAs: ["old@texco.net.au"] },
+      "other@texco.net.au": { ...vic },
+    };
+    const { overlay: out, changed } = rewriteActAsReferences(
+      overlay,
+      "old@texco.net.au",
+      "new@texco.net.au"
+    );
+    expect(changed).toEqual(["clint@texco.net.au"]);
+    const clint = out["clint@texco.net.au"];
+    if (clint.type === "none") throw new Error("unexpected tombstone");
+    expect(clint.canActAs).toEqual(["new@texco.net.au"]);
+    // untouched rules come through identical
+    expect(out["other@texco.net.au"]).toBe(overlay["other@texco.net.au"]);
+  });
+
+  it("rewriteActAsReferences deduplicates when the new email was already listed", () => {
+    const overlay: Record<string, AccessRule> = {
+      "clint@texco.net.au": {
+        ...vic,
+        canActAs: ["old@texco.net.au", "new@texco.net.au"],
+      },
+    };
+    const { overlay: out } = rewriteActAsReferences(
+      overlay,
+      "old@texco.net.au",
+      "new@texco.net.au"
+    );
+    const clint = out["clint@texco.net.au"];
+    if (clint.type === "none") throw new Error("unexpected tombstone");
+    expect(clint.canActAs).toEqual(["new@texco.net.au"]);
+  });
+
+  it("rewriteActAsReferences matches case-insensitively and reports nothing when nothing matched", () => {
+    const overlay: Record<string, AccessRule> = {
+      "clint@texco.net.au": { ...vic, canActAs: ["Old@Texco.net.au"] },
+    };
+    const hit = rewriteActAsReferences(overlay, "old@texco.net.au", "new@texco.net.au");
+    expect(hit.changed).toEqual(["clint@texco.net.au"]);
+    const miss = rewriteActAsReferences(overlay, "absent@texco.net.au", "new@texco.net.au");
+    expect(miss.changed).toEqual([]);
+    expect(miss.overlay).toEqual(overlay);
   });
 });

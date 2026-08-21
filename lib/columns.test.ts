@@ -46,6 +46,7 @@ const vicScope: Scope = {
     visibleFields: ["ipm", "bipm", "calc", "f25", "da", "yoy", "final"],
     editableFields: ["da"],
   canLock: false,
+  canActAs: [],
   },
   canEdit: false,
   visibleFields: ["ipm", "bipm", "calc", "f25", "da", "yoy", "final"],
@@ -217,6 +218,7 @@ describe("entitlement is unaffected by column config (non-negotiable #2)", () =>
         visibleFields: ["final"],
         editableFields: ["da"],
       canLock: false,
+      canActAs: [],
       },
       visibleFields: ["final"],
     };
