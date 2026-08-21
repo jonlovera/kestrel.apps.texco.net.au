@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import Link from "next/link";
 
 interface SnapshotRow {
   ts: string;
@@ -40,9 +41,17 @@ const when = (ts: string) =>
 
 export default function SnapshotList({
   snapshots,
+  page,
+  pageCount,
+  total,
   restoreAction,
 }: {
   snapshots: SnapshotRow[];
+  /** 1-based page currently shown */
+  page: number;
+  pageCount: number;
+  /** total snapshots kept, across all pages */
+  total: number;
   restoreAction: (formData: FormData) => Promise<void>;
 }) {
   const [pending, startTransition] = useTransition();
@@ -70,9 +79,9 @@ export default function SnapshotList({
           admin always keeps their own access either way). &quot;What
           changed&quot; shows what that person&apos;s action changed;
           restoring a row puts everything back to just before it, and takes
-          its own snapshot first, so a restore can itself be undone. The most
-          recent 50 are kept; download any of them to keep a copy off the
-          platform.
+          its own snapshot first, so a restore can itself be undone. Every
+          snapshot is kept, newest first, 25 to a page; download any of them
+          to keep a copy off the platform.
         </p>
 
         <div className="overflow-x-auto shadow-sm">
@@ -90,7 +99,7 @@ export default function SnapshotList({
               </tr>
             </thead>
             <tbody>
-              {snapshots.length === 0 && (
+              {total === 0 && (
                 <tr>
                   <td colSpan={7} className="px-3 py-8 text-center text-brand-70">
                     No snapshots yet — one is taken before every change.
@@ -161,6 +170,40 @@ export default function SnapshotList({
             </tbody>
           </table>
         </div>
+
+        {/* Pager. Plain links, not transitions: each page is a fresh
+            server render, and a linkable ?page= URL is the point. */}
+        {total > 0 && (
+          <div className="mt-3 flex items-center justify-between text-[12px] text-brand-70">
+            {page > 1 ? (
+              <Link
+                href={page === 2 ? "/admin/snapshots" : `/admin/snapshots?page=${page - 1}`}
+                className="border border-neutral-300 px-3 py-1 font-semibold transition-colors hover:border-brand-orange hover:text-brand-orange"
+              >
+                ← Newer
+              </Link>
+            ) : (
+              <span className="border border-neutral-200 px-3 py-1 font-semibold opacity-40">
+                ← Newer
+              </span>
+            )}
+            <span>
+              Page {page} of {pageCount} · {total} snapshot{total === 1 ? "" : "s"}
+            </span>
+            {page < pageCount ? (
+              <Link
+                href={`/admin/snapshots?page=${page + 1}`}
+                className="border border-neutral-300 px-3 py-1 font-semibold transition-colors hover:border-brand-orange hover:text-brand-orange"
+              >
+                Older →
+              </Link>
+            ) : (
+              <span className="border border-neutral-200 px-3 py-1 font-semibold opacity-40">
+                Older →
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {open && (

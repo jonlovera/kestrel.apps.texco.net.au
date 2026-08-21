@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { shouldCoalesce } from "./snapshots-core";
+import { shouldCoalesce, snapshotPageWindow } from "./snapshots-core";
 
 /**
  * Coalescing exists so the 3-minute autosave cannot evict the 50-slot
@@ -63,5 +63,44 @@ describe("snapshot coalescing policy", () => {
     expect(
       shouldCoalesce({ ts: "not-a-date", actor: "a@texco.net.au", reason: "autosave" }, "a@texco.net.au", "autosave", now)
     ).toBe(false);
+  });
+});
+
+/**
+ * The pager's fetch window. Rows diff against their NEWER neighbour, so
+ * every page except the first needs one extra row at the newer edge; the
+ * off-by-one here is the riskiest part of unbounded snapshots.
+ */
+describe("snapshotPageWindow", () => {
+  it("page 1 fetches exactly the page — the live state is row 0's partner", () => {
+    expect(snapshotPageWindow(1, 25)).toEqual({
+      offset: 0,
+      limit: 25,
+      leadingPartner: false,
+    });
+  });
+
+  it("page 2 starts one row early and fetches one extra, to carry the partner", () => {
+    // rows 25..49 are shown; row 24 (the last row of page 1) rides along as
+    // the newer neighbour that row 25 diffs against
+    expect(snapshotPageWindow(2, 25)).toEqual({
+      offset: 24,
+      limit: 26,
+      leadingPartner: true,
+    });
+  });
+
+  it("a deep page follows the same shape", () => {
+    expect(snapshotPageWindow(7, 25)).toEqual({
+      offset: 149,
+      limit: 26,
+      leadingPartner: true,
+    });
+  });
+
+  it("nonsense pages clamp to page 1", () => {
+    expect(snapshotPageWindow(0, 25)).toEqual(snapshotPageWindow(1, 25));
+    expect(snapshotPageWindow(-3, 25)).toEqual(snapshotPageWindow(1, 25));
+    expect(snapshotPageWindow(1.9, 25)).toEqual(snapshotPageWindow(1, 25));
   });
 });

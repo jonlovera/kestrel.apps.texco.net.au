@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { resolveViewer } from "@/lib/view-as";
 import {
-  loadSnapshots,
+  loadSnapshotPage,
   loadOverrides,
   loadColumnConfig,
   loadCopy,
@@ -11,12 +11,15 @@ import {
 } from "@/lib/store";
 import { getDataset } from "@/lib/data";
 import { restoreSnapshot } from "@/lib/snapshots";
+import { snapshotPageWindow } from "@/lib/snapshots-core";
 import { diffSnapshotStates, type SnapshotDiffSummary } from "@/lib/snapshot-diff";
 import type { Overrides, Snapshot } from "@/lib/schema";
 import SnapshotList from "@/components/SnapshotList";
 
 export const metadata = { title: "Texco" };
 export const dynamic = "force-dynamic";
+
+const PAGE_SIZE = 25;
 
 /**
  * Rows whose override entry actually does something, split into manual edits
@@ -46,15 +49,23 @@ async function requireAdminPage() {
   return actor;
 }
 
-export default async function SnapshotsPage() {
+export default async function SnapshotsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
   const email = await requireAdminPage();
+
+  const { page: rawPage } = await searchParams;
+  const requested = Math.max(1, Math.floor(Number(rawPage) || 1));
+  const window = snapshotPageWindow(requested, PAGE_SIZE);
 
   // The live state, assembled the same way takeSnapshot assembles a snapshot
   // (getDataset, not getEffectiveDataset — snapshots store the source data,
   // params are a separate part), so the newest row diffs like-for-like.
-  const [snapshots, dataset, overrides, columns, copy, params, access] =
+  const [pageData, dataset, overrides, columns, copy, params, access] =
     await Promise.all([
-      loadSnapshots(),
+      loadSnapshotPage(window.offset, window.limit),
       getDataset(),
       loadOverrides(),
       loadColumnConfig(),
@@ -62,6 +73,20 @@ export default async function SnapshotsPage() {
       loadParams(),
       loadAccessOverlay(),
     ]);
+  const { total } = pageData;
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (requested > pageCount) {
+    redirect(pageCount === 1 ? "/admin/snapshots" : `/admin/snapshots?page=${pageCount}`);
+  }
+  const page = requested;
+
+  // When not on page 1, the first fetched row is only the diff partner for
+  // the page's first visible row (see snapshotPageWindow); it is not shown.
+  const snapshots = window.leadingPartner
+    ? pageData.snapshots.slice(1)
+    : pageData.snapshots;
+  const partner = window.leadingPartner ? pageData.snapshots[0] : undefined;
+
   const currentState: Snapshot["state"] = {
     dataset,
     overrides,
@@ -73,13 +98,15 @@ export default async function SnapshotsPage() {
 
   // Snapshots are PRE-mutation and listed newest-first, so what row i's
   // actor/reason changed is the difference between row i and the next-newer
-  // state — the live state for the newest row.
+  // state — the live state for the newest row of page 1, the carried-along
+  // partner row for the first row of any later page.
   const changesFor = (i: number): SnapshotDiffSummary => {
     try {
-      return diffSnapshotStates(
-        snapshots[i].state,
-        i === 0 ? currentState : snapshots[i - 1].state
-      );
+      const newer =
+        i > 0
+          ? snapshots[i - 1].state
+          : (partner?.state ?? currentState);
+      return diffSnapshotStates(snapshots[i].state, newer);
     } catch (err) {
       // One malformed old snapshot must not cost the whole page.
       console.error(`[snapshots] diff failed for ${snapshots[i].ts}:`, err);
@@ -111,6 +138,9 @@ export default async function SnapshotsPage() {
         ...countOverrides(s.state.overrides),
         changes: changesFor(i),
       }))}
+      page={page}
+      pageCount={pageCount}
+      total={total}
       restoreAction={restoreAction}
     />
   );

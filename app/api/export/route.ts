@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getEffectiveDataset } from "@/lib/data";
-import { loadOverrides, loadCopy, loadSnapshots } from "@/lib/store";
+import { loadOverrides, loadCopy, loadSnapshotByTs } from "@/lib/store";
 import { DatasetSchema, OverridesSchema } from "@/lib/schema";
 import { buildWorkbook, exportFilename } from "@/lib/export-xlsx";
 import { requireEditor } from "@/lib/api-guard";
@@ -28,7 +28,7 @@ export async function GET(req: Request) {
 
   let data, overrides, asOf;
   if (ts) {
-    const snapshot = (await loadSnapshots()).find((s) => s.ts === ts);
+    const snapshot = await loadSnapshotByTs(ts);
     if (!snapshot) {
       return NextResponse.json({ error: "Snapshot not found" }, { status: 404 });
     }

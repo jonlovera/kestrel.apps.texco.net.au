@@ -13,6 +13,7 @@ import {
   saveCopy,
   clearCopy,
   loadSnapshots,
+  loadSnapshotByTs,
   pushSnapshot,
   appendHistory,
   loadAccessOverlay,
@@ -77,8 +78,7 @@ export async function takeSnapshot(actor: string, reason: string): Promise<void>
  * the restore itself can be undone.
  */
 export async function restoreSnapshot(ts: string, actor: string): Promise<void> {
-  const snapshots = await loadSnapshots();
-  const target = snapshots.find((s) => s.ts === ts);
+  const target = await loadSnapshotByTs(ts);
   if (!target) throw new Error("Snapshot not found");
 
   await takeSnapshot(actor, "pre-restore");

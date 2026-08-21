@@ -43,6 +43,10 @@ async function main() {
     created_at timestamptz NOT NULL DEFAULT now())`;
   await sql`CREATE INDEX IF NOT EXISTS kestrel_log_list_id_idx
     ON kestrel_log (list, id DESC)`;
+  // Serves the targeted snapshot-by-timestamp lookup (restore, historical
+  // export) now that the snapshot list is unbounded.
+  await sql`CREATE INDEX IF NOT EXISTS kestrel_log_list_ts_idx
+    ON kestrel_log (list, (entry->>'ts'))`;
   const docs = await sql`SELECT count(*) AS n FROM kestrel_docs`;
   const log = await sql`SELECT count(*) AS n FROM kestrel_log`;
   console.log(

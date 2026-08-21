@@ -410,26 +410,40 @@ export function saveIdentityUsers(users: IdentityUsers): Promise<void> {
   return saveDoc(IDENTITY_USERS_KEY, IDENTITY_USERS_FILE, users);
 }
 
-// ── snapshots (newest first, capped at 50) ───────────────────────────────────
+// ── snapshots (newest first, kept forever, read a page at a time) ────────────
+// Every restore point is kept: the 50-slot cap used to silently destroy the
+// oldest ones, so one long editing session could eat the whole undo history.
+// Autosave coalescing (lib/snapshots-core.ts) is what bounds growth now —
+// roughly one row per actor per 10 minutes of autosaving, ~37 kB each.
 const SNAPSHOTS_KEY = "kestrel:snapshots:fy26";
 const SNAPSHOTS_FILE = "snapshots.json";
-const SNAPSHOTS_CAP = 50;
 
 export async function pushSnapshot(snapshot: Snapshot): Promise<void> {
   const client = sql();
   if (client) {
     await client`INSERT INTO kestrel_log (list, entry)
       VALUES (${SNAPSHOTS_KEY}, ${JSON.stringify(snapshot)}::jsonb)`;
-    await trimLog(client, SNAPSHOTS_KEY, SNAPSHOTS_CAP);
   } else if (process.env.NODE_ENV === "development") {
     const prev = (((await devRead(SNAPSHOTS_FILE)) as Snapshot[]) ?? []);
-    await devWrite(SNAPSHOTS_FILE, [snapshot, ...prev].slice(0, SNAPSHOTS_CAP));
+    await devWrite(SNAPSHOTS_FILE, [snapshot, ...prev]);
   } else {
     throw new Error(NO_DB);
   }
 }
 
-export async function loadSnapshots(limit = SNAPSHOTS_CAP): Promise<Snapshot[]> {
+/** One tolerant parse shared by every snapshot read: a malformed old row
+ *  costs that row, never the page. */
+function parseSnapshots(raw: unknown[]): Snapshot[] {
+  return raw
+    .map((item) => {
+      const obj = typeof item === "string" ? JSON.parse(item) : item;
+      const parsed = SnapshotSchema.safeParse(obj);
+      return parsed.success ? parsed.data : null;
+    })
+    .filter((s): s is Snapshot => s !== null);
+}
+
+export async function loadSnapshots(limit = 50): Promise<Snapshot[]> {
   try {
     const client = sql();
     const raw = client
@@ -438,16 +452,72 @@ export async function loadSnapshots(limit = SNAPSHOTS_CAP): Promise<Snapshot[]> 
             WHERE list = ${SNAPSHOTS_KEY} ORDER BY id DESC LIMIT ${limit}`
         ).map((row) => row.entry)
       : (((await devRead(SNAPSHOTS_FILE)) as unknown[]) ?? []).slice(0, limit);
-    return raw
-      .map((item) => {
-        const obj = typeof item === "string" ? JSON.parse(item) : item;
-        const parsed = SnapshotSchema.safeParse(obj);
-        return parsed.success ? parsed.data : null;
-      })
-      .filter((s): s is Snapshot => s !== null);
+    return parseSnapshots(raw);
   } catch (err) {
     console.error("[store] failed to load snapshots:", err);
     return [];
+  }
+}
+
+/**
+ * One page of snapshots, newest first, plus the total row count for the
+ * pager. Two statements (the HTTP driver runs one per request); both are
+ * served by the (list, id DESC) index.
+ */
+export async function loadSnapshotPage(
+  offset: number,
+  limit: number
+): Promise<{ snapshots: Snapshot[]; total: number }> {
+  try {
+    const client = sql();
+    if (client) {
+      const [rows, count] = await Promise.all([
+        client`SELECT entry FROM kestrel_log
+          WHERE list = ${SNAPSHOTS_KEY}
+          ORDER BY id DESC LIMIT ${limit} OFFSET ${offset}`,
+        client`SELECT count(*)::int AS n FROM kestrel_log
+          WHERE list = ${SNAPSHOTS_KEY}`,
+      ]);
+      return {
+        snapshots: parseSnapshots(rows.map((r) => r.entry)),
+        total: Number(count[0]?.n ?? 0),
+      };
+    }
+    const all = (((await devRead(SNAPSHOTS_FILE)) as unknown[]) ?? []);
+    return {
+      snapshots: parseSnapshots(all.slice(offset, offset + limit)),
+      total: all.length,
+    };
+  } catch (err) {
+    console.error("[store] failed to load snapshot page:", err);
+    return { snapshots: [], total: 0 };
+  }
+}
+
+/**
+ * Exactly one snapshot by its timestamp — for restore and the historical
+ * export, which used to load the whole list to use one row and cannot do
+ * that against an unbounded list. `ts` is not unique by construction;
+ * newest wins, matching the old find over a newest-first array.
+ */
+export async function loadSnapshotByTs(ts: string): Promise<Snapshot | null> {
+  try {
+    const client = sql();
+    const raw = client
+      ? (
+          await client`SELECT entry FROM kestrel_log
+            WHERE list = ${SNAPSHOTS_KEY} AND entry->>'ts' = ${ts}
+            ORDER BY id DESC LIMIT 1`
+        ).map((row) => row.entry)
+      : [
+          ((((await devRead(SNAPSHOTS_FILE)) as { ts?: string }[]) ?? []).find(
+            (s) => s?.ts === ts
+          ) ?? null),
+        ].filter((s) => s !== null);
+    return parseSnapshots(raw)[0] ?? null;
+  } catch (err) {
+    console.error(`[store] failed to load snapshot ${ts}:`, err);
+    return null;
   }
 }
 
