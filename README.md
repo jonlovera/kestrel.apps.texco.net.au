@@ -186,13 +186,19 @@ Who can change what:
 | IPM, Discretionary | ✅ | ✅ own rows only |
 | After IPM ("Bonus") | ✅ | ✕ |
 | Lock a bonus | ✅ | ✕ |
-| Employee ID, Package/REM, Bonus % | ✕ | ✕ |
-| Names, roles, states, who exists | ✕ | ✕ |
+| Employee ID, Package/REM, Bonus % (existing rows) | ✕ | ✕ |
+| Names, roles on existing rows | ✕ | ✕ |
+| Move someone between pools (state) | ✅ | ✕ |
+| Add a new person | ✅ | ✕ |
+| Remove someone from the model | ✅ | ✕ |
 | Caps, columns, wording, banner | ✅ | ✕ |
 
 The read-only fields come from the spreadsheet, and only from there: a typo in
 an employee ID or a package cascades through every calculation in the scheme.
-Terminations, promotions and new starters arrive by import.
+Terminations and promotions arrive by import. Admins can add a new starter
+("+ Add person") and move people between pools from the dashboard, but the
+import stays the source of truth: the next workbook must list an added person
+too, or that import will drop them.
 
 A state lead never calculates locally — their browser is never given the pool
 it would need. Their what-ifs go to `/api/preview`, which runs the real engine

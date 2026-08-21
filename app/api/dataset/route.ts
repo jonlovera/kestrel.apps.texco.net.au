@@ -85,7 +85,7 @@ export async function POST(req: Request) {
   await appendHistory(result.history);
 
   console.log(
-    `[audit] dataset-write email=${email} emp=${body.patch.id} version=${cas.version} ts=${new Date().toISOString()}`
+    `[audit] dataset-write email=${email} emp=${"id" in body.patch ? body.patch.id : body.patch.employee.id} op=${body.patch.op} version=${cas.version} ts=${new Date().toISOString()}`
   );
   revalidatePath("/");
 
@@ -114,14 +114,16 @@ function unscale(
   patch: z.infer<typeof DatasetPatchSchema>,
   companyModifier: number
 ): z.infer<typeof DatasetPatchSchema> {
-  if (
-    patch.op !== "field" ||
-    patch.field !== "bipm" ||
-    companyModifier === 1 ||
-    companyModifier <= 0
-  ) {
-    return patch;
+  if (companyModifier === 1 || companyModifier <= 0) return patch;
+  // A new person's After IPM arrives as a displayed figure too — storing it
+  // unscaled would silently skew their derived company modifier.
+  if (patch.op === "add") {
+    return {
+      ...patch,
+      employee: { ...patch.employee, bipm: patch.employee.bipm / companyModifier },
+    };
   }
+  if (patch.op !== "field" || patch.field !== "bipm") return patch;
   return { ...patch, value: patch.value / companyModifier };
 }
 

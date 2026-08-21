@@ -31,6 +31,7 @@ import { PoolCard } from "./PoolCard";
 import { MultiSelect } from "./MultiSelect";
 import EmployeeTable, { type TableColumn } from "./EmployeeTable";
 import EmployeeEditModal from "./EmployeeEditModal";
+import EmployeeAddModal from "./EmployeeAddModal";
 import ColumnMenu from "./ColumnMenu";
 import EditableText from "./EditableText";
 import Dropzone from "./Dropzone";
@@ -132,6 +133,8 @@ export default function DashboardClient({
   const [dsError, setDsError] = useState<string | null>(null);
   /** id of the person whose edit modal is open (pool change, remove) */
   const [editingId, setEditingId] = useState<string | null>(null);
+  /** the "+ Add person" modal (admins only, like the row pencil) */
+  const [adding, setAdding] = useState(false);
 
   /**
    * There is no edit mode any more — every cell is directly editable in
@@ -650,8 +653,11 @@ export default function DashboardClient({
         setDsError(body.error ?? "That change could not be saved.");
         return false;
       }
-      // an After-IPM change can't move anyone between filter groups, so the
-      // facets and the pickers stay exactly as they are
+      // The facet memo and the pickers are fixed for the life of the view.
+      // Inline figure and state edits can't invent a new filter value; an
+      // added person CAN bring a new department or manager, which joins the
+      // filter lists on the next reload — until then the row is still shown,
+      // because an all-selected facet applies no filter at all.
       datasetVersionRef.current = body.version;
       setEmployees(body.employees);
       return true;
@@ -1141,6 +1147,11 @@ export default function DashboardClient({
         ? { op: "state", id, st, vp: vicShare }
         : { op: "state", id, st };
     if (await patchDataset(patch)) setEditingId(null);
+  }
+
+  /** "+ Add person": one op through the same funnel; closes on success. */
+  async function addEmployee(employee: Employee) {
+    if (await patchDataset({ op: "add", employee })) setAdding(false);
   }
 
   // ── totals row ──
@@ -1650,6 +1661,20 @@ export default function DashboardClient({
               <MultiSelect label="Managers" items={facets.mgrs} selected={selMgrs} onChange={setSelMgrs} />
               {configuring && (
                 <>
+                  {/* Restored: new starters shouldn't wait for the next
+                      workbook. Admin-only by the same gate as every other
+                      roster control (requireWriter server-side). */}
+                  <button
+                    type="button"
+                    disabled={dsBusy}
+                    onClick={() => {
+                      setDsError(null);
+                      setAdding(true);
+                    }}
+                    className="border-2 border-brand-orange px-3.5 py-1.5 text-[11px] font-bold tracking-wide text-brand-orange transition-colors hover:bg-brand-orange hover:text-white disabled:opacity-40"
+                  >
+                    + Add person
+                  </button>
                   <ColumnMenu
                     config={columnConfig}
                     onChange={applyColumnConfig}
@@ -1852,6 +1877,23 @@ export default function DashboardClient({
             />
           );
         })()}
+
+      {adding && (
+        <EmployeeAddModal
+          roles={facets.roles}
+          cats={facets.cats}
+          depts={facets.depts}
+          mgrs={facets.mgrs}
+          existingIds={new Set(employees.map((e) => e.id))}
+          busy={dsBusy}
+          error={dsError}
+          onAdd={(employee) => void addEmployee(employee)}
+          onClose={() => {
+            setAdding(false);
+            setDsError(null);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -4,17 +4,26 @@
  * module — no I/O, no server-only imports.
  *
  * Everything else that used to live here is gone on purpose. Employee id,
- * package/REM and bonus % are read-only for everyone now, admin included: a
- * typo in one cascades through every calculation in the scheme. Names,
- * positions and who exists at all come from the spreadsheet import, which is
- * the source of truth and the path that handles terminations, promotions and
- * new starters.
+ * package/REM and bonus % are read-only on an EXISTING row for everyone,
+ * admin included: a typo in one cascades through every calculation in the
+ * scheme. Names and positions come from the spreadsheet import, which is the
+ * source of truth for terminations and promotions.
  *
- * State (VIC/NSW/Shared) is the one identity-ish field reopened for admins
- * (the "state" op below): moving someone between pools is a scheme decision,
- * not a payroll fact, and waiting for the next workbook was costing real
- * time. The import stays authoritative: a later import that still lists the
- * person under their old state moves them back, and the edit modal says so.
+ * Two identity-ish abilities are deliberately reopened for admins:
+ *
+ * State (VIC/NSW/Shared), the "state" op below: moving someone between pools
+ * is a scheme decision, not a payroll fact, and waiting for the next
+ * workbook was costing real time. The import stays authoritative: a later
+ * import that still lists the person under their old state moves them back,
+ * and the edit modal says so.
+ *
+ * Adding a person, the "add" op below (restored — it shipped on 6 Aug and
+ * was removed in the field lockdown four days later): a new starter should
+ * not wait for the next workbook either. The import stays authoritative
+ * here too, and the consequence is harsher than the state op's reversion:
+ * an import whose sheet does not list the added person REMOVES them
+ * (candidateDataset replaces `emp` wholesale), so the add form tells the
+ * admin to put them in the next workbook as well.
  *
  * After IPM survives as editable because it is the figure the engine actually
  * anchors on (lib/calc.ts derives each person's company modifier from it), and
@@ -76,6 +85,13 @@ export const DatasetPatchSchema = z.union([
     /** required when st === "SHARED": the VIC share of the split; NSW = 1 - vp */
     vp: z.number().finite().min(0).max(1).optional(),
   }),
+  /**
+   * A brand-new row. The whole Employee shape is required; vp/np are then
+   * DERIVED server-side from `st` (VIC 1/0, NSW 0/1, SHARED from the sent
+   * vp as the VIC share) so an invalid split is unrepresentable — the same
+   * rule the "state" op enforces.
+   */
+  z.object({ op: z.literal("add"), employee: EmployeeSchema }),
 ]);
 export type DatasetPatch = z.infer<typeof DatasetPatchSchema>;
 type FieldPatch = z.infer<typeof FieldPatchSchema>;
@@ -85,8 +101,9 @@ export type DatasetPatchResult =
   | { ok: false; errors: string[] };
 
 /**
- * The dataset's filter lists, derived from whoever is in it. Still used by
- * lib/import-parse.ts, which is now the only thing that changes who exists.
+ * The dataset's filter lists, derived from whoever is in it. Used by
+ * lib/import-parse.ts and by every op here that changes who exists
+ * (exclude, add) — a new starter's department must reach the filters.
  */
 export function deriveFacets(
   employees: Employee[]
@@ -120,6 +137,7 @@ export function applyDatasetPatch(
   if (patch.op === "unexclude") return applyUnexclude(data, patch.id, actor, ts);
   if (patch.op === "state")
     return applyStateChange(data, patch.id, patch.st, patch.vp, actor, ts);
+  if (patch.op === "add") return applyAdd(data, patch.employee, actor, ts);
 
   const index = data.emp.findIndex((e) => e.id === patch.id);
   if (index < 0) {
@@ -359,6 +377,112 @@ function applyStateChange(
         field: "st",
         from: existing.st,
         to: st,
+      },
+    ],
+  };
+}
+
+/** Human labels for add-validation errors, matching the import's column names. */
+const ADD_FIELD_LABEL: Record<string, string> = {
+  id: "ID",
+  sn: "Surname",
+  gn: "Given name",
+  pos: "Position",
+  dept: "Department",
+  mgr: "Manager",
+  cat: "Category",
+  st: "State",
+  vp: "VIC %",
+  np: "NSW %",
+  pkg: "Package",
+  bp: "Bonus %",
+  ipm: "IPM %",
+  bipm: "After IPM",
+  da: "Disc adj",
+  f25: "FY25 bonus",
+  sm: "Site manager",
+};
+
+/**
+ * Add a brand-new person to the roster. Restores the "+ Add person" ability
+ * removed in the field lockdown, with two hardenings the original lacked:
+ * vp/np are derived from `st` rather than trusted (an invalid split is
+ * unrepresentable), and an id on the excluded list is refused up front —
+ * candidateDataset would silently drop that person on the very next import,
+ * which is a confusing way to discover the conflict.
+ *
+ * The id convention in the real data is initials-derived uppercase letters
+ * (ALBID, BRELL), enforced loosely as 2-6 uppercase letters after trimming
+ * and upcasing whatever was typed.
+ */
+function applyAdd(
+  data: Dataset,
+  incoming: Employee,
+  actor: string,
+  ts: string
+): DatasetPatchResult {
+  const id = incoming.id.trim().toUpperCase();
+  // uniqueness first: "already exists" is the answer the admin actually
+  // needs, even when the id would also fail the format rule
+  const existing = data.emp.find((e) => e.id === id);
+  if (existing) {
+    return {
+      ok: false,
+      errors: [`Employee id '${id}' already exists (${existing.gn} ${existing.sn}).`],
+    };
+  }
+  if (!/^[A-Z][A-Z0-9]{1,5}$/.test(id)) {
+    return {
+      ok: false,
+      errors: [
+        `'ID': must be 2 to 6 letters or digits, starting with a letter (the convention is first two of the given name plus first three of the surname), got '${incoming.id}'.`,
+      ],
+    };
+  }
+  if ((data.excludedIds ?? []).includes(id)) {
+    return {
+      ok: false,
+      errors: [
+        `'${id}' is on the permanently-excluded list, so the next import would drop them again. Un-exclude them from Admin > Import first, or pick a different id.`,
+      ],
+    };
+  }
+
+  // The split is the state's, not the caller's — same rule as the state op.
+  // For Shared Services the sent vp is read as the VIC share.
+  let vp: number;
+  if (incoming.st === "VIC") vp = 1;
+  else if (incoming.st === "NSW") vp = 0;
+  else vp = round4(incoming.vp);
+  const np = round4(1 - vp);
+
+  const candidate: Employee = { ...incoming, id, vp, np };
+  const parsed = EmployeeSchema.safeParse(candidate);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      errors: parsed.error.issues.map((i) => {
+        const field = String(i.path[0] ?? "?");
+        return `'${ADD_FIELD_LABEL[field] ?? field}': ${i.message.toLowerCase()}`;
+      }),
+    };
+  }
+
+  const emp = [...data.emp, parsed.data];
+  const split =
+    candidate.st === "SHARED" ? `, ${fmtPct(vp)} VIC / ${fmtPct(np)} NSW` : "";
+  return {
+    ok: true,
+    dataset: { ...data, emp, ...deriveFacets(emp) },
+    history: [
+      {
+        ts,
+        actor,
+        kind: "dataset",
+        summary: `Added ${candidate.gn} ${candidate.sn} (${candidate.pos}, ${candidate.dept}, ${STATE_LABEL[candidate.st]}${split}) with a package of ${fmt(candidate.pkg)}`,
+        empId: id,
+        field: "add",
+        to: id,
       },
     ],
   };

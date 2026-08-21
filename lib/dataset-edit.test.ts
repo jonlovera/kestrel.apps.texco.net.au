@@ -1,10 +1,11 @@
 /**
- * Tests for the remaining dataset edits: After IPM, and the Shared Services
- * VIC/NSW split. The load-bearing assertion is negative: the patch schema
- * accepts nothing else, so a client cannot reach package, bonus %, a name, or
- * who exists — those come from the spreadsheet, because a typo in one
- * cascades through every figure. Note the old `{op:"split", vp, np}` shape
- * below stays refused on purpose — the split is reopened under the existing
+ * Tests for the dataset edits: After IPM, the Shared Services VIC/NSW split,
+ * moving someone between pools, and adding a new person. The load-bearing
+ * assertion is still negative: the patch schema accepts nothing else, so a
+ * client cannot reach package, bonus % or a name on an EXISTING row — those
+ * come from the spreadsheet, because a typo in one cascades through every
+ * figure. Note the old `{op:"split", vp, np}` shape below stays refused on
+ * purpose — the split is reopened under the existing
  * `{op:"field", field:"vp"|"np"}` vocabulary, not that one.
  */
 import { describe, it, expect } from "vitest";
@@ -121,10 +122,12 @@ describe("the locked-down fields are unreachable through this API", () => {
     ["a name", { op: "text", id: "TEST1", field: "gn", value: "Bob" }],
     ["a department", { op: "text", id: "TEST1", field: "dept", value: "Legal" }],
     // the state used to be on this list; it is now deliberately editable
-    // through {op:"state"} — see "moving someone between pools" below
+    // through {op:"state"} — see "moving someone between pools" below.
+    // Adding a person was on this list too and is now deliberately reopened
+    // through {op:"add"} — see "adding a person" below.
     ["an unknown state", { op: "state", id: "TEST1", st: "QLD" }],
     ["the pool split", { op: "split", id: "TEST1", vp: 0.5, np: 0.5 }],
-    ["adding a person", { op: "add", employee: emp({ id: "NEW" }) }],
+    ["adding with a malformed employee", { op: "add", employee: { id: "NEW" } }],
     ["removing a person", { op: "remove", id: "TEST1" }],
   ];
 
@@ -384,5 +387,125 @@ describe("the change flows through the real calc engine", () => {
     computeScalesAndBonuses(emps, res.dataset);
     const after = emps.find((e) => e.id === sm.id)!;
     expect(after.finalBonus).toBeCloseTo(sm.bipm * 1.5, 6);
+  });
+});
+
+/**
+ * Adding a person ({op:"add"}) — deliberately reopened. The invariants: ids
+ * are normalised and unique (including against the excluded list, where the
+ * next import would silently drop the person), the split is derived from the
+ * state rather than trusted, the filter facets pick up any new values, and a
+ * new starter added with the suggested After IPM (pkg x bp x ipm) carries a
+ * company modifier of exactly 1 through the real engine.
+ */
+describe("adding a person ({op:'add'})", () => {
+  const base = dataset([emp()]);
+  const newbie = emp({
+    id: "JOBLO",
+    gn: "Jo",
+    sn: "Bloggs",
+    pos: "Delivery Manager",
+    dept: "New Frontier",
+    mgr: "Someone New",
+    pkg: 150_000,
+    bp: 0.1,
+    ipm: 1,
+    bipm: 15_000,
+    f25: 0,
+  });
+  const add = (employee: Employee) => apply(base, { op: "add", employee });
+
+  it("appends the person and derives the facets, with the history sentence", () => {
+    const res = add(newbie);
+    if (!res.ok) throw new Error(res.errors.join("; "));
+    expect(res.dataset.emp).toHaveLength(2);
+    expect(res.dataset.emp[1].id).toBe("JOBLO");
+    // a brand-new department and manager reach the filter lists
+    expect(res.dataset.depts).toContain("New Frontier");
+    expect(res.dataset.mgrs).toContain("Someone New");
+    expect(res.history).toHaveLength(1);
+    expect(res.history[0].summary).toBe(
+      "Added Jo Bloggs (Delivery Manager, New Frontier, VIC) with a package of $150,000"
+    );
+    expect(res.history[0].empId).toBe("JOBLO");
+  });
+
+  it("does not mutate the input dataset", () => {
+    add(newbie);
+    expect(base.emp).toHaveLength(1);
+  });
+
+  it("normalises the id to trimmed uppercase", () => {
+    const res = add(emp({ ...newbie, id: " joblo " }));
+    if (!res.ok) throw new Error(res.errors.join("; "));
+    expect(res.dataset.emp[1].id).toBe("JOBLO");
+  });
+
+  it("refuses a malformed id, naming the convention", () => {
+    const res = add(emp({ ...newbie, id: "J0-BL0" }));
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error();
+    expect(res.errors[0]).toContain("'ID'");
+    expect(res.errors[0]).toContain("2 to 6 letters or digits");
+  });
+
+  it("refuses a duplicate id, naming who holds it", () => {
+    const res = add(emp({ ...newbie, id: "TEST1" }));
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error();
+    expect(res.errors[0]).toBe("Employee id 'TEST1' already exists (Jane Smith).");
+  });
+
+  it("refuses an id on the excluded list, pointing at the un-exclude path", () => {
+    // the old handler missed this: the add would succeed and the very next
+    // import would silently drop the person via candidateDataset's filter
+    const excl = dataset([emp()], ["JOBLO"]);
+    const res = apply(excl, { op: "add", employee: newbie });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error();
+    expect(res.errors[0]).toContain("permanently-excluded list");
+    expect(res.errors[0]).toContain("Un-exclude");
+  });
+
+  it("derives the split from the state — a lying vp/np cannot land", () => {
+    const vic = add(emp({ ...newbie, st: "VIC", vp: 0.3, np: 0.7 }));
+    if (!vic.ok) throw new Error();
+    expect(vic.dataset.emp[1]).toMatchObject({ vp: 1, np: 0 });
+
+    const nsw = add(emp({ ...newbie, st: "NSW", vp: 0.9, np: 0.1 }));
+    if (!nsw.ok) throw new Error();
+    expect(nsw.dataset.emp[1]).toMatchObject({ vp: 0, np: 1 });
+
+    // for Shared Services the sent vp IS the VIC share; np follows, rounded
+    const shared = add(emp({ ...newbie, st: "SHARED", vp: 0.3, np: 0 }));
+    if (!shared.ok) throw new Error();
+    expect(shared.dataset.emp[1]).toMatchObject({ vp: 0.3, np: 0.7 });
+    expect(
+      shared.dataset.emp[1].vp + shared.dataset.emp[1].np
+    ).toBe(1);
+  });
+
+  it("surfaces a labelled validation error for a bad figure", () => {
+    const res = add(emp({ ...newbie, pkg: -1 }));
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error();
+    expect(res.errors[0]).toContain("'Package'");
+  });
+
+  it("a new starter with the suggested After IPM lands a company modifier of exactly 1", () => {
+    const suggested = 150_000 * 0.1 * 1; // pkg x bp x ipm
+    const res = apply(real, {
+      op: "add",
+      employee: emp({ ...newbie, bipm: suggested }),
+    });
+    if (!res.ok) throw new Error(res.errors.join("; "));
+    const emps = applyOverrides(res.dataset.emp, {});
+    computeScalesAndBonuses(emps, res.dataset);
+    const added = emps.find((e) => e.id === "JOBLO")!;
+    expect(added.cpm).toBeCloseTo(1, 12);
+    // and they pro-rate against the pool like any other unlocked VIC row,
+    // rather than getting the unscaled entitlement
+    expect(added.calcBonus).toBeGreaterThan(0);
+    expect(added.calcBonus).toBeLessThanOrEqual(suggested);
   });
 });
