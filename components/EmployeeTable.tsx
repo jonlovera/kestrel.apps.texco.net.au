@@ -37,7 +37,8 @@ export interface TableHandlers {
   updateSplit: (id: string, field: "vp" | "np", current: number, raw: string) => void;
   toggleLock: (id: string) => void;
   renameColumn: (key: string, label: string) => void;
-  excludeEmployee: (id: string, name: string) => void;
+  /** opens the per-person edit modal (state change, remove from model) */
+  editEmployee: (id: string) => void;
 }
 
 interface Props {
@@ -310,11 +311,11 @@ export default function EmployeeTable({
         return (
           <button
             type="button"
-            title={`Remove ${r.name} from the model`}
-            onClick={() => handlers.excludeEmployee(r.id, r.name)}
-            className="h-7 w-7 border-[1.5px] border-neutral-300 bg-transparent text-sm text-neutral-400 transition-colors hover:border-error hover:text-error"
+            title={`Edit ${r.name}`}
+            onClick={() => handlers.editEmployee(r.id)}
+            className="h-7 w-7 border-[1.5px] border-neutral-300 bg-transparent text-sm text-neutral-400 transition-colors hover:border-brand-orange hover:text-brand-orange"
           >
-            ✕
+            ✎
           </button>
         );
       default:

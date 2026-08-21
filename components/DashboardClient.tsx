@@ -27,6 +27,7 @@ import { TexcoX, TexcoWordmark } from "./TexcoBrand";
 import { PoolCard } from "./PoolCard";
 import { MultiSelect } from "./MultiSelect";
 import EmployeeTable, { type TableColumn } from "./EmployeeTable";
+import EmployeeEditModal from "./EmployeeEditModal";
 import ColumnMenu from "./ColumnMenu";
 import EditableText from "./EditableText";
 import Dropzone from "./Dropzone";
@@ -126,6 +127,8 @@ export default function DashboardClient({
   const datasetVersionRef = useRef(isEditor ? payload.datasetVersion : 0);
   const [dsBusy, setDsBusy] = useState(false);
   const [dsError, setDsError] = useState<string | null>(null);
+  /** id of the person whose edit modal is open (pool change, remove) */
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   /**
    * There is no edit mode any more — every cell is directly editable in
@@ -1068,14 +1071,27 @@ export default function DashboardClient({
    * restored by un-excluding — only a later import that still has them
    * brings them back.
    */
-  function excludeEmployee(id: string, name: string) {
+  async function excludeEmployee(id: string, name: string) {
     if (
       !confirm(
         `Remove ${name} from the model?\n\nThey won't reappear even if a future import still lists them. This can be undone from Admin → Import.`
       )
     )
       return;
-    void patchDataset({ op: "exclude", id });
+    if (await patchDataset({ op: "exclude", id })) setEditingId(null);
+  }
+
+  /** Move someone between the pools, from the edit modal. */
+  async function changeState(
+    id: string,
+    st: Employee["st"],
+    vicShare?: number
+  ) {
+    const patch: DatasetPatch =
+      st === "SHARED"
+        ? { op: "state", id, st, vp: vicShare }
+        : { op: "state", id, st };
+    if (await patchDataset(patch)) setEditingId(null);
   }
 
   // ── totals row ──
@@ -1597,7 +1613,7 @@ export default function DashboardClient({
                 updateSplit,
                 toggleLock,
                 renameColumn,
-                excludeEmployee,
+                editEmployee: setEditingId,
               }}
             />
           </>
@@ -1699,6 +1715,31 @@ export default function DashboardClient({
         </ImportModal>
       )}
 
+      {editingId &&
+        (() => {
+          const e = employees.find((x) => x.id === editingId);
+          if (!e) return null;
+          return (
+            <EmployeeEditModal
+              key={e.id}
+              employee={{
+                id: e.id,
+                name: `${e.gn} ${e.sn}`,
+                pos: e.pos,
+                st: e.st,
+                vp: e.vp,
+              }}
+              busy={dsBusy}
+              error={dsError}
+              onApplyState={(st, vicShare) => void changeState(e.id, st, vicShare)}
+              onRemove={() => void excludeEmployee(e.id, `${e.gn} ${e.sn}`)}
+              onClose={() => {
+                setEditingId(null);
+                setDsError(null);
+              }}
+            />
+          );
+        })()}
     </div>
   );
 }

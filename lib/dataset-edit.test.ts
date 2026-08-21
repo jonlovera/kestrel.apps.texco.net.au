@@ -120,7 +120,9 @@ describe("the locked-down fields are unreachable through this API", () => {
     ["employee id", { op: "field", id: "TEST1", field: "id", value: 1 }],
     ["a name", { op: "text", id: "TEST1", field: "gn", value: "Bob" }],
     ["a department", { op: "text", id: "TEST1", field: "dept", value: "Legal" }],
-    ["the state", { op: "state", id: "TEST1", st: "NSW" }],
+    // the state used to be on this list; it is now deliberately editable
+    // through {op:"state"} — see "moving someone between pools" below
+    ["an unknown state", { op: "state", id: "TEST1", st: "QLD" }],
     ["the pool split", { op: "split", id: "TEST1", vp: 0.5, np: 0.5 }],
     ["adding a person", { op: "add", employee: emp({ id: "NEW" }) }],
     ["removing a person", { op: "remove", id: "TEST1" }],
@@ -131,6 +133,89 @@ describe("the locked-down fields are unreachable through this API", () => {
       expect(DatasetPatchSchema.safeParse(body).success).toBe(false);
     });
   }
+});
+
+describe("moving someone between pools ({op:'state'})", () => {
+  const vicOnly = dataset([emp({ id: "V1", st: "VIC", vp: 1, np: 0 })]);
+  const shared = dataset([emp({ id: "S1", st: "SHARED", vp: 0.6, np: 0.4 })]);
+
+  it("VIC → NSW flips the whole-pool split and records the move", () => {
+    const res = apply(vicOnly, { op: "state", id: "V1", st: "NSW" });
+    if (!res.ok) throw new Error(res.errors.join());
+    const moved = res.dataset.emp[0];
+    expect(moved.st).toBe("NSW");
+    expect(moved.vp).toBe(0);
+    expect(moved.np).toBe(1);
+    expect(res.history[0].summary).toBe("Moved Jane Smith from VIC to NSW");
+    expect(res.history[0]).toMatchObject({ kind: "dataset", empId: "V1", field: "st", from: "VIC", to: "NSW" });
+  });
+
+  it("→ Shared Services takes an explicit VIC share and derives NSW", () => {
+    const res = apply(vicOnly, { op: "state", id: "V1", st: "SHARED", vp: 0.7 });
+    if (!res.ok) throw new Error(res.errors.join());
+    const moved = res.dataset.emp[0];
+    expect(moved.st).toBe("SHARED");
+    expect(moved.vp).toBe(0.7);
+    expect(moved.np).toBe(0.3);
+    expect(res.history[0].summary).toBe(
+      "Moved Jane Smith from VIC to Shared Services (70.0% VIC / 30.0% NSW)"
+    );
+  });
+
+  it("→ Shared Services without a share fails in plain English", () => {
+    const res = apply(vicOnly, { op: "state", id: "V1", st: "SHARED" });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.errors[0]).toBe(
+      "Moving someone to Shared Services needs a VIC % for the split."
+    );
+  });
+
+  it("Shared → NSW collapses the split onto one pool", () => {
+    const res = apply(shared, { op: "state", id: "S1", st: "NSW" });
+    if (!res.ok) throw new Error(res.errors.join());
+    expect(res.dataset.emp[0]).toMatchObject({ st: "NSW", vp: 0, np: 1 });
+    expect(res.history[0].summary).toBe("Moved Jane Smith from Shared Services to NSW");
+  });
+
+  it("re-stating a Shared person with a new split reads as a split change", () => {
+    const res = apply(shared, { op: "state", id: "S1", st: "SHARED", vp: 0.8 });
+    if (!res.ok) throw new Error(res.errors.join());
+    expect(res.dataset.emp[0]).toMatchObject({ st: "SHARED", vp: 0.8, np: 0.2 });
+    expect(res.history[0].summary).toBe(
+      "Set VIC % for Jane Smith: 60.0% → 80.0% (NSW % follows automatically)"
+    );
+  });
+
+  it("same state and split is a no-op with no history", () => {
+    const res = apply(shared, { op: "state", id: "S1", st: "SHARED", vp: 0.6 });
+    if (!res.ok) throw new Error(res.errors.join());
+    expect(res.dataset).toBe(shared);
+    expect(res.history).toEqual([]);
+  });
+
+  it("avoids float residue in the derived share", () => {
+    const res = apply(vicOnly, { op: "state", id: "V1", st: "SHARED", vp: 0.3 });
+    if (!res.ok) throw new Error(res.errors.join());
+    expect(res.dataset.emp[0].np).toBe(0.7);
+  });
+
+  it("does not mutate the input dataset", () => {
+    apply(vicOnly, { op: "state", id: "V1", st: "NSW" });
+    expect(vicOnly.emp[0].st).toBe("VIC");
+    expect(vicOnly.emp[0].vp).toBe(1);
+  });
+
+  it("rejects an unknown employee", () => {
+    const res = apply(vicOnly, { op: "state", id: "NOPE", st: "NSW" });
+    expect(res.ok).toBe(false);
+  });
+
+  it("schema rejects an out-of-range share", () => {
+    expect(
+      DatasetPatchSchema.safeParse({ op: "state", id: "V1", st: "SHARED", vp: 1.5 }).success
+    ).toBe(false);
+  });
 });
 
 describe("the Shared Services split", () => {

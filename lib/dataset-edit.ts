@@ -6,9 +6,15 @@
  * Everything else that used to live here is gone on purpose. Employee id,
  * package/REM and bonus % are read-only for everyone now, admin included: a
  * typo in one cascades through every calculation in the scheme. Names,
- * positions, states and who exists at all come from the spreadsheet import,
- * which is the source of truth and the path that handles terminations,
- * promotions and new starters.
+ * positions and who exists at all come from the spreadsheet import, which is
+ * the source of truth and the path that handles terminations, promotions and
+ * new starters.
+ *
+ * State (VIC/NSW/Shared) is the one identity-ish field reopened for admins
+ * (the "state" op below): moving someone between pools is a scheme decision,
+ * not a payroll fact, and waiting for the next workbook was costing real
+ * time. The import stays authoritative: a later import that still lists the
+ * person under their old state moves them back, and the edit modal says so.
  *
  * After IPM survives as editable because it is the figure the engine actually
  * anchors on (lib/calc.ts derives each person's company modifier from it), and
@@ -63,6 +69,13 @@ export const DatasetPatchSchema = z.union([
   FieldPatchSchema,
   z.object({ op: z.literal("exclude"), id: z.string().min(1) }),
   z.object({ op: z.literal("unexclude"), id: z.string().min(1) }),
+  z.object({
+    op: z.literal("state"),
+    id: z.string().min(1),
+    st: z.enum(["VIC", "NSW", "SHARED"]),
+    /** required when st === "SHARED": the VIC share of the split; NSW = 1 - vp */
+    vp: z.number().finite().min(0).max(1).optional(),
+  }),
 ]);
 export type DatasetPatch = z.infer<typeof DatasetPatchSchema>;
 type FieldPatch = z.infer<typeof FieldPatchSchema>;
@@ -105,6 +118,8 @@ export function applyDatasetPatch(
 ): DatasetPatchResult {
   if (patch.op === "exclude") return applyExclude(data, patch.id, actor, ts);
   if (patch.op === "unexclude") return applyUnexclude(data, patch.id, actor, ts);
+  if (patch.op === "state")
+    return applyStateChange(data, patch.id, patch.st, patch.vp, actor, ts);
 
   const index = data.emp.findIndex((e) => e.id === patch.id);
   if (index < 0) {
@@ -262,6 +277,88 @@ function applyUnexclude(
         kind: "dataset",
         summary: `Un-excluded employee id ${id} — will reappear on the next import that still lists them`,
         empId: id,
+      },
+    ],
+  };
+}
+
+/** How a state reads in a history sentence. */
+const STATE_LABEL: Record<Employee["st"], string> = {
+  VIC: "VIC",
+  NSW: "NSW",
+  SHARED: "Shared Services",
+};
+
+/**
+ * Move an employee between the pools. VIC and NSW imply their whole-pool
+ * split; Shared Services requires an explicit VIC share (NSW follows as the
+ * remainder, like the vp/np field patches). Re-attributes the person's whole
+ * bonus exposure between the capped pools, which is exactly why this is
+ * admin-only and flows through the snapshot/history pipeline.
+ */
+function applyStateChange(
+  data: Dataset,
+  id: string,
+  st: Employee["st"],
+  vpShare: number | undefined,
+  actor: string,
+  ts: string
+): DatasetPatchResult {
+  const index = data.emp.findIndex((e) => e.id === id);
+  if (index < 0) {
+    return { ok: false, errors: [`No employee with id '${id}'.`] };
+  }
+  const existing = data.emp[index];
+
+  let vp: number;
+  if (st === "VIC") vp = 1;
+  else if (st === "NSW") vp = 0;
+  else {
+    if (vpShare === undefined) {
+      return {
+        ok: false,
+        errors: ["Moving someone to Shared Services needs a VIC % for the split."],
+      };
+    }
+    vp = round4(vpShare);
+  }
+  const np = round4(1 - vp);
+
+  if (existing.st === st && existing.vp === vp && existing.np === np) {
+    return { ok: true, dataset: data, history: [] };
+  }
+
+  const updated: Employee = { ...existing, st, vp, np };
+  const parsed = EmployeeSchema.safeParse(updated);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      errors: parsed.error.issues.map((i) => `'State': ${i.message.toLowerCase()}`),
+    };
+  }
+
+  const emp = [...data.emp];
+  emp[index] = updated;
+  const split = st === "SHARED" ? ` (${fmtPct(vp)} VIC / ${fmtPct(np)} NSW)` : "";
+  const summary =
+    existing.st === st
+      ? // already SHARED, only the split moved; worded the way the vp/np
+        // field patches word it, so the history reads consistently
+        `Set VIC % for ${existing.gn} ${existing.sn}: ${fmtPct(existing.vp)} → ${fmtPct(vp)} (NSW % follows automatically)`
+      : `Moved ${existing.gn} ${existing.sn} from ${STATE_LABEL[existing.st]} to ${STATE_LABEL[st]}${split}`;
+  return {
+    ok: true,
+    dataset: { ...data, emp },
+    history: [
+      {
+        ts,
+        actor,
+        kind: "dataset",
+        summary,
+        empId: existing.id,
+        field: "st",
+        from: existing.st,
+        to: st,
       },
     ],
   };
