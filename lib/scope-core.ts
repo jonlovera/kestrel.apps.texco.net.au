@@ -29,9 +29,9 @@ import type {
   DashboardPayload,
   ReadonlyPayload,
   ScopedRow,
-  StatePoolCard,
   UserInfo,
 } from "./payload-types";
+import { managerPoolFrom } from "./manager-pool";
 
 export interface PayloadOptions {
   overridesVersion?: number;
@@ -88,9 +88,12 @@ export function buildPayloadCore(
     };
   }
 
-  // Read-only: compute over the full pool, then scope.
+  // Read-only: compute over the full pool, then scope. The returned PoolState
+  // is deliberately dropped — the state scales and state availability it
+  // carries are group figures, and the header this payload now builds is about
+  // the manager's own scope rather than a state waterfall.
   const emps = applyOverrides(data.emp, overrides);
-  const pool = computeScalesAndBonuses(emps, data);
+  computeScalesAndBonuses(emps, data);
 
   // one definition of "in scope", shared with the write boundary
   // (lib/write-scope.ts) so the two can never disagree about whose row it is
@@ -132,35 +135,15 @@ export function buildPayloadCore(
     return row;
   });
 
-  // Pool cards: state users get their state card(s) like the prototype's
-  // state views (pool available, total allocated, remaining). Subset users get none.
-  // Which pools this user is entitled to a summary of. A group rule scoped to
-  // a state gets that state's card, the same as a plain state rule — a subset
-  // rule gets none, because an arbitrary list of people has no pool of its own.
-  const cardStates =
-    scope.rule.type === "state" || scope.rule.type === "group"
-      ? scope.rule.states
-      : [];
-  const poolCards: StatePoolCard[] = [];
-  {
-    for (const st of cardStates) {
-      if (st === "SHARED") continue;
-      const stateEmps = allowed.filter((e) => e.st === st);
-      const stateBonuses = stateEmps.reduce(
-        (s: number, e: CalcEmployee) => s + e.finalBonus,
-        0
-      );
-      const avail = st === "VIC" ? pool.stateVicAvail : pool.stateNswAvail;
-      const card: StatePoolCard = {
-        // resolved here, so renaming a pool card reaches state leads too
-        title: st === "VIC" ? copy.poolTitles.vic : copy.poolTitles.nsw,
-        stateBonuses,
-        available: avail,
-        utilPct: avail > 0 ? stateBonuses / avail : 1,
-      };
-      poolCards.push(card);
-    }
-  }
+  // The header: this manager's OWN pool, not a state's. The card this replaces
+  // handed a scoped lead a whole-state figure — for a group rule covering
+  // fifteen delivery positions inside VIC, a number about several hundred
+  // people they are not accountable for, and one that silently dropped the
+  // in-scope SHARED row the table footer counted. `allowed` is already the
+  // engine-computed population narrowed by ruleMatches, so this is a
+  // filter-and-sum with no second engine pass — /api/preview runs it on every
+  // keystroke burst.
+  const managerPool = managerPoolFrom(scope.rule, allowed);
 
   // Filter option lists derived from the user's own rows only.
   const uniq = (xs: string[]) => [...new Set(xs)].sort();
@@ -186,8 +169,8 @@ export function buildPayloadCore(
     // touched, and the version so their save isn't a guaranteed 409.
     overrides: scopeOverridesView(scope, data.emp, overrides),
     overridesVersion,
-    // pool titles are already baked into poolCards[].title above; sending the
-    // map too would name the pools this user has no business seeing
+    // the header names this user's own pool with fixed labels; sending the
+    // poolTitles map would name the pools they have no business seeing
     copy: {
       schemeName: copy.schemeName,
       bannerText: copy.bannerText,
@@ -195,7 +178,7 @@ export function buildPayloadCore(
       footerText: copy.footerText,
     },
     showStateColumn,
-    poolCards,
+    managerPool,
     cats: uniq(allowed.map((e) => e.cat)),
     depts: uniq(allowed.map((e) => e.dept)),
     mgrs: uniq(allowed.map((e) => e.mgr)),

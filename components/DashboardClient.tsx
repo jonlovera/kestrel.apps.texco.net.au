@@ -8,6 +8,7 @@ import { effectiveColumns, BUILDUP_FIELDS, type ColumnConfig } from "@/lib/colum
 import { DEFAULT_COPY, type Copy } from "@/lib/copy";
 import type { Params } from "@/lib/params-apply";
 import type { Employee, Overrides, HistoryEntry } from "@/lib/schema";
+import type { ManagerPool } from "@/lib/manager-pool";
 import type { DatasetPatch } from "@/lib/dataset-edit";
 import {
   mergeOverrides,
@@ -17,8 +18,10 @@ import {
 import {
   applyOverrides,
   computeScalesAndBonuses,
+  isLockable,
   parsePercentInput,
   parseDaInput,
+  sumAllocated,
   type CalcEmployee,
   type PoolState,
 } from "@/lib/calc";
@@ -194,8 +197,14 @@ export default function DashboardClient({
   const [scopedRows, setScopedRows] = useState<DisplayRow[]>(
     isEditor ? [] : payload.rows
   );
-  const [scopedCards, setScopedCards] = useState(
-    isEditor ? [] : payload.poolCards
+  /**
+   * This manager's own pool header, refreshed by the same what-if round trip
+   * as their rows. It is also the early warning for the save gate: the server
+   * refuses a save that pushes them further above `pool`, so a negative
+   * `remaining` here is what greys the Save button out before they try.
+   */
+  const [mgrPool, setMgrPool] = useState<ManagerPool | null>(
+    isEditor ? null : payload.managerPool
   );
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   // optimistic-concurrency token; a stale save gets a 409 instead of
@@ -233,6 +242,22 @@ export default function DashboardClient({
   } | null>(null);
   /** A dismissible one-liner ("a colleague saved, changes combined"). */
   const [notice, setNotice] = useState<string | null>(null);
+  /**
+   * The server's refusal when a save would put this manager further above
+   * their pool (/api/state gate 3). Held rather than thrown: the work stays on
+   * screen and stays dirty, and the message names the amount that has to come
+   * back out.
+   *
+   * Stored WITH the document it was about, so it expires on its own: any edit
+   * replaces `overrides` with a new object, the reference check below stops
+   * matching, and Save comes back. Deriving it beats clearing it in an effect
+   * — a refusal that outlived the fix would grey out the button that applies
+   * it.
+   */
+  const [blocked, setBlocked] = useState<{ doc: Overrides; msg: string } | null>(
+    null
+  );
+  const blockedMsg = blocked && blocked.doc === overrides ? blocked.msg : null;
 
   // Refs kept current so the long-lived timers and unload handlers below
   // always see fresh state without re-registering. conflictRef and
@@ -243,12 +268,14 @@ export default function DashboardClient({
   const dirtyRef = useRef(dirty);
   const viewingAsRef = useRef(viewingAs);
   const conflictRef = useRef(conflict);
+  const blockedRef = useRef<string | null>(blockedMsg);
   useEffect(() => {
     overridesRef.current = overrides;
     savedOverridesRef.current = savedOverrides;
     dirtyRef.current = dirty;
     viewingAsRef.current = viewingAs;
     conflictRef.current = conflict;
+    blockedRef.current = blockedMsg;
   });
   /** True while a request is in flight — a plain ref, so timers can check it. */
   const savingRef = useRef(false);
@@ -269,7 +296,7 @@ export default function DashboardClient({
         if (!res.ok) return;
         const body = await res.json();
         setScopedRows(body.rows ?? []);
-        setScopedCards(body.poolCards ?? []);
+        if (body.managerPool) setMgrPool(body.managerPool as ManagerPool);
       } catch {
         // a failed preview just leaves the last figures on screen; the Save
         // button is what actually matters and it reports its own errors
@@ -313,6 +340,9 @@ export default function DashboardClient({
     // the server confines it to the target's window and records the actor.
     if (viewReadOnly || savingRef.current) return false;
     if (conflictRef.current && !docOverride) return false;
+    // Already refused for the same reason and nothing has changed since —
+    // sending it again would only earn the same 422.
+    if (blockedRef.current) return false;
     if (!docOverride) retriesRef.current = 0;
     const sent = docOverride ?? overridesRef.current;
     const base = savedOverridesRef.current;
@@ -361,6 +391,22 @@ export default function DashboardClient({
           setConflict(conflictRef.current);
           setSaveStatus("idle");
         }
+        return false;
+      }
+      if (res.status === 422) {
+        // Over pool. Deliberately NOT the "error" status: that renders a
+        // "retry" link, and retrying an unchanged document is guaranteed to
+        // be refused again. The work stays dirty and stays on screen; the
+        // message says what has to come back out.
+        const body = await res.json().catch(() => ({}) as Record<string, unknown>);
+        setBlocked({
+          doc: sent,
+          msg:
+            typeof body.error === "string"
+              ? body.error
+              : "Not saved: this allocation is above your pool.",
+        });
+        setSaveStatus("idle");
         return false;
       }
       if (!res.ok) {
@@ -458,7 +504,7 @@ export default function DashboardClient({
   useEffect(() => {
     if (viewReadOnly || !canEditAnything) return;
     const tick = () => {
-      if (savingRef.current || conflictRef.current) return;
+      if (savingRef.current || conflictRef.current || blockedRef.current) return;
       if (dirtyRef.current) {
         void saveRef.current("auto");
         return;
@@ -510,6 +556,9 @@ export default function DashboardClient({
     const flush = () => {
       if (flushedThisHide) return;
       if (!dirtyRef.current || viewReadOnly || conflictRef.current) return;
+      // a refused document must not be flushed on the way out either — it
+      // would 422 unread and look, from here, exactly like a successful save
+      if (blockedRef.current) return;
       flushedThisHide = true;
       try {
         void fetch("/api/state", {
@@ -1024,7 +1073,7 @@ export default function DashboardClient({
   function toggleLock(id: string) {
     if (isEditor) {
       const emp = empById.get(id);
-      if (!emp || emp.sm) return;
+      if (!emp || !isLockable(emp)) return;
       if (emp.locked) {
         const hasChanges =
           emp.bpEdit !== emp.bp || emp.ipmEdit !== emp.ipm || emp.daEdit !== emp.da;
@@ -1047,7 +1096,7 @@ export default function DashboardClient({
     // the server's latest figures for their own rows.
     if (!canLockAnything) return;
     const row = rowById.get(id);
-    if (!row || row.sm || row.final === undefined) return;
+    if (!row || row.sm || !row.inPool || row.final === undefined) return;
     if (row.locked) {
       const hasPendingChanges =
         overrides[id]?.daEdit !== undefined || overrides[id]?.ipmEdit !== undefined;
@@ -1119,13 +1168,30 @@ export default function DashboardClient({
   // ── pool cards ──
   const poolCardEls = useMemo(() => {
     if (!isEditor) {
-      // A state lead sees their own pool and nothing wider: no group total, no
-      // other state, no shared-services breakdown. stateBonuses, not
-      // available: the card should read the same as "Total bonuses" on this
-      // person's own tab, not the theoretical cap.
-      return scopedCards.map((c) => (
-        <PoolCard key={c.title} title={c.title} value={fmt(c.stateBonuses)} />
-      ));
+      // A manager sees their OWN pool and nothing wider: no group total, no
+      // other state, no whole-of-VIC figure. What replaced the old "VIC pool"
+      // card is four numbers about the people they are actually accountable
+      // for — the pool their scope draws, what they have committed of it, what
+      // is left, and how many people that covers. Allocated comes from the
+      // same sumAllocated the table footer uses (lib/manager-pool.ts), so the
+      // header and the footer cannot disagree.
+      if (!mgrPool) return null;
+      const short = mgrPool.remaining <= 0;
+      return [
+        <PoolCard key="pool" title="Your pool" value={fmt(mgrPool.pool)} />,
+        <PoolCard key="alloc" title="Allocated" value={fmt(mgrPool.allocated)} />,
+        <PoolCard
+          key="remaining"
+          title="Remaining"
+          value={fmt(mgrPool.remaining)}
+          tone={short ? "alert" : "normal"}
+        />,
+        <PoolCard
+          key="people"
+          title="People in scope"
+          value={String(mgrPool.people)}
+        />,
+      ];
     }
     if (!pool) return null;
 
@@ -1190,7 +1256,7 @@ export default function DashboardClient({
     // updateParams is recreated every render and would defeat the memo; it
     // only ever reads the same `params` already listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEditor, scopedCards, pool, emps, copy, params, canEditCapsNow, dsBusy]);
+  }, [isEditor, mgrPool, pool, emps, copy, params, canEditCapsNow, dsBusy]);
 
   /** One human-readable line per contested figure in the conflict banner. */
   function conflictLine(c: OverrideConflict): string {
@@ -1221,7 +1287,27 @@ export default function DashboardClient({
     }
   }
 
-  const totFinal = totals.final;
+  // The footer's figure, through the SAME function the header's Allocated
+  // comes from (lib/calc.ts's sumAllocated, via lib/manager-pool.ts) — so with
+  // nothing filtered the two are equal by construction rather than by two
+  // implementations happening to agree. The generic totals memo still decides
+  // whether this column exists for this user at all.
+  const totFinal =
+    totals.final === undefined
+      ? undefined
+      : sumAllocated(visibleRows, (r) => r.final ?? 0);
+
+  /**
+   * The over-pool line. The server's own refusal wins when there is one — it
+   * judged the merged document and is authoritative. Otherwise the what-if
+   * header's own arithmetic, so a manager sees the problem while typing rather
+   * than only when Save bounces. Editors have no manager pool to exceed.
+   */
+  const overPool =
+    blockedMsg ??
+    (!isEditor && mgrPool && mgrPool.remaining < 0
+      ? `${fmt(-mgrPool.remaining)} of this allocation can't be absorbed by your pool. Reduce discretionary amounts by ${fmt(-mgrPool.remaining)} before saving.`
+      : null);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -1267,11 +1353,25 @@ export default function DashboardClient({
             <button
               type="button"
               onClick={() => void save()}
-              disabled={saveStatus === "saving" || (!dirty && saveStatus !== "error")}
-              title="Or press Ctrl+S (Cmd+S on Mac). Unsaved work also saves itself every 3 minutes."
+              disabled={
+                saveStatus === "saving" ||
+                overPool !== null ||
+                (!dirty && saveStatus !== "error")
+              }
+              title={
+                overPool
+                  ? "Over pool — see the message above the table"
+                  : "Or press Ctrl+S (Cmd+S on Mac). Unsaved work also saves itself every 3 minutes."
+              }
               className="border border-brand-orange/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-brand-orange-soft"
             >
-              {saveStatus === "saving" ? "Saving…" : dirty || saveStatus === "error" ? "Save" : "Saved"}
+              {saveStatus === "saving"
+                ? "Saving…"
+                : overPool
+                  ? "Over pool"
+                  : dirty || saveStatus === "error"
+                    ? "Save"
+                    : "Saved"}
             </button>
           )}
           <span className="text-right text-xs leading-tight text-brand-orange-soft">
@@ -1463,6 +1563,16 @@ export default function DashboardClient({
 
             {/* A colleague saved and everything combined cleanly — worth a
                 line, not an interruption. */}
+            {/* Over pool. The server's refusal if a save has already been
+                tried, otherwise the early warning derived from the what-if
+                header — either way it names the amount that has to come back
+                out, and nothing has moved silently to make room. */}
+            {overPool && (
+              <div className="mb-4 border-2 border-error bg-error-tint px-4 py-2 text-[13px] font-semibold">
+                {overPool}
+              </div>
+            )}
+
             {notice && !conflict && (
               <div className="mb-4 flex items-start justify-between gap-4 border-2 border-brand-orange/60 bg-white px-4 py-2 text-[13px] font-semibold">
                 <span>{notice}</span>
@@ -1566,12 +1676,14 @@ export default function DashboardClient({
                 {typeof totFinal === "number" && (
                   <span className="bg-neutral-100 px-2.5 py-1">
                     Total bonuses: {fmt(totFinal)}
-                    {(activeTab === "VIC" || activeTab === "NSW") && (
-                      // Matches the pool card above exactly when nothing is
+                    {(activeTab === "VIC" ||
+                      activeTab === "NSW" ||
+                      (!isEditor && visibleRows.length < allRows.length)) && (
+                      // Matches the card above exactly when nothing is
                       // filtered — this figure narrows with any search or
-                      // category filter, the pool card doesn't.
+                      // category filter, the card doesn't.
                       <span className="font-normal text-neutral-400">
-                        {" "}(this tab&apos;s filtered rows — see the pool card above for the true total)
+                        {" "}(filtered rows — see the card above for the true total)
                       </span>
                     )}
                   </span>

@@ -162,8 +162,7 @@ describe("presentation has zero effect on calculation", () => {
         expect(ra[f]).toBe(rb[f]); // strict — presentation must not move a bit
       }
     }
-    expect(a.poolCards[0].stateBonuses).toBe(b.poolCards[0].stateBonuses);
-    expect(a.poolCards[0].utilPct).toBe(b.poolCards[0].utilPct);
+    expect(a.managerPool).toEqual(b.managerPool);
   });
 
 });

@@ -137,21 +137,22 @@ describe("a read-only payload carries a save baseline scoped like everything els
   });
 });
 
-describe("a state lead sees their own pool and nothing wider", () => {
+describe("a lead sees their own pool and nothing wider", () => {
   const vic = buildPayloadCore(data, {}, vicScopeNoPkg, user);
   if (vic.mode !== "readonly") throw new Error("expected readonly");
 
-  it("gets exactly one pool card — their own state", () => {
-    expect(vic.poolCards).toHaveLength(1);
-    expect(vic.poolCards[0].title).toBe("VIC pool");
+  it("gets a header about their own scope, not a state's", () => {
+    const h = vic.managerPool;
+    expect(h.people).toBe(vic.rows.length);
+    expect(h.pool).toBeGreaterThan(0);
+    expect(h.allocated).toBeGreaterThan(0);
+    expect(h.remaining).toBeCloseTo(h.pool - h.allocated, 12);
   });
 
-  it("the card carries their available pool, so cap and remaining can be shown", () => {
-    const card = vic.poolCards[0];
-    expect(card.available).toBeGreaterThan(0);
-    expect(card.stateBonuses).toBeGreaterThan(0);
-    // the utilisation bar is a proportion of that same figure
-    expect(card.utilPct).toBeCloseTo(card.stateBonuses / card.available, 12);
+  it("Allocated is the figure the table footer totals, so the two agree", () => {
+    // same definition, and the payload carries the rows it was measured over
+    const fromRows = vic.rows.reduce((s, r) => s + (r.final ?? 0), 0);
+    expect(vic.managerPool.allocated).toBeCloseTo(fromRows, 6);
   });
 
   it("the group cap and group total never reach the payload", () => {
@@ -160,10 +161,9 @@ describe("a state lead sees their own pool and nothing wider", () => {
     expect(json).not.toContain('"caps"');
     expect(json).not.toContain(String(data.gCap));
     // the whole-company bonus total must not be derivable from the bytes
-    const groupTotal = Math.round(
-      vic.poolCards.reduce((s, c) => s + c.stateBonuses, 0)
+    expect(Math.round(vic.managerPool.allocated)).toBeLessThan(
+      Math.round(data.gCap)
     );
-    expect(groupTotal).toBeLessThan(Math.round(data.gCap));
   });
 
   it("the other state's figures never reach the payload", () => {
@@ -173,7 +173,7 @@ describe("a state lead sees their own pool and nothing wider", () => {
     expect(vic.rows.every((r) => r.st === "VIC")).toBe(true);
   });
 
-  it("a two-state lead gets a card per state and still no group figure", () => {
+  it("a two-state lead gets one combined header and still no group figure", () => {
     const both: Scope = {
       ...vicScopeNoPkg,
       rule: {
@@ -187,11 +187,16 @@ describe("a state lead sees their own pool and nothing wider", () => {
     };
     const payload = buildPayloadCore(data, {}, both, user);
     if (payload.mode !== "readonly") throw new Error();
-    expect(payload.poolCards.map((c) => c.title)).toEqual(["VIC pool", "NSW pool"]);
+    // one header covering both states — the pool they answer for is the sum of
+    // their own rows' draw, not a card per state pool
+    expect(payload.managerPool.people).toBe(payload.rows.length);
+    expect(payload.managerPool.pool).toBeGreaterThan(vic.managerPool.pool);
+    expect(JSON.stringify(payload)).not.toContain('"VIC pool"');
+    expect(JSON.stringify(payload)).not.toContain('"NSW pool"');
     expect(JSON.stringify(payload)).not.toContain('"gCap"');
   });
 
-  it("a subset lead gets no pool card at all", () => {
+  it("a subset lead gets a header too — an arbitrary list of people still draws from a pool", () => {
     const subset: Scope = {
       ...vicScopeNoPkg,
       rule: {
@@ -206,6 +211,9 @@ describe("a state lead sees their own pool and nothing wider", () => {
     };
     const payload = buildPayloadCore(data, {}, subset, user);
     if (payload.mode !== "readonly") throw new Error();
-    expect(payload.poolCards).toHaveLength(0);
+    // the old state card gave them nothing, because a subset has no state
+    // pool. Their draw is still measurable, and it is what they answer for.
+    expect(payload.managerPool.people).toBe(1);
+    expect(payload.managerPool.pool).toBeGreaterThan(0);
   });
 });

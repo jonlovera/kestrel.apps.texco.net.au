@@ -1,0 +1,301 @@
+/**
+ * Manager pool: the cap composition, and the write gate that keeps an
+ * allocation inside it.
+ *
+ * The composition assertions are the contract — each one pins a knob of the
+ * definition (which rows, which figure, locked in or out, shared services in
+ * or out) by recomputing it independently rather than by naming a dollar
+ * amount, so a lock toggled next week moves both sides together and the tests
+ * still hold. The single pinned figure at the end is a reconciliation anchor
+ * against the CFO's sheet, not the contract.
+ *
+ * The fixture is a point-in-time PRODUCTION capture (data/prod-fixture.json,
+ * gitignored, created 2026-08-21 — regenerate with a read-only pull of the
+ * four kestrel_docs rows if it goes stale). Three assertions reproduce, to the
+ * cent, figures the stakeholder quoted from Clint Cassar's live dashboard —
+ * proof the fixture, the engine and the scope filter are all faithful.
+ */
+import { describe, it, expect } from "vitest";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { AccessRuleSchema, ruleMatches } from "./access-rules";
+import { DatasetSchema, OverridesSchema } from "./schema";
+import type { Dataset, Employee, Overrides } from "./schema";
+import { ParamsSchema, applyParams } from "./params-apply";
+import type { Scope } from "./access";
+import { managerPool, managerPoolFrom, poolBreach } from "./manager-pool";
+import { applyOverrides, computeScalesAndBonuses } from "./calc";
+
+const FIXTURE = join(__dirname, "..", "data", "prod-fixture.json");
+
+describe.skipIf(!existsSync(FIXTURE))(
+  "Clint Cassar's scope figures (production capture)",
+  () => {
+    const raw = JSON.parse(readFileSync(FIXTURE, "utf-8"));
+    const params = ParamsSchema.parse(raw.params);
+    const data = applyParams(DatasetSchema.parse(raw.dataset), params);
+    const overrides = OverridesSchema.parse(raw.overrides);
+    const rule = AccessRuleSchema.parse(raw.access["ccassar@texco.net.au"]);
+    if (rule.type === "none" || rule.type === "full") {
+      throw new Error("fixture rule is not a scoped rule");
+    }
+    const scope: Scope = {
+      email: "ccassar@texco.net.au",
+      rule,
+      canEdit: false,
+      visibleFields: rule.visibleFields,
+      label: "Clint Cassar",
+    };
+
+    const result = managerPool(scope, data, overrides);
+
+    /** The engine's own view of the population, for independent recomputation. */
+    function population(extra: Overrides = {}) {
+      const emps = applyOverrides(data.emp, { ...overrides, ...extra });
+      computeScalesAndBonuses(emps, data);
+      return emps;
+    }
+    const mine = population().filter((e) => ruleMatches(scope.rule, e));
+
+    it("sees exactly 57 people in scope", () => {
+      expect(result.people).toBe(57);
+    });
+
+    it("Allocated reproduces the dashboard's bottom-right total to the cent", () => {
+      // the $1,082,112 the stakeholder quoted — sum of finals over all 57
+      expect(result.allocated).toBeCloseTo(1_082_111.79, 1);
+    });
+
+    it("documents the old mislabelled card: 'VIC pool' was a sum of finals", () => {
+      // the $1,033,047 card was finalBonus over the 56 in-scope VIC rows —
+      // a totals figure, never a pool. The $49,065 gap to Allocated is
+      // exactly the one in-scope SHARED row's frozen final.
+      const oldCard = mine
+        .filter((e) => e.st === "VIC")
+        .reduce((s, e) => s + e.finalBonus, 0);
+      expect(oldCard).toBeCloseTo(1_033_046.79, 1);
+    });
+
+    // ── the composition, knob by knob ──
+
+    it("pool is Σ calcBonus over exactly the rows the scope filter admits", () => {
+      const expected = mine.reduce((s, e) => s + e.calcBonus, 0);
+      expect(result.pool).toBe(expected);
+      // and it is a pool, not a total: calcBonus, never finalBonus
+      expect(result.pool).not.toBeCloseTo(result.allocated, 2);
+    });
+
+    it("locked rows are INCLUDED — they still draw from their manager's pool", () => {
+      const locked = mine.filter((e) => e.locked);
+      const unlocked = mine.filter((e) => !e.locked);
+      // a real share of this scope, so the assertion has teeth
+      expect(locked.length).toBeGreaterThan(20);
+
+      const lockedDraw = locked.reduce((s, e) => s + e.calcBonus, 0);
+      const unlockedDraw = unlocked.reduce((s, e) => s + e.calcBonus, 0);
+      expect(result.pool).toBeCloseTo(unlockedDraw + lockedDraw, 6);
+      // excluding them is the misreading that halves the cap
+      expect(unlockedDraw).toBeLessThan(result.pool * 0.6);
+    });
+
+    it("shared services are excluded by the SCOPE, not by a state filter", () => {
+      // 24 of the 25 SHARED rows never reach this sum because the access rule
+      // doesn't admit them. The 25th (Peter Clements) does, and is counted —
+      // his SHARED flag is a data error pending reassignment to VIC 100%, not
+      // a reason to drop his draw from the pool his manager answers for.
+      const sharedInScope = mine.filter((e) => e.st === "SHARED");
+      const sharedAtLarge = population().filter((e) => e.st === "SHARED");
+      expect(sharedInScope).toHaveLength(1);
+      expect(sharedAtLarge.length).toBeGreaterThan(sharedInScope.length);
+
+      const stateFiltered = mine
+        .filter((e) => e.st !== "SHARED")
+        .reduce((s, e) => s + e.calcBonus, 0);
+      expect(result.pool - stateFiltered).toBeCloseTo(
+        sharedInScope[0].calcBonus,
+        6
+      );
+      expect(result.pool).not.toBeCloseTo(stateFiltered, 2);
+    });
+
+    it("out-of-scope rows are excluded", () => {
+      const everyone = population().reduce((s, e) => s + e.calcBonus, 0);
+      expect(result.pool).toBeLessThan(everyone);
+    });
+
+    it("a discretionary amount moves Allocated but never the pool", () => {
+      const target = mine.find((e) => !e.locked && !e.sm && e.vp + e.np > 0)!;
+      const withDa = managerPool(scope, data, {
+        ...overrides,
+        [target.id]: { ...overrides[target.id], daEdit: 1_000 },
+      });
+      expect(withDa.pool).toBeCloseTo(result.pool, 6);
+      expect(withDa.allocated).toBeCloseTo(result.allocated + 1_000, 6);
+      expect(withDa.remaining).toBeCloseTo(result.remaining - 1_000, 6);
+      expect(withDa.people).toBe(result.people);
+    });
+
+    it("managerPoolFrom agrees with managerPool on already-computed rows", () => {
+      // the read path takes the cheaper one; they must not diverge
+      expect(managerPoolFrom(scope.rule, population())).toEqual(result);
+    });
+
+    it("resolves Clint's cap to $1,087,114 on this fixture", () => {
+      // The CFO's sheet showed $1,091,427. The $4,313 gap is attributed to
+      // lock drift — rows locked or re-locked between her extract and this
+      // capture — pending her confirmation. The composition tests above are
+      // the real contract; this is a reconciliation anchor and will move when
+      // the locks do.
+      expect(Math.round(result.pool)).toBe(1_087_114);
+    });
+
+    // ── the gate ──
+
+    it("blocks a save that spends headroom the manager doesn't have", () => {
+      const target = mine.find((e) => !e.locked && !e.sm && e.vp + e.np > 0)!;
+      const over = Math.ceil(result.remaining) + 10_000;
+      const breach = poolBreach(
+        scope,
+        data,
+        { ...overrides, [target.id]: { ...overrides[target.id], daEdit: over } },
+        overrides
+      );
+      expect(breach).not.toBeNull();
+      expect(breach!.wasOver).toBe(0);
+      expect(breach!.over).toBeCloseTo(over - result.remaining, 4);
+    });
+
+    it("lets a save through while it still fits inside the pool", () => {
+      const target = mine.find((e) => !e.locked && !e.sm && e.vp + e.np > 0)!;
+      const fits = Math.floor(result.remaining) - 1;
+      expect(fits).toBeGreaterThan(0); // there is genuinely headroom here
+      expect(
+        poolBreach(
+          scope,
+          data,
+          { ...overrides, [target.id]: { ...overrides[target.id], daEdit: fits } },
+          overrides
+        )
+      ).toBeNull();
+    });
+
+    it("re-saving the stored document unchanged is never refused", () => {
+      // these are sums over ~150 seven-digit floats; accumulated noise must
+      // not turn a no-op save into a refusal
+      expect(poolBreach(scope, data, overrides, overrides)).toBeNull();
+    });
+  }
+);
+
+/**
+ * The gate's own rules, on a fixture small enough to check by hand. VIC-only,
+ * cap 1000, two unlocked rows demanding 1000 between them — so the scale is
+ * exactly 1, calcBonus equals bipm, and the pool starts exactly spent with no
+ * headroom for a discretionary amount at all.
+ */
+describe("poolBreach", () => {
+  function emp(over: Partial<Employee> & { id: string }): Employee {
+    return {
+      sn: "Surname",
+      gn: "Given",
+      pos: "Role",
+      dept: "Dept",
+      mgr: "Mgr",
+      cat: "Employee",
+      st: "VIC",
+      vp: 1,
+      np: 0,
+      pkg: 4000,
+      bp: 0.1,
+      ipm: 1,
+      bipm: 400,
+      da: 0,
+      f25: 0,
+      sm: 0,
+      ...over,
+    };
+  }
+  const data: Dataset = {
+    emp: [emp({ id: "A", bipm: 400 }), emp({ id: "B", bipm: 600, pkg: 6000 })],
+    vCap: 1000,
+    nCap: 1000,
+    gCap: 2000,
+    cats: ["Employee"],
+    depts: ["Dept"],
+    mgrs: ["Mgr"],
+    excludedIds: [],
+  };
+  const lead: Scope = {
+    email: "lead@texco.net.au",
+    rule: {
+      type: "state",
+      states: ["VIC"],
+      visibleFields: ["da", "final"],
+      editableFields: ["da"],
+      canLock: true,
+      canActAs: [],
+    },
+    canEdit: false,
+    visibleFields: ["da", "final"],
+    label: "VIC lead",
+  };
+  const admin: Scope = {
+    email: "admin@texco.net.au",
+    rule: { type: "full", canEditCaps: true, canActAs: [] },
+    canEdit: true,
+    visibleFields: ["da", "final"],
+    label: "Admin",
+  };
+
+  it("the fixture starts exactly spent — pool equals allocated", () => {
+    const p = managerPool(lead, data, {});
+    expect(p.pool).toBeCloseTo(1000, 8);
+    expect(p.allocated).toBeCloseTo(1000, 8);
+    expect(p.remaining).toBeCloseTo(0, 8);
+  });
+
+  it("blocks a save that goes over from a balanced start", () => {
+    const breach = poolBreach(lead, data, { A: { daEdit: 2400 } }, {});
+    expect(breach).toEqual({ over: 2400, wasOver: 0 });
+  });
+
+  it("blocks a save that makes an existing breach worse", () => {
+    const breach = poolBreach(
+      lead,
+      data,
+      { A: { daEdit: 3000 } },
+      { A: { daEdit: 2400 } }
+    );
+    expect(breach).toEqual({ over: 3000, wasOver: 2400 });
+  });
+
+  it("allows a save that reduces an existing breach", () => {
+    // the deadlock this rule exists to avoid: a lead who inherits an
+    // over-pool state must be able to save the correction
+    expect(
+      poolBreach(lead, data, { A: { daEdit: 1100 } }, { A: { daEdit: 2400 } })
+    ).toBeNull();
+  });
+
+  it("allows a save that leaves an existing breach exactly where it was", () => {
+    expect(
+      poolBreach(lead, data, { A: { daEdit: 2400 } }, { A: { daEdit: 2400 } })
+    ).toBeNull();
+  });
+
+  it("a negative discretionary amount frees headroom for another row", () => {
+    expect(
+      poolBreach(lead, data, { A: { daEdit: 500 }, B: { daEdit: -500 } }, {})
+    ).toBeNull();
+  });
+
+  it("never gates a full-access scope — an admin has no manager pool", () => {
+    expect(poolBreach(admin, data, { A: { daEdit: 99_999 } }, {})).toBeNull();
+  });
+
+  it("tolerates sub-cent noise rather than refusing a no-op", () => {
+    expect(
+      poolBreach(lead, data, { A: { daEdit: 0.001 } }, {})
+    ).toBeNull();
+  });
+});

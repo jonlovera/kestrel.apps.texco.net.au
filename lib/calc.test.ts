@@ -8,6 +8,7 @@ import {
   getVicAlloc,
   getNswAlloc,
   deriveCpm,
+  isLockable,
   parsePercentInput,
   parseDaInput,
   type Caps,
@@ -168,6 +169,63 @@ describe("discretionary adjustment sits on top of the pool (owner decision, Aug 
     const adj = run({ F: { daEdit: 500 } });
     expect(adj.byId.F.calcBonus).toBe(0);
     expect(adj.byId.F.finalBonus).toBe(500);
+  });
+});
+
+/**
+ * The acceptance case the business owner stated for the "on top" model, in
+ * their own numbers: 5,429 typed against a 24,571 calc bonus is $30,000, and
+ * it is still $30,000 after someone else's discretionary amount lands.
+ *
+ * Its own fixture, because the figures have to be exact rather than close:
+ * bp = 1 makes cpm exactly 1 (deriveCpm), and a cap far above demand clamps
+ * the scale to exactly 1, so calcBonus IS 24,571 with no float slack for the
+ * assertions to hide behind.
+ */
+describe("the stated discretionary case: 24,571 + 5,429 = 30,000", () => {
+  const EXACT: Employee[] = [
+    makeEmp({ id: "P", pkg: 24_571, bp: 1, ipm: 1, bipm: 24_571 }),
+    makeEmp({ id: "Q", pkg: 40_000, bp: 1, ipm: 1, bipm: 40_000 }),
+  ];
+  const ROOMY: Caps = { vCap: 500_000, nCap: 500_000, gCap: 1_000_000 };
+
+  function exact(overrides: Overrides = {}) {
+    const emps = applyOverrides(EXACT, overrides);
+    const pool = computeScalesAndBonuses(emps, ROOMY);
+    return { pool, byId: Object.fromEntries(emps.map((e) => [e.id, e])) };
+  }
+
+  it("the calc bonus is exactly 24,571 before any adjustment", () => {
+    const { pool, byId } = exact();
+    expect(pool.vicScale).toBe(1);
+    expect(byId.P.calcBonus).toBe(24_571);
+    expect(byId.P.finalBonus).toBe(24_571);
+  });
+
+  it("typing 5,429 produces exactly 30,000", () => {
+    const { byId } = exact({ P: { daEdit: 5_429 } });
+    expect(byId.P.finalBonus).toBe(30_000);
+    // the calc bonus underneath it has not been touched to make room
+    expect(byId.P.calcBonus).toBe(24_571);
+  });
+
+  it("and it stays at exactly 30,000 when another adjustment lands later", () => {
+    const before = exact({ P: { daEdit: 5_429 } });
+    const after = exact({ P: { daEdit: 5_429 }, Q: { daEdit: 12_000 } });
+
+    expect(after.byId.P.finalBonus).toBe(30_000);
+    expect(after.byId.P.calcBonus).toBe(before.byId.P.calcBonus);
+    // discretionary does not scale, so neither pool moved to fund it
+    expect(after.pool.vicScale).toBe(before.pool.vicScale);
+    expect(after.pool.nswScale).toBe(before.pool.nswScale);
+    // Q got theirs on top too, without borrowing from P
+    expect(after.byId.Q.finalBonus).toBe(52_000);
+  });
+
+  it("a negative adjustment elsewhere still leaves the 30,000 alone", () => {
+    const { byId } = exact({ P: { daEdit: 5_429 }, Q: { daEdit: -7_500 } });
+    expect(byId.P.finalBonus).toBe(30_000);
+    expect(byId.Q.finalBonus).toBe(32_500);
   });
 });
 
@@ -495,5 +553,20 @@ describe("Potential Bonus reconciles with After IPM", () => {
     const [emp] = applyOverrides([e], {});
     computeScalesAndBonuses([emp], CAPS);
     expect(naivePotential).not.toBeCloseTo(emp.preIpm, 2);
+  });
+});
+
+describe("isLockable", () => {
+  it("a pooled non-site-manager row is lockable", () => {
+    expect(isLockable({ sm: 0, vp: 0.6, np: 0.4 })).toBe(true);
+    expect(isLockable({ sm: 0, vp: 0, np: 1 })).toBe(true);
+  });
+
+  it("site managers are not, regardless of pool weighting", () => {
+    expect(isLockable({ sm: 1, vp: 1, np: 0 })).toBe(false);
+  });
+
+  it("a row drawing from no pool is not", () => {
+    expect(isLockable({ sm: 0, vp: 0, np: 0 })).toBe(false);
   });
 });

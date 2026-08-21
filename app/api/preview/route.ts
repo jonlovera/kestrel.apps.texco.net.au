@@ -63,12 +63,13 @@ export async function POST(req: Request) {
     { columnConfig, copy, companyModifier: params.companyModifier }
   );
 
-  // Only the recalculated figures go back. Sending the whole payload again
-  // would be harmless but wasteful, and this runs on every keystroke burst.
+  // Only the recalculated figures go back — the rows, and the header their
+  // allocation now has to fit inside. Sending the whole payload again would be
+  // harmless but wasteful, and this runs on every keystroke burst.
   const res = NextResponse.json(
     payload.mode === "readonly"
-      ? { rows: payload.rows, poolCards: payload.poolCards }
-      : { rows: [], poolCards: [] }
+      ? { rows: payload.rows, managerPool: payload.managerPool }
+      : { rows: [], managerPool: null }
   );
   res.headers.set("Cache-Control", "no-store, max-age=0");
   return res;

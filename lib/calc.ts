@@ -34,7 +34,11 @@
  *  - Totals can exceed a pool cap by exactly the net DA amounts — visible on
  *    the pool cards, which compare actual payout against the cap.
  *  - The old "maximum absorbable DA" clamp (getMaxDA/clampDaToPool) is gone:
- *    a DA outside the pool has no pool-derived bound.
+ *    a DA outside the pool has no pool-derived bound. It is not silently
+ *    clamped either — a save that would push a scoped manager above their own
+ *    pool is REFUSED outright (lib/manager-pool.ts's poolBreach, enforced by
+ *    /api/state), so the figure the user typed is the figure they keep or the
+ *    figure they are told they cannot have.
  * A locked row's frozen finalBonus still includes whatever DA it carried at
  * lock time and is still deducted from the pool as before.
  */
@@ -106,6 +110,16 @@ export interface PoolState {
  */
 function clampScale(x: number): number {
   return Math.min(1, Math.max(0, x));
+}
+
+/**
+ * Whether a row can be locked (or take a discretionary adjustment): a site
+ * manager's bonus is fixed with nothing to adjust, and a row drawing from no
+ * pool has nothing to freeze. The single source of the rule enforced by
+ * /api/state's Gate 2, the import, and the dashboard's lock button.
+ */
+export function isLockable(e: Pick<Employee, "sm" | "vp" | "np">): boolean {
+  return !e.sm && e.vp + e.np > 0;
 }
 
 /**
@@ -286,6 +300,20 @@ export function getNswAlloc(e: CalcEmployee, nswScale: number): number {
   if (e.sm) return e.bipmCalc * e.np;
   if (e.locked) return e.finalBonus * e.np;
   return e.bipmCalc * e.np * nswScale;
+}
+
+/**
+ * Σ final over a set of rows — the single definition of "allocated", shared by
+ * the manager header (all in-scope rows) and the table footer (the rows a
+ * search or facet leaves visible), so the two can never disagree about what a
+ * total is. Generic over the row shape because the server measures
+ * CalcEmployee.finalBonus and the browser measures a scoped row's `final`.
+ */
+export function sumAllocated<T>(
+  rows: readonly T[],
+  final: (r: T) => number
+): number {
+  return rows.reduce((s, r) => s + final(r), 0);
 }
 
 /** Prototype input parsing: "90" and "0.9" both mean 90%. */

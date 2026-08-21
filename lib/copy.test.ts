@@ -132,8 +132,7 @@ describe("wording has zero effect on calculation", () => {
         expect(a.rows[i][f]).toBe(b.rows[i][f]); // strict — wording must not move a bit
       }
     }
-    expect(a.poolCards[0].stateBonuses).toBe(b.poolCards[0].stateBonuses);
-    expect(a.poolCards[0].utilPct).toBe(b.poolCards[0].utilPct);
+    expect(a.managerPool).toEqual(b.managerPool);
   });
 });
 
@@ -151,8 +150,10 @@ describe("wording does not affect entitlement", () => {
   });
 
   it("a read-only user gets the wording but NOT the pool-title map", () => {
-    // their card titles arrive already resolved, so shipping the map as well
-    // would name pools they can't see ("New South Wales", "Everyone")
+    // Their header names their OWN pool with fixed labels ("Your pool",
+    // "Allocated", "Remaining", "People in scope"), so no pool title needs to
+    // reach them at all — and shipping the map would name pools they can't see
+    // ("Victoria", "New South Wales", "Everyone").
     const ro = buildPayloadCore(data, {}, vicScope, user, { copy: rewritten });
     if (ro.mode !== "readonly") throw new Error("expected readonly");
     expect(ro.copy).toEqual({
@@ -164,18 +165,27 @@ describe("wording does not affect entitlement", () => {
     expect("poolTitles" in ro.copy).toBe(false);
 
     const json = JSON.stringify(ro);
+    expect(json).not.toContain(rewritten.poolTitles.vic);
     expect(json).not.toContain(rewritten.poolTitles.nsw);
     expect(json).not.toContain(rewritten.poolTitles.group);
-    // their own state's title is the one that does come through, on the card
-    expect(ro.poolCards[0].title).toBe(rewritten.poolTitles.vic);
   });
 
-  it("renaming a pool card reaches state leads too", () => {
-    const ro = buildPayloadCore(data, {}, vicScope, user, {
-      copy: { ...DEFAULT_COPY, poolTitles: { ...DEFAULT_COPY.poolTitles, vic: "Victoria" } },
-    });
+  it("renaming a pool no longer reaches a lead, because they see no pool name", () => {
+    // Replaces "renaming a pool card reaches state leads too". A lead used to
+    // be shown a state's card, so the state's name had to follow the rename;
+    // they are now shown their own scope's figures under fixed labels, and
+    // pool names are editor-only.
+    const renamed = {
+      ...DEFAULT_COPY,
+      poolTitles: { ...DEFAULT_COPY.poolTitles, vic: "Victoria" },
+    };
+    const ro = buildPayloadCore(data, {}, vicScope, user, { copy: renamed });
     if (ro.mode !== "readonly") throw new Error();
-    expect(ro.poolCards[0].title).toBe("Victoria");
+    expect(JSON.stringify(ro)).not.toContain("Victoria");
+
+    const ed = buildPayloadCore(data, {}, fullScope, user, { copy: renamed });
+    if (ed.mode !== "editor") throw new Error();
+    expect(ed.copy.poolTitles.vic).toBe("Victoria");
   });
 
   it("omitting copy falls back to the defaults, so first load reads identically", () => {

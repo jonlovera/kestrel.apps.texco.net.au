@@ -7,6 +7,7 @@ import type { NumericField } from "./access-types";
 import type { ColumnConfig, PayloadColumn } from "./columns";
 import type { Copy } from "./copy";
 import type { Params } from "./params-apply";
+import type { ManagerPool } from "./manager-pool";
 
 export interface UserInfo {
   name: string;
@@ -55,20 +56,6 @@ export interface DisplayRow extends ScopedRow {
   sn?: string;
 }
 
-export interface StatePoolCard {
-  title: string;
-  stateBonuses: number;
-  /**
-   * The state's own pool after shared services have been allocated out of it —
-   * what these employees actually draw from, and what the utilisation bar is a
-   * proportion of. Deliberately NOT the raw state cap plus a shared-services
-   * deduction: that breakdown is group information a state lead has no call to
-   * see. The group cap never appears in a read-only payload at all.
-   */
-  available: number;
-  utilPct: number;
-}
-
 export interface ReadonlyPayload {
   mode: "readonly";
   user: UserInfo;
@@ -77,10 +64,11 @@ export interface ReadonlyPayload {
   /** display columns: config-visible AND scope-visible, in config order */
   columns: PayloadColumn[];
   /**
-   * Editable wording, minus `poolTitles`. A read-only user's card titles are
-   * resolved server-side into `poolCards[].title`, so sending the map as well
-   * would ship them the names of pools they can't see ("NSW pool", "Group
-   * total") — no figures, but it advertises views that aren't theirs.
+   * Editable wording, minus `poolTitles`. A read-only user's header names
+   * their OWN pool ("Your pool", "Allocated", "Remaining", "People in scope")
+   * with fixed labels, so the map would only ship them the names of pools they
+   * can't see ("NSW pool", "Group total") — no figures, but it advertises
+   * views that aren't theirs.
    */
   copy: Omit<Copy, "poolTitles">;
   /**
@@ -107,7 +95,13 @@ export interface ReadonlyPayload {
   /** optimistic-concurrency token; saves carrying a stale value get 409 */
   overridesVersion: number;
   showStateColumn: boolean;
-  poolCards: StatePoolCard[];
+  /**
+   * This manager's own pool, allocation, headroom and headcount — the four
+   * header cards. Replaces the old `poolCards`, which handed a scoped lead a
+   * whole-STATE figure (and dropped any in-scope shared-services row from it)
+   * regardless of how small a slice of that state they were accountable for.
+   */
+  managerPool: ManagerPool;
   cats: string[];
   depts: string[];
   mgrs: string[];

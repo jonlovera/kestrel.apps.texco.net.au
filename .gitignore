@@ -46,6 +46,8 @@ next-env.d.ts
 
 # real salary data — never in git (seeded to Redis / BONUS_DATA env)
 data/bonus.json
+# point-in-time production capture for real-data tests (same privacy posture)
+data/prod-fixture.json
 
 # local Claude worktrees/config
 .claude/

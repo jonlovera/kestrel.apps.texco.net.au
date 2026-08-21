@@ -7,7 +7,9 @@ import { z } from "zod";
 import { diffOverrides } from "@/lib/history-diff";
 import { takeSnapshot } from "@/lib/snapshots";
 import { sanitiseOverrideWrite, scopeOverridesView } from "@/lib/write-scope";
-import { applyOverrides, computeScalesAndBonuses } from "@/lib/calc";
+import { applyOverrides, computeScalesAndBonuses, isLockable } from "@/lib/calc";
+import { poolBreach } from "@/lib/manager-pool";
+import { fmt } from "@/lib/fmt";
 
 export const dynamic = "force-dynamic";
 
@@ -16,12 +18,17 @@ export const dynamic = "force-dynamic";
  * this route exists to absorb: it used to refuse anyone without `canEdit`, and
  * a lead can now set IPM and Discretionary for their own people.
  *
- * Two gates, in order:
+ * Three gates, in order:
  *   1. lib/write-scope.ts — is this row theirs, and is this field theirs?
  *      Anything else is dropped and the stored value kept.
  *   2. the scheme's own rules below — site managers take no discretionary
- *      adjustment, nor does anyone outside the pools, and an adjustment is
- *      clamped to what the pool can actually absorb.
+ *      adjustment, and neither does anyone outside the pools.
+ *   3. the manager's pool — a save that would push a scoped lead further above
+ *      their own pool is refused outright, naming the unabsorbable amount.
+ *      Nothing is clamped and nothing moves silently: the figure the user
+ *      typed is the figure they keep, or the figure they are told they cannot
+ *      have. (This replaces the old getMaxDA/clampDaToPool clamp, which
+ *      trimmed a discretionary amount to fit without saying so.)
  *
  * The client is never trusted for a figure. It sends what it wants; the server
  * decides what is true and hands the result back, which is why the dashboard
@@ -107,7 +114,7 @@ export async function POST(req: Request) {
     const clean: Overrides[string] = { ...ov };
     if (clean.ipmEdit !== undefined) clean.ipmEdit = Math.max(0, clean.ipmEdit);
     if (clean.bpEdit !== undefined) clean.bpEdit = Math.max(0, clean.bpEdit);
-    if (emp.sm || emp.vp + emp.np <= 0) {
+    if (!isLockable(emp)) {
       // a fixed bonus has nothing to adjust, and neither does a row that
       // draws from no pool
       delete clean.daEdit;
@@ -133,6 +140,25 @@ export async function POST(req: Request) {
     // finalBonus, not calcBonus: the frozen figure is the actual payout,
     // which includes the row's discretionary adjustment
     ov.lockedFinal = emps.find((e) => e.id === id)!.finalBonus;
+  }
+
+  // Gate 3: the manager's pool. Runs here rather than earlier because it reads
+  // the frozen finals the fallback loop above may just have resolved, and
+  // BEFORE takeSnapshot because a refused save must not leave a restore point
+  // behind. Judged against the stored document, not against zero, so a lead
+  // who inherits an over-pool state (a cap moved, an admin locked a row above
+  // its entitlement) can still save the correction — see poolBreach.
+  const breach = poolBreach(scope, data, sanitised, previous);
+  if (breach) {
+    console.log(
+      `[audit] state-write OVER-POOL email=${email} scope=${scope.rule.type} over=${breach.over.toFixed(2)} wasOver=${breach.wasOver.toFixed(2)} ts=${new Date().toISOString()}`
+    );
+    return noStore(
+      NextResponse.json(
+        { error: overPoolMessage(breach.over, breach.wasOver), breach },
+        { status: 422 }
+      )
+    );
   }
 
   // Snapshot, then save with optimistic concurrency: a stale version means
@@ -181,6 +207,19 @@ export async function POST(req: Request) {
       version: cas.version,
     })
   );
+}
+
+/**
+ * The refusal, naming the amount. Two shapes, because the honest ask differs:
+ * from a balanced starting point the whole overshoot has to come back out,
+ * whereas a lead who was already over only has to undo what this save added.
+ */
+function overPoolMessage(over: number, wasOver: number): string {
+  const excess = fmt(over);
+  if (wasOver <= 0.01) {
+    return `Not saved: ${excess} of this allocation can't be absorbed by your pool. Reduce discretionary amounts by ${excess} and save again.`;
+  }
+  return `Not saved: this takes you ${fmt(over - wasOver)} further above your pool, which was already over by ${fmt(wasOver)}. Reduce discretionary amounts by ${fmt(over - wasOver)} and save again.`;
 }
 
 function noStore(res: NextResponse): NextResponse {
