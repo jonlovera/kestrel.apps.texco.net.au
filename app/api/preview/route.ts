@@ -3,7 +3,6 @@ import { resolveViewer } from "@/lib/view-as";
 import { getEffectiveDataset, getParams } from "@/lib/data";
 import { loadOverrides, loadColumnConfig, loadCopy } from "@/lib/store";
 import { buildPayloadCore } from "@/lib/scope-core";
-import { clampDaToPool } from "@/lib/calc";
 import { sanitiseOverrideWrite } from "@/lib/write-scope";
 import { OverridesSchema, type Overrides } from "@/lib/schema";
 import { z } from "zod";
@@ -55,12 +54,6 @@ export async function POST(req: Request) {
   // would refuse would be worse than no preview at all — it would show figures
   // that can never be committed.
   const { overrides } = sanitiseOverrideWrite(scope, data.emp, incoming, stored);
-
-  // The same clamp the save applies. Without it a lead could type an
-  // adjustment over the pool cap, watch this preview show it in full, save,
-  // and find it quietly reduced — a preview showing a figure that can never be
-  // stored is worse than no preview.
-  clampDaToPool(overrides, data.emp, data);
 
   const payload = buildPayloadCore(
     data,

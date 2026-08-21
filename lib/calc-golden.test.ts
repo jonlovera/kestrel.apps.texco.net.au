@@ -56,18 +56,23 @@ function assertMatches(
 describe("golden: baseline", () => {
   it("has the anchored known values", () => {
     // Independent anchors, hardcoded — not read from the golden file.
-    expect(golden.baseline.vicScale).toBe(0.6701530558872546);
+    // Re-anchored (deliberately) for the Aug 2026 DA-on-top methodology
+    // change: the goldens were regenerated because DA left the pool maths —
+    // see lib/calc.ts's module header and the re-anchoring note in
+    // lib/calc.test.ts's real-data regression block.
+    expect(golden.baseline.vicScale).toBe(0.6717823483284814);
     expect(golden.baseline.nswScale).toBe(0.7820525079336984);
-    // The bit-exact double sum; 2618822.75 is its value rounded to cents
-    // (the group cap / reconciliation figure). Both anchored strictly.
-    expect(golden.baseline.totalFinal).toBe(2618822.7499999995);
-    expect(Math.round(golden.baseline.totalFinal * 100) / 100).toBe(2618822.75);
+    // The bit-exact double sum; 2621822.75 is its value rounded to cents
+    // (the old reconciliation figure + the one source DA of 3000, now paid
+    // on top of the capped pools). Both anchored strictly.
+    expect(golden.baseline.totalFinal).toBe(2621822.7499999995);
+    expect(Math.round(golden.baseline.totalFinal * 100) / 100).toBe(2621822.75);
     expect(golden.baseline.rows.length).toBe(155);
   });
 
   it("every derived figure matches bit-for-bit", () => {
     const { pool } = run({});
-    expect(pool.vicScale).toBe(0.6701530558872546);
+    expect(pool.vicScale).toBe(0.6717823483284814);
     expect(pool.nswScale).toBe(0.7820525079336984);
     assertMatches({}, golden.baseline);
   });

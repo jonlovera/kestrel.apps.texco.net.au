@@ -74,7 +74,9 @@ export type Dataset = BonusData;
 export const EmployeeOverrideSchema = z.object({
   bpEdit: z.number().min(0).optional(),
   ipmEdit: z.number().min(0).optional(),
-  daEdit: z.number().min(0).optional(),
+  // no floor: a discretionary adjustment may be negative (a deliberate
+  // manual reduction on top of the pool-calculated bonus)
+  daEdit: z.number().optional(),
   locked: z.boolean().optional(),
   /** finalBonus frozen at the moment the row was locked */
   lockedFinal: z.number().optional(),

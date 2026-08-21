@@ -7,7 +7,7 @@ import { z } from "zod";
 import { diffOverrides } from "@/lib/history-diff";
 import { takeSnapshot } from "@/lib/snapshots";
 import { sanitiseOverrideWrite, scopeOverridesView } from "@/lib/write-scope";
-import { applyOverrides, computeScalesAndBonuses, clampDaToPool } from "@/lib/calc";
+import { applyOverrides, computeScalesAndBonuses } from "@/lib/calc";
 
 export const dynamic = "force-dynamic";
 
@@ -113,9 +113,9 @@ export async function POST(req: Request) {
       delete clean.daEdit;
       delete clean.locked;
       delete clean.lockedFinal;
-    } else if (clean.daEdit !== undefined) {
-      clean.daEdit = Math.max(0, clean.daEdit);
     }
+    // daEdit is deliberately not floored: an adjustment may be negative
+    // (owner decision — DA is a manual +/- amount on top of the pool calc)
     if (!clean.locked) delete clean.lockedFinal;
     if (Object.keys(clean).length > 0) sanitised[id] = clean;
   }
@@ -130,12 +130,10 @@ export async function POST(req: Request) {
     const doc: Overrides = { ...sanitised, [id]: { ...ov, locked: false } };
     const emps = applyOverrides(data.emp, doc);
     computeScalesAndBonuses(emps, data);
-    ov.lockedFinal = emps.find((e) => e.id === id)!.calcBonus;
+    // finalBonus, not calcBonus: the frozen figure is the actual payout,
+    // which includes the row's discretionary adjustment
+    ov.lockedFinal = emps.find((e) => e.id === id)!.finalBonus;
   }
-
-  // Clamp adjustments to what the pool (with locks in place) can absorb.
-  // Shared with /api/preview so the what-if and the save never disagree.
-  clampDaToPool(sanitised, data.emp, data);
 
   // Snapshot, then save with optimistic concurrency: a stale version means
   // someone else saved since this client loaded — 409, never silently clobber.

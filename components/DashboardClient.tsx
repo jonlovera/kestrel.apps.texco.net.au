@@ -17,7 +17,6 @@ import {
 import {
   applyOverrides,
   computeScalesAndBonuses,
-  getMaxDA,
   parsePercentInput,
   parseDaInput,
   type CalcEmployee,
@@ -954,20 +953,13 @@ export default function DashboardClient({
   }
 
   function updateDA(id: string, val: string) {
-    let num = parseDaInput(val);
+    // No pool cap here any more: a discretionary adjustment is a manual
+    // +/- amount on top of the pool calculation (owner decision), so it has
+    // no pool-derived maximum and may be negative.
+    const num = parseDaInput(val);
     if (isEditor) {
       const emp = empById.get(id);
-      if (!emp || emp.locked || emp.sm || !pool) return;
-      // Only an editor holds the pool, so only an editor can cap on the spot.
-      // A lead's figure is clamped by the server instead, identically, on both
-      // the preview and the save (clampDaToPool in lib/calc.ts).
-      const maxDa = getMaxDA(emp, pool);
-      if (num > maxDa) {
-        num = maxDa;
-        alert(
-          `Discretionary Adjustment capped to ${fmt(maxDa)} — the maximum available within the pool cap.`
-        );
-      }
+      if (!emp || emp.locked || emp.sm) return;
     } else {
       const row = rowById.get(id);
       if (!row || row.locked || row.sm || !row.inPool) return;

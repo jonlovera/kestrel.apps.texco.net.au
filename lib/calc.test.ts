@@ -5,8 +5,6 @@ import type { Employee, Overrides } from "./schema";
 import {
   applyOverrides,
   computeScalesAndBonuses,
-  getMaxDA,
-  clampDaToPool,
   getVicAlloc,
   getNswAlloc,
   deriveCpm,
@@ -127,56 +125,49 @@ describe("baseline (no edits, no locks)", () => {
   });
 });
 
-describe("single discretionary adjustment pro-rates across the unlocked pool", () => {
-  it("pool cap is still exactly filled and the DA recipient nets less than the DA", () => {
+describe("discretionary adjustment sits on top of the pool (owner decision, Aug 2026)", () => {
+  it("Calc bonus + Discretionary = Final, exactly, and the scale does not move", () => {
     const base = run();
     const adj = run({ A: { daEdit: 100 } });
 
-    // scale drops to absorb the DA
-    expect(adj.pool.vicScale).toBeCloseTo(700 / 920, 10);
-    // recipient rises, but by less than the DA (their own share re-prorates)
-    expect(adj.byId.A.finalBonus).toBeCloseTo(200 * (700 / 920) + 100, 10);
-    expect(adj.byId.A.finalBonus - base.byId.A.finalBonus).toBeLessThan(100);
-    expect(adj.byId.A.finalBonus).toBeGreaterThan(base.byId.A.finalBonus);
-    // pool total unchanged
+    // the pool is untouched by a DA
+    expect(adj.pool.vicScale).toBeCloseTo(base.pool.vicScale, 12);
+    expect(adj.byId.A.calcBonus).toBeCloseTo(base.byId.A.calcBonus, 12);
+    // the identity the dashboard promises
+    expect(adj.byId.A.finalBonus).toBeCloseTo(adj.byId.A.calcBonus + 100, 12);
+    // pool allocation (pool money only) still fills the cap exactly
     expect(totalVicAlloc(adj.emps, adj.pool.vicScale)).toBeCloseTo(1000, 8);
   });
 
-  it("the delta is spread over other unlocked employees proportional to bipm x weight", () => {
+  it("nobody else moves — a DA is not funded by the pool any more", () => {
     const base = run();
     const adj = run({ A: { daEdit: 100 } });
-    const dB = base.byId.B.finalBonus - adj.byId.B.finalBonus;
-    const dEvic =
-      base.byId.E.finalBonus -
-      adj.byId.E.finalBonus; // E only loses on its VIC component
-    // B carries 600 of VIC bipm, E carries 120 → 5:1 ratio
-    expect(dB / dEvic).toBeCloseTo(600 / 120, 8);
+    expect(adj.byId.B.finalBonus).toBeCloseTo(base.byId.B.finalBonus, 12);
+    expect(adj.byId.E.finalBonus).toBeCloseTo(base.byId.E.finalBonus, 12);
+    expect(adj.byId.C.finalBonus).toBeCloseTo(base.byId.C.finalBonus, 12);
+    expect(adj.byId.D.finalBonus).toBeCloseTo(base.byId.D.finalBonus, 12);
+    expect(adj.pool.nswScale).toBeCloseTo(base.pool.nswScale, 12);
   });
 
-  it("site managers and the other pool are untouched", () => {
+  it("a negative DA reduces the final below the calc", () => {
     const base = run();
-    const adj = run({ A: { daEdit: 100 } });
-    expect(adj.byId.C.finalBonus).toBeCloseTo(base.byId.C.finalBonus, 10);
-    expect(adj.byId.D.finalBonus).toBeCloseTo(base.byId.D.finalBonus, 10);
-    expect(adj.pool.nswScale).toBeCloseTo(base.pool.nswScale, 10);
-  });
-});
-
-describe("multiple adjustments compose", () => {
-  it("two DAs shrink the scale additively and are order-independent", () => {
-    const both = run({ A: { daEdit: 100 }, B: { daEdit: 50 } });
-    expect(both.pool.vicScale).toBeCloseTo((800 - 150) / 920, 10);
-    // pure function of state → same result as applying in any order
-    const swapped = run({ B: { daEdit: 50 }, A: { daEdit: 100 } });
-    expect(swapped.byId.A.finalBonus).toBeCloseTo(both.byId.A.finalBonus, 12);
-    expect(swapped.byId.B.finalBonus).toBeCloseTo(both.byId.B.finalBonus, 12);
-    expect(totalVicAlloc(both.emps, both.pool.vicScale)).toBeCloseTo(1000, 8);
+    const adj = run({ A: { daEdit: -50 } });
+    expect(adj.byId.A.finalBonus).toBeCloseTo(base.byId.A.calcBonus - 50, 12);
+    expect(adj.pool.vicScale).toBeCloseTo(base.pool.vicScale, 12);
   });
 
-  it("DAs in different pools do not interact", () => {
-    const adj = run({ A: { daEdit: 100 }, D: { daEdit: 60 } });
-    expect(adj.pool.vicScale).toBeCloseTo(700 / 920, 10);
-    expect(adj.pool.nswScale).toBeCloseTo((500 - 60) / 580, 10);
+  it("total payout exceeds the pools by exactly the net DA", () => {
+    const base = run();
+    const adj = run({ A: { daEdit: 100 }, D: { daEdit: -40 } });
+    const totalBase = base.emps.reduce((s, e) => s + e.finalBonus, 0);
+    const totalAdj = adj.emps.reduce((s, e) => s + e.finalBonus, 0);
+    expect(totalAdj - totalBase).toBeCloseTo(100 - 40, 10);
+  });
+
+  it("a zero-weight employee's final is exactly their DA", () => {
+    const adj = run({ F: { daEdit: 500 } });
+    expect(adj.byId.F.calcBonus).toBe(0);
+    expect(adj.byId.F.finalBonus).toBe(500);
   });
 });
 
@@ -194,19 +185,25 @@ describe("locked positions are excluded from re-proration", () => {
       A: { daEdit: 100 },
     });
     expect(adj.byId.B.finalBonus).toBeCloseTo(bFinal, 10);
-    // locked B moves into the locked aggregate: scale over remaining 320 bipm (A + E's VIC share)
-    expect(adj.pool.vicScale).toBeCloseTo((1000 - 200 - bFinal - 100) / 320, 10);
+    // locked B moves into the locked aggregate: scale over remaining 320 bipm
+    // (A + E's VIC share); A's DA no longer feeds the pool maths at all
+    expect(adj.pool.vicScale).toBeCloseTo((1000 - 200 - bFinal) / 320, 10);
     expect(totalVicAlloc(adj.emps, adj.pool.vicScale)).toBeCloseTo(1000, 8);
   });
 
   it("locked row still shows a live calcBonus but keeps frozen finalBonus", () => {
-    const adj = run({ B: { locked: true, lockedFinal: bFinal }, A: { daEdit: 100 } });
-    expect(adj.byId.B.calcBonus).not.toBeCloseTo(adj.byId.B.finalBonus, 4);
+    // Locked at a figure deliberately different from B's natural share, so
+    // the live calc and the frozen final must disagree. (Locking B at exactly
+    // its baseline share would leave the remaining scale unchanged and the
+    // two would coincide — DA no longer moves the scale to break that tie.)
+    const adj = run({ B: { locked: true, lockedFinal: 400 } });
+    expect(adj.byId.B.finalBonus).toBe(400);
+    expect(adj.byId.B.calcBonus).not.toBeCloseTo(400, 4);
   });
 
   it("unlocking releases the bonus back into the pool", () => {
     const relocked = run({ A: { daEdit: 100 } }); // as if B was unlocked again
-    expect(relocked.pool.vicScale).toBeCloseTo(700 / 920, 10);
+    expect(relocked.pool.vicScale).toBeCloseTo(800 / 920, 10);
   });
 });
 
@@ -218,15 +215,16 @@ describe("all-but-one locked", () => {
     E: { locked: true, lockedFinal: eFinal },
   };
 
-  it("the sole unlocked employee's scale absorbs a DA fully", () => {
+  it("the sole unlocked employee's DA rides on top of their scaled share", () => {
     const adj = run({ ...locks, A: { daEdit: 100 } });
     // E is blended (vp 0.6/np 0.4) and locked: its contribution to VIC's pool
-    // deduction is now split via the no-locks-weighted method (FY26 fix),
-    // not raw vp — so this isn't simply `eFinal * 0.6` any more. Assert
-    // against the actual pool-math split via poolAgg.empLockedVp instead of
-    // re-deriving it by hand, since that's exactly the quantity under test.
+    // deduction is split via the no-locks-weighted method (FY26 fix), not raw
+    // vp — so this isn't simply `eFinal * 0.6` any more. Assert against the
+    // actual pool-math split via poolAgg.empLockedVp instead of re-deriving
+    // it by hand, since that's exactly the quantity under test. The DA plays
+    // no part in the scale.
     expect(adj.pool.vicScale).toBeCloseTo(
-      (1000 - adj.pool.poolAgg.empLockedVp - 100) / 200,
+      (1000 - adj.pool.poolAgg.empLockedVp) / 200,
       8
     );
     expect(adj.byId.A.finalBonus).toBeCloseTo(
@@ -240,12 +238,6 @@ describe("all-but-one locked", () => {
     // workbook, whose own "VIC Allocation" and "Locked → VIC" columns
     // disagree for exactly this kind of row). See the dedicated
     // "blended locked employee" tests below for that distinction.
-  });
-
-  it("getMaxDA equals the exact remaining room for the last unlocked employee", () => {
-    const { pool, byId } = run(locks);
-    const room = 1000 - pool.poolAgg.empLockedVp;
-    expect(getMaxDA(byId.A, pool)).toBe(Math.floor(room));
   });
 });
 
@@ -296,40 +288,13 @@ describe("a blended (split-state) locked employee splits by the no-locks scale, 
   });
 });
 
-describe("adjustment larger than the remaining pool", () => {
-  it("scale floors at zero (never negative) and the pool overdraws by the excess", () => {
-    const adj = run({ A: { daEdit: 10000 } });
-    expect(adj.pool.vicScale).toBe(0);
-    // everyone else's VIC component collapses to their DA only
-    expect(adj.byId.B.finalBonus).toBe(0);
-    expect(adj.byId.A.finalBonus).toBe(10000);
-  });
-
-  it("getMaxDA reports the exact absorbable maximum, and at that DA the cap holds", () => {
+describe("a very large adjustment has no pool-derived bound", () => {
+  it("the pool is untouched and the recipient gets scaled share + DA in full", () => {
     const base = run();
-    const maxDa = getMaxDA(base.byId.A, base.pool); // floor(1000 - 200 - 0) for vp=1
-    expect(maxDa).toBe(800);
-    const capped = run({ A: { daEdit: maxDa } });
-    expect(capped.pool.vicScale).toBe(0);
-    // allocations: locked 200 + DA 800 = cap exactly
-    expect(totalVicAlloc(capped.emps, capped.pool.vicScale)).toBeCloseTo(1000, 8);
-    // one dollar more would overdraw
-    const over = run({ A: { daEdit: maxDa + 1 } });
-    expect(totalVicAlloc(over.emps, over.pool.vicScale)).toBeGreaterThan(1000);
-  });
-
-  it("getMaxDA for a split-state employee is bound by the tighter pool", () => {
-    const { byId, pool } = run();
-    const vicRoom = 1000 - 200; // per-weight: /0.6
-    const nswRoom = 500; // per-weight: /0.4
-    expect(getMaxDA(byId.E, pool)).toBe(
-      Math.floor(Math.min(vicRoom / 0.6, nswRoom / 0.4))
-    );
-  });
-
-  it("getMaxDA is 0 for zero-weight employees", () => {
-    const { byId, pool } = run();
-    expect(getMaxDA(byId.F, pool)).toBe(0); // Infinity guard → 0
+    const adj = run({ A: { daEdit: 10000 } });
+    expect(adj.pool.vicScale).toBeCloseTo(base.pool.vicScale, 12);
+    expect(adj.byId.B.finalBonus).toBeCloseTo(base.byId.B.finalBonus, 12);
+    expect(adj.byId.A.finalBonus).toBeCloseTo(base.byId.A.calcBonus + 10000, 10);
   });
 });
 
@@ -363,14 +328,19 @@ describe("edge guards", () => {
     expect(parsePercentInput("90%")).toBe(0.9);
     expect(parsePercentInput("0.9")).toBe(0.9);
     expect(parsePercentInput("abc")).toBeNull();
-    expect(parseDaInput("-500")).toBe(0);
+    // negatives are allowed: a DA may deliberately reduce a final bonus
+    expect(parseDaInput("-500")).toBe(-500);
     expect(parseDaInput("$1,500")).toBe(1500);
   });
 });
 
 describe("real-data regression (data/bonus.json)", () => {
-  // Expected values computed with an independent implementation of the
-  // prototype's algorithm (Python) against the extracted master blob.
+  // Originally computed with an independent Python implementation of the
+  // prototype's algorithm. Re-anchored (deliberately) for the Aug 2026
+  // DA-on-top methodology change: one source row (ALANT) carries da=3000,
+  // which the pool no longer funds — so VIC's scale rises a touch
+  // (0.67015… → 0.67178…), NSW is untouched, and the group total is exactly
+  // the old figure + 3000 (the DA now paid on top of the still-capped pools).
   const data = JSON.parse(
     readFileSync(join(__dirname, "..", "data", "bonus.json"), "utf-8")
   );
@@ -378,10 +348,10 @@ describe("real-data regression (data/bonus.json)", () => {
   it("reproduces the baseline scales and group total exactly", () => {
     const emps = applyOverrides(data.emp, {});
     const pool = computeScalesAndBonuses(emps, data);
-    expect(pool.vicScale).toBeCloseTo(0.6701530558872546, 12);
+    expect(pool.vicScale).toBeCloseTo(0.6717823483284814, 12);
     expect(pool.nswScale).toBeCloseTo(0.7820525079336984, 12);
     const totFinal = emps.reduce((s, e) => s + e.finalBonus, 0);
-    expect(totFinal).toBeCloseTo(2618822.75, 6);
+    expect(totFinal).toBeCloseTo(2621822.75, 6);
     expect(totalVicAlloc(emps, pool.vicScale)).toBeCloseTo(1580414.5, 6);
     expect(totalNswAlloc(emps, pool.nswScale)).toBeCloseTo(1038408.25, 6);
   });
@@ -484,53 +454,6 @@ describe("site managers are fixed, everyone else pro-rates (do not break)", () =
       expect(e.finalBonus).toBeCloseTo(e.pkg * e.bpEdit * e.cpm * e.ipmEdit, 6);
       expect(e.finalBonus).toBeCloseTo(e.bipm, 6);
     }
-  });
-});
-
-describe("clampDaToPool", () => {
-  /**
-   * The save path and the what-if preview both run this, so a lead can never
-   * be shown an adjustment the save would quietly reduce. Baseline room for A
-   * is 800 (getMaxDA above), so 800 stands and 801 comes back as 800.
-   */
-  it("leaves an adjustment the pool can absorb alone", () => {
-    const overrides: Overrides = { A: { daEdit: 800 } };
-    expect(clampDaToPool(overrides, FIXTURE, CAPS)).toEqual([]);
-    expect(overrides.A.daEdit).toBe(800);
-  });
-
-  it("clamps an adjustment past the cap down to the absorbable maximum", () => {
-    const overrides: Overrides = { A: { daEdit: 10000 } };
-    expect(clampDaToPool(overrides, FIXTURE, CAPS)).toEqual(["A"]);
-    expect(overrides.A.daEdit).toBe(800);
-    // and at the clamped figure the cap holds exactly
-    const { emps, pool } = run(overrides);
-    expect(totalVicAlloc(emps, pool.vicScale)).toBeCloseTo(1000, 8);
-  });
-
-  it("clamps to the tighter of the two pools for a split employee", () => {
-    const overrides: Overrides = { E: { daEdit: 10000 } };
-    clampDaToPool(overrides, FIXTURE, CAPS);
-    expect(overrides.E.daEdit).toBe(Math.floor(Math.min(800 / 0.6, 500 / 0.4)));
-  });
-
-  it("leaves a locked row alone — its bonus is already frozen", () => {
-    const overrides: Overrides = { A: { daEdit: 10000, locked: true } };
-    expect(clampDaToPool(overrides, FIXTURE, CAPS)).toEqual([]);
-    expect(overrides.A.daEdit).toBe(10000);
-  });
-
-  it("ignores entries with no adjustment, and unknown employees", () => {
-    const overrides: Overrides = { B: { ipmEdit: 0.5 }, ZZZ: { daEdit: 9999 } };
-    expect(clampDaToPool(overrides, FIXTURE, CAPS)).toEqual([]);
-    expect(overrides.B.ipmEdit).toBe(0.5);
-    expect(overrides.ZZZ.daEdit).toBe(9999);
-  });
-
-  it("zero-weight employees can absorb nothing", () => {
-    const overrides: Overrides = { F: { daEdit: 500 } };
-    expect(clampDaToPool(overrides, FIXTURE, CAPS)).toEqual(["F"]);
-    expect(overrides.F.daEdit).toBe(0);
   });
 });
 

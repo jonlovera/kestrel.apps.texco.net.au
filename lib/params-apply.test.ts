@@ -17,9 +17,11 @@ describe("applyParams", () => {
     expect(eff.vCap).toBe(data.vCap);
     const emps = applyOverrides(eff.emp, {});
     const pool = computeScalesAndBonuses(emps, eff);
-    expect(pool.vicScale).toBe(0.6701530558872546);
+    // Anchors match lib/calc-golden.test.ts (re-anchored for the Aug 2026
+    // DA-on-top methodology change).
+    expect(pool.vicScale).toBe(0.6717823483284814);
     expect(pool.nswScale).toBe(0.7820525079336984);
-    expect(emps.reduce((s, e) => s + e.finalBonus, 0)).toBe(2618822.7499999995);
+    expect(emps.reduce((s, e) => s + e.finalBonus, 0)).toBe(2621822.7499999995);
   });
 
   it("a 0.5 modifier exactly halves every derived after-IPM figure", () => {
