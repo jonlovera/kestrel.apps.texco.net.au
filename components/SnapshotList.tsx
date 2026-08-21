@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 
 interface SnapshotRow {
   ts: string;
@@ -28,6 +28,16 @@ const REASON_LABELS: Record<string, string> = {
   copy: "Wording change",
 };
 
+const when = (ts: string) =>
+  new Date(ts).toLocaleString("en-AU", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+
 export default function SnapshotList({
   snapshots,
   restoreAction,
@@ -36,7 +46,17 @@ export default function SnapshotList({
   restoreAction: (formData: FormData) => Promise<void>;
 }) {
   const [pending, startTransition] = useTransition();
-  const [expandedTs, setExpandedTs] = useState<string | null>(null);
+  const [openTs, setOpenTs] = useState<string | null>(null);
+  const open = openTs ? (snapshots.find((s) => s.ts === openTs) ?? null) : null;
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpenTs(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
 
   return (
     <div>
@@ -77,109 +97,119 @@ export default function SnapshotList({
                   </td>
                 </tr>
               )}
-              {snapshots.map((s) => {
-                const expanded = expandedTs === s.ts;
-                const hasDetail = s.changes.lines.length > 0;
-                return [
-                  <tr
-                    key={s.ts}
-                    className="border-b border-neutral-100 hover:bg-neutral-50"
-                  >
-                    <td className="whitespace-nowrap px-3 py-2 tabular-nums">
-                      {new Date(s.ts).toLocaleString("en-AU", {
-                        day: "2-digit",
-                        month: "short",
-                        year: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        second: "2-digit",
-                      })}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2">{s.actor}</td>
-                    <td className="whitespace-nowrap px-3 py-2">
-                      {REASON_LABELS[s.reason] ?? s.reason}
-                    </td>
-                    <td className="px-3 py-2">
-                      {hasDetail ? (
-                        <button
-                          type="button"
-                          aria-expanded={expanded}
-                          onClick={() => setExpandedTs(expanded ? null : s.ts)}
-                          className="text-left text-brand-70 transition-colors hover:text-brand-orange"
-                          title={expanded ? "Hide the detail" : "Show each change"}
-                        >
-                          <span className="mr-1 inline-block w-3 text-[10px]">
-                            {expanded ? "▾" : "▸"}
-                          </span>
-                          {s.changes.headline}
-                        </button>
-                      ) : (
-                        <span className="text-brand-70">
-                          {s.changes.headline || "No changes recorded"}
-                        </span>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-brand-70">
-                      {s.employees} employees
-                      {s.edited > 0 && <> · {s.edited} edited</>}
-                      {s.locked > 0 && <> · {s.locked} locked</>}
-                    </td>
-                    <td className="px-3 py-2">
-                      <a
-                        href={`/api/export?ts=${encodeURIComponent(s.ts)}`}
-                        title="Download this version as an Excel workbook"
-                        className="border border-neutral-300 px-3 py-1 text-[11px] font-semibold text-brand-70 transition-colors hover:border-brand-orange hover:text-brand-orange"
+              {snapshots.map((s) => (
+                <tr key={s.ts} className="border-b border-neutral-100 hover:bg-neutral-50">
+                  <td className="whitespace-nowrap px-3 py-2 tabular-nums">{when(s.ts)}</td>
+                  <td className="whitespace-nowrap px-3 py-2">{s.actor}</td>
+                  <td className="whitespace-nowrap px-3 py-2">
+                    {REASON_LABELS[s.reason] ?? s.reason}
+                  </td>
+                  <td className="px-3 py-2">
+                    {s.changes.lines.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setOpenTs(s.ts)}
+                        className="text-left text-brand-70 underline decoration-neutral-300 underline-offset-2 transition-colors hover:text-brand-orange"
+                        title="Show each change"
                       >
-                        Excel
-                      </a>
-                    </td>
-                    <td className="px-3 py-2">
-                      <form
-                        action={(fd) => {
-                          if (
-                            !confirm(
-                              `Restore everything to ${new Date(s.ts).toLocaleString("en-AU")}?\n\nAll data, edits and settings will be put back exactly as they were then. A snapshot of the current state is taken first, so this can be undone.`
-                            )
+                        {s.changes.headline}
+                      </button>
+                    ) : (
+                      <span className="text-brand-70">
+                        {s.changes.headline || "No changes recorded"}
+                      </span>
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 text-brand-70">
+                    {s.employees} employees
+                    {s.edited > 0 && <> · {s.edited} edited</>}
+                    {s.locked > 0 && <> · {s.locked} locked</>}
+                  </td>
+                  <td className="px-3 py-2">
+                    <a
+                      href={`/api/export?ts=${encodeURIComponent(s.ts)}`}
+                      title="Download this version as an Excel workbook"
+                      className="border border-neutral-300 px-3 py-1 text-[11px] font-semibold text-brand-70 transition-colors hover:border-brand-orange hover:text-brand-orange"
+                    >
+                      Excel
+                    </a>
+                  </td>
+                  <td className="px-3 py-2">
+                    <form
+                      action={(fd) => {
+                        if (
+                          !confirm(
+                            `Restore everything to ${new Date(s.ts).toLocaleString("en-AU")}?\n\nAll data, edits and settings will be put back exactly as they were then. A snapshot of the current state is taken first, so this can be undone.`
                           )
-                            return;
-                          startTransition(() => restoreAction(fd));
-                        }}
+                        )
+                          return;
+                        startTransition(() => restoreAction(fd));
+                      }}
+                    >
+                      <input type="hidden" name="ts" value={s.ts} />
+                      <button
+                        type="submit"
+                        disabled={pending}
+                        className="bg-brand-orange px-3 py-1 text-[11px] font-bold text-white transition-colors hover:bg-brand-orange-hover disabled:opacity-50"
                       >
-                        <input type="hidden" name="ts" value={s.ts} />
-                        <button
-                          type="submit"
-                          disabled={pending}
-                          className="bg-brand-orange px-3 py-1 text-[11px] font-bold text-white transition-colors hover:bg-brand-orange-hover disabled:opacity-50"
-                        >
-                          {pending ? "Restoring…" : "Restore"}
-                        </button>
-                      </form>
-                    </td>
-                  </tr>,
-                  expanded && (
-                    <tr key={`${s.ts}-detail`} className="border-b border-neutral-100 bg-neutral-50">
-                      <td colSpan={7} className="px-3 py-2">
-                        <ul className="ml-7 list-disc space-y-0.5 py-1 text-[12px] text-brand-70">
-                          {s.changes.lines.map((l, i) => (
-                            <li key={i}>{l.text}</li>
-                          ))}
-                          {s.changes.more > 0 && (
-                            <li className="list-none italic">
-                              …and {s.changes.more} more change
-                              {s.changes.more === 1 ? "" : "s"} — restore or
-                              download the snapshot for the full picture
-                            </li>
-                          )}
-                        </ul>
-                      </td>
-                    </tr>
-                  ),
-                ];
-              })}
+                        {pending ? "Restoring…" : "Restore"}
+                      </button>
+                    </form>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
       </div>
+
+      {open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setOpenTs(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="What changed"
+            className="flex max-h-[80vh] w-full max-w-[680px] flex-col bg-white shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-neutral-100 px-5 py-4">
+              <div>
+                <div className="text-[14px] font-bold">
+                  {REASON_LABELS[open.reason] ?? open.reason} — {when(open.ts)}
+                </div>
+                <div className="mt-0.5 text-[12px] text-brand-70">
+                  {open.actor} · {open.changes.headline}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOpenTs(null)}
+                aria-label="Close"
+                className="px-2 text-[18px] leading-none text-brand-70 transition-colors hover:text-brand-orange"
+              >
+                ×
+              </button>
+            </div>
+            <div className="overflow-y-auto px-5 py-4">
+              <ul className="ml-4 list-disc space-y-1 text-[13px] text-brand-70">
+                {open.changes.lines.map((l, i) => (
+                  <li key={i}>{l.text}</li>
+                ))}
+                {open.changes.more > 0 && (
+                  <li className="list-none italic">
+                    …and {open.changes.more} more change
+                    {open.changes.more === 1 ? "" : "s"} — restore or download
+                    the snapshot for the full picture
+                  </li>
+                )}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

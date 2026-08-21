@@ -60,8 +60,13 @@ export interface SnapshotDiffSummary {
   more: number;
 }
 
-/** Enough to read at a glance; the full state is always one restore away. */
-const MAX_LINES = 30;
+/**
+ * Not a display limit — the modal shows every line — purely a payload safety
+ * bound so one pathological diff (say, every field of every row changing at
+ * once) can't ship megabytes to the browser. A real full-company import runs
+ * to a few hundred lines and fits comfortably.
+ */
+const MAX_LINES = 1000;
 
 // ── employee fields ──────────────────────────────────────────────────────────
 

@@ -230,7 +230,7 @@ describe("diffSnapshotStates", () => {
     expect(diffSnapshotStates(withAccess, state({ access: undefined })).lines).toEqual([]);
   });
 
-  it("caps the detail lines and counts the rest", () => {
+  it("a realistically large diff is delivered in full", () => {
     const many: Record<string, { daEdit: number }> = {};
     const crowd = Array.from({ length: 40 }, (_, i) => emp({ id: `E${i}` }));
     for (const e of crowd) many[e.id] = { daEdit: 1000 };
@@ -238,9 +238,22 @@ describe("diffSnapshotStates", () => {
       state({ dataset: { emp: crowd } as State["dataset"] }),
       state({ dataset: { emp: crowd } as State["dataset"], overrides: many })
     );
-    expect(s.lines).toHaveLength(30);
-    expect(s.more).toBe(10);
+    expect(s.lines).toHaveLength(40);
+    expect(s.more).toBe(0);
     expect(s.headline).toBe("40 bonus edits");
+  });
+
+  it("a pathological diff hits the payload safety bound", () => {
+    const many: Record<string, { daEdit: number }> = {};
+    const crowd = Array.from({ length: 1005 }, (_, i) => emp({ id: `E${i}` }));
+    for (const e of crowd) many[e.id] = { daEdit: 1000 };
+    const s = diffSnapshotStates(
+      state({ dataset: { emp: crowd } as State["dataset"] }),
+      state({ dataset: { emp: crowd } as State["dataset"], overrides: many })
+    );
+    expect(s.lines).toHaveLength(1000);
+    expect(s.more).toBe(5);
+    expect(s.headline).toBe("1005 bonus edits");
   });
 
   it("an unparseable params doc degrades to a generic line instead of throwing", () => {
