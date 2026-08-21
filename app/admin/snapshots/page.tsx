@@ -19,19 +19,23 @@ export const metadata = { title: "Texco" };
 export const dynamic = "force-dynamic";
 
 /**
- * Rows whose override entry actually does something. The document keeps an
- * entry for every row ever touched — unlocking leaves `{locked: false}`
- * behind, and an import writes a lock for every locked workbook row — so a
- * raw key count reads as if one save edited half the company.
+ * Rows whose override entry actually does something, split into manual edits
+ * and locks so the bulk (the lock an import writes for every locked workbook
+ * row) is visibly not per-save editing activity. The document keeps an entry
+ * for every row ever touched — unlocking leaves `{locked: false}` behind —
+ * so a raw key count reads as if one save edited half the company; those
+ * leftovers count in neither number. A row can hold both an edit and a lock
+ * and then counts in both.
  */
-function countActiveOverrides(overrides: Overrides): number {
-  return Object.values(overrides).filter(
-    (o) =>
-      o.bpEdit !== undefined ||
-      o.ipmEdit !== undefined ||
-      o.daEdit !== undefined ||
-      o.locked === true
-  ).length;
+function countOverrides(overrides: Overrides): { edited: number; locked: number } {
+  let edited = 0;
+  let locked = 0;
+  for (const o of Object.values(overrides)) {
+    if (o.bpEdit !== undefined || o.ipmEdit !== undefined || o.daEdit !== undefined)
+      edited++;
+    if (o.locked === true) locked++;
+  }
+  return { edited, locked };
 }
 
 async function requireAdminPage() {
@@ -104,7 +108,7 @@ export default async function SnapshotsPage() {
         actor: s.actor,
         reason: s.reason,
         employees: s.state.dataset.emp.length,
-        overrides: countActiveOverrides(s.state.overrides),
+        ...countOverrides(s.state.overrides),
         changes: changesFor(i),
       }))}
       restoreAction={restoreAction}

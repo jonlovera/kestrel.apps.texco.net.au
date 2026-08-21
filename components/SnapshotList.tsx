@@ -7,7 +7,8 @@ interface SnapshotRow {
   actor: string;
   reason: string;
   employees: number;
-  overrides: number;
+  edited: number;
+  locked: number;
   changes: {
     headline: string;
     lines: { area: string; text: string }[];
@@ -119,7 +120,9 @@ export default function SnapshotList({
                       )}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2 text-brand-70">
-                      {s.employees} employees · {s.overrides} with edits or locks
+                      {s.employees} employees
+                      {s.edited > 0 && <> · {s.edited} edited</>}
+                      {s.locked > 0 && <> · {s.locked} locked</>}
                     </td>
                     <td className="px-3 py-2">
                       <a
