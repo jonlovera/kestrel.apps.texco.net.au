@@ -293,6 +293,15 @@ export default function EmployeeTable({
               —
             </span>
           );
+        if (!r.inPool)
+          return (
+            <span
+              title="Not in a bonus pool, so there is nothing to lock"
+              className="cursor-help text-sm"
+            >
+              —
+            </span>
+          );
         return (
           <button
             type="button"

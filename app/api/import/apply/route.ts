@@ -13,7 +13,7 @@ import {
 } from "@/lib/store";
 import { takeSnapshot } from "@/lib/snapshots";
 import { EmployeeSchema, type Overrides } from "@/lib/schema";
-import { buildImportPreview, candidateDataset } from "@/lib/import-parse";
+import { buildImportPreview, candidateDataset, filterImportedLocks } from "@/lib/import-parse";
 import { fmt } from "@/lib/fmt";
 
 export const dynamic = "force-dynamic";
@@ -86,10 +86,14 @@ export async function POST(req: Request) {
   // mechanism the dashboard's own Lock button writes to — overwriting
   // whatever lock state that id already had, since the spreadsheet is
   // authoritative for this figure the same way it is for every other
-  // imported one.
-  const importedLocks = Object.entries(body.lockedAmounts).filter(([id]) =>
-    survivingIds.has(id)
-  );
+  // imported one. Site-manager and out-of-pool rows are skipped: they can't
+  // be locked (the rule /api/state enforces on every save), so a lock written
+  // here would be invisible in the UI and stripped, then reported as
+  // "Unlocked" in history, by the next ordinary save.
+  const importedLocks = filterImportedLocks(candidate.emp, body.lockedAmounts);
+  const skippedLocks = Object.keys(body.lockedAmounts).filter(
+    (id) => survivingIds.has(id) && !importedLocks.some(([kept]) => kept === id)
+  ).length;
   for (const [id, amount] of importedLocks) {
     survivingOverrides[id] = { ...survivingOverrides[id], locked: true, lockedFinal: amount };
   }
@@ -131,11 +135,11 @@ export async function POST(req: Request) {
       ts: new Date().toISOString(),
       actor: email,
       kind: "import",
-      summary: `Imported ${candidate.emp.length} employees (${preview.added.length} added, ${preview.removed.length} removed, ${importedLocks.length} locked) — total pool now ${fmt(body.totalAfter)}${capsNote}`,
+      summary: `Imported ${candidate.emp.length} employees (${preview.added.length} added, ${preview.removed.length} removed, ${importedLocks.length} locked${skippedLocks > 0 ? `, ${skippedLocks} sheet lock${skippedLocks === 1 ? "" : "s"} ignored for unlockable rows` : ""}) — total pool now ${fmt(body.totalAfter)}${capsNote}`,
     },
   ]);
   console.log(
-    `[audit] import-apply email=${email} rows=${candidate.emp.length} added=${preview.added.length} removed=${preview.removed.length} locked=${importedLocks.length} capsChanged=${!!capsChanged} ts=${new Date().toISOString()}`
+    `[audit] import-apply email=${email} rows=${candidate.emp.length} added=${preview.added.length} removed=${preview.removed.length} locked=${importedLocks.length} locksSkipped=${skippedLocks} capsChanged=${!!capsChanged} ts=${new Date().toISOString()}`
   );
   revalidatePath("/");
 

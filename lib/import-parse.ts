@@ -15,7 +15,7 @@ import {
   type Overrides,
   type Dataset,
 } from "./schema";
-import { applyOverrides, computeScalesAndBonuses } from "./calc";
+import { applyOverrides, computeScalesAndBonuses, isLockable } from "./calc";
 import { deriveFacets } from "./dataset-edit";
 import { isModelWorkbook, readModelWorkbook } from "./import-model";
 import {
@@ -345,6 +345,23 @@ export function candidateDataset(
     excludedIds: current.excludedIds,
     ...deriveFacets(kept),
   };
+}
+
+/**
+ * The sheet's "Locked Amount" cells that may become lock overrides: only ids
+ * present in the candidate roster whose row is actually lockable (isLockable,
+ * the same rule /api/state's Gate 2 enforces on every save). A model workbook
+ * carries Locked Amounts for site managers and out-of-pool rows too; letting
+ * those through created locks the UI can't show or clear, which the next
+ * ordinary save then stripped and logged as a pile of "Unlocked" history
+ * entries nobody asked for.
+ */
+export function filterImportedLocks(
+  emp: Employee[],
+  lockedAmounts: Record<string, number>
+): [string, number][] {
+  const lockable = new Set(emp.filter(isLockable).map((e) => e.id));
+  return Object.entries(lockedAmounts).filter(([id]) => lockable.has(id));
 }
 
 /** Baseline pool total for a dataset+overrides, through the real engine. */

@@ -5,6 +5,7 @@ import {
   rowsToEmployees,
   buildImportPreview,
   candidateDataset,
+  filterImportedLocks,
   FIELD_LABELS,
 } from "./import-parse";
 import { deriveFacets } from "./dataset-edit";
@@ -263,5 +264,29 @@ describe("candidateDataset", () => {
     };
     const parsed = DatasetSchema.parse(legacy);
     expect(parsed.excludedIds).toEqual([]);
+  });
+});
+
+describe("filterImportedLocks", () => {
+  const mk = (id: string, over: Partial<Employee> = {}): Employee => ({
+    id, sn: "S", gn: id, pos: "P", dept: "D", mgr: "M", cat: "C",
+    st: "VIC", vp: 1, np: 0, pkg: 1000, bp: 0.1, ipm: 1, bipm: 100,
+    da: 0, f25: 0, sm: 0,
+    ...over,
+  });
+
+  it("keeps sheet locks only for lockable rows: not site managers, out-of-pool rows or unknown ids", () => {
+    const emp = [mk("NORMAL"), mk("SM", { sm: 1 }), mk("NOPOOL", { vp: 0, np: 0 })];
+    const kept = filterImportedLocks(emp, {
+      NORMAL: 1000,
+      SM: 2000,
+      NOPOOL: 3000,
+      GONE: 4000, // not in the candidate roster at all
+    });
+    expect(kept).toEqual([["NORMAL", 1000]]);
+  });
+
+  it("keeps nothing when the sheet carries no locks", () => {
+    expect(filterImportedLocks([mk("A")], {})).toEqual([]);
   });
 });
