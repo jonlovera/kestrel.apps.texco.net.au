@@ -56,6 +56,24 @@ describe("diffOverrides", () => {
     expect(unlocked.summary).toBe("Unlocked Alan Bidychak");
   });
 
+  it("re-locking at a different amount records the moved figure", () => {
+    const [e] = diff(
+      { ABCDE: { locked: true, lockedFinal: 38545 } },
+      { ABCDE: { locked: true, lockedFinal: 42000 } }
+    );
+    expect(e.summary).toBe("Locked amount for Alan Bidychak: $38,545 → $42,000");
+    expect(e).toMatchObject({ kind: "lock", field: "lock", from: 38545, to: 42000 });
+  });
+
+  it("an unchanged lock produces no entry", () => {
+    expect(
+      diff(
+        { ABCDE: { locked: true, lockedFinal: 38545 } },
+        { ABCDE: { locked: true, lockedFinal: 38545 } }
+      )
+    ).toEqual([]);
+  });
+
   it("a batched change yields one entry per field", () => {
     const entries = diff({}, { ABCDE: { daEdit: 100, ipmEdit: 0.8, bpEdit: 0.25 } });
     expect(entries).toHaveLength(3);

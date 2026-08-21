@@ -1,12 +1,38 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { resolveViewer } from "@/lib/view-as";
-import { loadSnapshots } from "@/lib/store";
+import {
+  loadSnapshots,
+  loadOverrides,
+  loadColumnConfig,
+  loadCopy,
+  loadParams,
+  loadAccessOverlay,
+} from "@/lib/store";
+import { getDataset } from "@/lib/data";
 import { restoreSnapshot } from "@/lib/snapshots";
+import { diffSnapshotStates, type SnapshotDiffSummary } from "@/lib/snapshot-diff";
+import type { Overrides, Snapshot } from "@/lib/schema";
 import SnapshotList from "@/components/SnapshotList";
 
 export const metadata = { title: "Texco" };
 export const dynamic = "force-dynamic";
+
+/**
+ * Rows whose override entry actually does something. The document keeps an
+ * entry for every row ever touched — unlocking leaves `{locked: false}`
+ * behind, and an import writes a lock for every locked workbook row — so a
+ * raw key count reads as if one save edited half the company.
+ */
+function countActiveOverrides(overrides: Overrides): number {
+  return Object.values(overrides).filter(
+    (o) =>
+      o.bpEdit !== undefined ||
+      o.ipmEdit !== undefined ||
+      o.daEdit !== undefined ||
+      o.locked === true
+  ).length;
+}
 
 async function requireAdminPage() {
   const { actor, scope } = await resolveViewer();
@@ -18,7 +44,44 @@ async function requireAdminPage() {
 
 export default async function SnapshotsPage() {
   const email = await requireAdminPage();
-  const snapshots = await loadSnapshots();
+
+  // The live state, assembled the same way takeSnapshot assembles a snapshot
+  // (getDataset, not getEffectiveDataset — snapshots store the source data,
+  // params are a separate part), so the newest row diffs like-for-like.
+  const [snapshots, dataset, overrides, columns, copy, params, access] =
+    await Promise.all([
+      loadSnapshots(),
+      getDataset(),
+      loadOverrides(),
+      loadColumnConfig(),
+      loadCopy(),
+      loadParams(),
+      loadAccessOverlay(),
+    ]);
+  const currentState: Snapshot["state"] = {
+    dataset,
+    overrides,
+    params,
+    columns,
+    copy,
+    access,
+  };
+
+  // Snapshots are PRE-mutation and listed newest-first, so what row i's
+  // actor/reason changed is the difference between row i and the next-newer
+  // state — the live state for the newest row.
+  const changesFor = (i: number): SnapshotDiffSummary => {
+    try {
+      return diffSnapshotStates(
+        snapshots[i].state,
+        i === 0 ? currentState : snapshots[i - 1].state
+      );
+    } catch (err) {
+      // One malformed old snapshot must not cost the whole page.
+      console.error(`[snapshots] diff failed for ${snapshots[i].ts}:`, err);
+      return { headline: "Couldn't summarise this change", lines: [], more: 0 };
+    }
+  };
 
   async function restoreAction(formData: FormData) {
     "use server";
@@ -36,12 +99,13 @@ export default async function SnapshotsPage() {
 
   return (
     <SnapshotList
-      snapshots={snapshots.map((s) => ({
+      snapshots={snapshots.map((s, i) => ({
         ts: s.ts,
         actor: s.actor,
         reason: s.reason,
         employees: s.state.dataset.emp.length,
-        overrides: Object.keys(s.state.overrides).length,
+        overrides: countActiveOverrides(s.state.overrides),
+        changes: changesFor(i),
       }))}
       restoreAction={restoreAction}
     />

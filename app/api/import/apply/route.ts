@@ -7,6 +7,8 @@ import {
   loadOverrides,
   saveStoredDataset,
   saveOverridesForce,
+  loadParams,
+  saveParams,
   appendHistory,
 } from "@/lib/store";
 import { takeSnapshot } from "@/lib/snapshots";
@@ -94,6 +96,28 @@ export async function POST(req: Request) {
 
   // Force-write bumps the version so open editors reload cleanly.
   await saveOverridesForce(survivingOverrides);
+
+  // A saved params doc shadows the dataset's caps (applyParams overwrites
+  // them on every read), so an import that carries caps from the model
+  // workbook must update that doc too — otherwise the effective caps
+  // silently stay whatever the Parameters screen last said, while the
+  // history entry below claims they changed.
+  if (body.caps) {
+    const params = await loadParams();
+    if (
+      params &&
+      (params.vCap !== candidate.vCap ||
+        params.nCap !== candidate.nCap ||
+        params.gCap !== candidate.gCap)
+    ) {
+      await saveParams({
+        ...params,
+        vCap: candidate.vCap,
+        nCap: candidate.nCap,
+        gCap: candidate.gCap,
+      });
+    }
+  }
 
   const capsChanged =
     body.caps &&
