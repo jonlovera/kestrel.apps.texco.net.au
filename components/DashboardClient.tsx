@@ -1232,10 +1232,22 @@ export default function DashboardClient({
     }
 
     // A lead has no local recompute engine — scopedRows/rowById is already
-    // the server's latest figures for their own rows.
+    // the server's latest figures for their own rows. The figure sent here is
+    // only ever a starting point: /api/state recomputes the frozen final for
+    // every newly locked row and hands back what it decided, so a stale
+    // what-if (the preview is debounced) can no longer freeze the wrong total.
     if (!canLockAnything) return;
     const row = rowById.get(id);
-    if (!row || row.sm || !row.inPool || row.final === undefined) return;
+    if (!row || row.sm || !row.inPool) return;
+    if (row.final === undefined) {
+      // The lock control is shown (isLockable passes) but there is no figure on
+      // screen to freeze, because this scope cannot see Final. Silently doing
+      // nothing is what made this look broken — say so instead.
+      setNotice(
+        `${row.name} can't be locked from this view: freezing a bonus needs the Final figure, which isn't part of your access. Ask an administrator to lock the row.`
+      );
+      return;
+    }
     if (row.locked) {
       const hasPendingChanges =
         overrides[id]?.daEdit !== undefined || overrides[id]?.ipmEdit !== undefined;

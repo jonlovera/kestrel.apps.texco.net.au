@@ -15,6 +15,7 @@ import {
   rowRule,
 } from "@/lib/calc";
 import { poolBreach } from "@/lib/manager-pool";
+import { freezeNewLocks } from "@/lib/lock-freeze";
 import {
   EPSILON as DA_EPSILON,
   daHeadroom,
@@ -185,20 +186,11 @@ export async function POST(req: Request) {
     if (Object.keys(clean).length > 0) sanitised[id] = clean;
   }
 
-  // A locked row's frozen final is legitimately historical (its value at lock
-  // time), so a well-formed client value is kept. If it's missing, fall back
-  // to the row's current calc with its own lock released.
-  const needFallback = Object.entries(sanitised).filter(
-    ([, ov]) => ov.locked && typeof ov.lockedFinal !== "number"
-  );
-  for (const [id, ov] of needFallback) {
-    const doc: Overrides = { ...sanitised, [id]: { ...ov, locked: false } };
-    const emps = applyOverrides(data.emp, doc);
-    computeScalesAndBonuses(emps, data);
-    // finalBonus, not calcBonus: the frozen figure is the actual payout,
-    // which includes the row's discretionary adjustment
-    ov.lockedFinal = emps.find((e) => e.id === id)!.finalBonus;
-  }
+  // The frozen figure is computed here, never taken from the client — the same
+  // rule as every other figure this route handles. See lib/lock-freeze.ts for
+  // what went wrong when it was trusted, and why rows locked in an earlier save
+  // keep the figure they already have.
+  freezeNewLocks(data, sanitised, previous);
 
   // Gate 3: the manager's pool. Runs here rather than earlier because it reads
   // the frozen finals the fallback loop above may just have resolved, and
