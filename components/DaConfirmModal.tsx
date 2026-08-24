@@ -121,10 +121,25 @@ export default function DaConfirmModal({
               />
             ))}
           </dl>
-          <p className="mt-2 text-[11px] text-brand-70">
-            Nobody else&apos;s bonus changes — a discretionary amount is not
-            taken from the other allocations.
-          </p>
+          {/* Which of these is true depends on the "Always redistribute" tick,
+              so it is read off the MEASURED impact rather than asserted:
+              da-impact.ts counts the rows that actually dropped, so this
+              cannot claim nobody moved while the engine is moving people. */}
+          {impact.reducedCount > 0 ? (
+            <p className="mt-2 text-[11px] font-bold text-brand-orange">
+              This is funded from the pool, so it comes out of other people:{" "}
+              {impact.reducedCount}{" "}
+              {impact.reducedCount === 1 ? "person's bonus" : "people's bonuses"}{" "}
+              {impact.reducedCount === 1 ? "falls" : "fall"} by{" "}
+              {fmt(impact.totalReduction)} in total ({fmt(impact.averageReduction)}{" "}
+              on average, {fmt(impact.largestReduction)} at most).
+            </p>
+          ) : (
+            <p className="mt-2 text-[11px] text-brand-70">
+              Nobody else&apos;s bonus changes — a discretionary amount is not
+              taken from the other allocations.
+            </p>
+          )}
 
           <div className="mt-5 flex items-center gap-2">
             <button

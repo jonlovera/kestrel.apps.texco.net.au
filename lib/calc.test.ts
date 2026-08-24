@@ -895,3 +895,97 @@ describe("isDaEditable", () => {
     }
   });
 });
+
+/**
+ * The "Always redistribute" tick (Caps.redistribute) chooses between the two
+ * funding models for a discretionary amount. These lock the difference down:
+ * the default must stay bit-identical to the on-top model, and the tick must
+ * actually take the grant out of the other unlocked rows rather than adding it
+ * on top of the pool.
+ */
+describe("redistribute: discretionary funded from the pool", () => {
+  const ov = (daEdit: number): Overrides => ({ A: { daEdit } });
+
+  function run(caps: Caps, overrides: Overrides) {
+    const emps = applyOverrides(FIXTURE, overrides);
+    const pool = computeScalesAndBonuses(emps, caps);
+    const by = new Map(emps.map((e) => [e.id, e]));
+    return { emps, pool, by };
+  }
+
+  it("absent flag is identical to the on-top model", () => {
+    const off = run(CAPS, ov(100));
+    const explicit = run({ ...CAPS, redistribute: false }, ov(100));
+    for (const e of off.emps) {
+      expect(explicit.by.get(e.id)!.finalBonus).toBe(e.finalBonus);
+    }
+    expect(explicit.pool.vicScale).toBe(off.pool.vicScale);
+  });
+
+  it("on top: the grant moves nobody else, and the pool total rises by it", () => {
+    const base = run(CAPS, {});
+    const granted = run(CAPS, ov(100));
+    // the recipient gets exactly the grant
+    expect(granted.by.get("A")!.finalBonus).toBeCloseTo(
+      base.by.get("A")!.finalBonus + 100,
+      6
+    );
+    // and B, the other unlocked VIC row, is untouched
+    expect(granted.by.get("B")!.finalBonus).toBeCloseTo(
+      base.by.get("B")!.finalBonus,
+      6
+    );
+    expect(granted.pool.vicScale).toBeCloseTo(base.pool.vicScale, 12);
+  });
+
+  it("redistributing: the grant comes OUT of the other unlocked rows", () => {
+    const caps: Caps = { ...CAPS, redistribute: true };
+    const base = run(caps, {});
+    const granted = run(caps, ov(100));
+    // the scale falls — that is the pool paying for the grant
+    expect(granted.pool.vicScale).toBeLessThan(base.pool.vicScale);
+    // B pays some of it, having granted nothing
+    expect(granted.by.get("B")!.finalBonus).toBeLessThan(
+      base.by.get("B")!.finalBonus
+    );
+    // the VIC pool total does NOT rise: the grant was funded, not added
+    const vicTotal = (r: ReturnType<typeof run>) =>
+      r.emps.reduce((s, e) => s + getVicAlloc(e, r.pool), 0);
+    expect(vicTotal(granted)).toBeCloseTo(vicTotal(base), 6);
+  });
+
+  it("redistributing: reducing an amount hands the money back to the team", () => {
+    const caps: Caps = { ...CAPS, redistribute: true };
+    const base = run(caps, ov(100));
+    const cut = run(caps, ov(0));
+    expect(cut.pool.vicScale).toBeGreaterThan(base.pool.vicScale);
+    expect(cut.by.get("B")!.finalBonus).toBeGreaterThan(
+      base.by.get("B")!.finalBonus
+    );
+  });
+
+  it("redistributing: Final is the scaled figure, DA already inside it", () => {
+    const caps: Caps = { ...CAPS, redistribute: true };
+    const { by } = run(caps, ov(100));
+    const a = by.get("A")!;
+    // the on-top identity (calc + DA = final) is deliberately NOT held here
+    expect(a.finalBonus).toBe(a.calcBonus);
+  });
+
+  it("redistributing: getMaxDA bounds on the state pool, not the cap", () => {
+    const caps: Caps = { ...CAPS, redistribute: true };
+    const { emps, pool, by } = run(caps, {});
+    // the group cap has no room in this fixture, so the on-top bound is ~0 —
+    // but the pool-funded bound is real, because the grant is self-funding.
+    const pooled = getMaxDA(by.get("A")!, emps, caps, pool);
+    const onTop = getMaxDA(by.get("A")!, emps, CAPS);
+    expect(pooled).toBeGreaterThan(onTop);
+    expect(pooled).toBeGreaterThan(0);
+  });
+
+  it("a site manager is outside the pool under either model", () => {
+    const on = run({ ...CAPS, redistribute: true }, { C: { daEdit: 50 } });
+    const off = run(CAPS, { C: { daEdit: 50 } });
+    expect(on.by.get("C")!.calcBonus).toBe(off.by.get("C")!.calcBonus);
+  });
+});

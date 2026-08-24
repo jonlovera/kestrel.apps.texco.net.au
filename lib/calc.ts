@@ -50,6 +50,25 @@
  * A locked row's frozen finalBonus still includes whatever DA it carried at
  * lock time, and that whole frozen figure is deducted from the pool through
  * the locked branch — locking a row is what puts its DA inside the pool.
+ *
+ * REDISTRIBUTE TICK (owner decision, 24 August 2026): both funding models are
+ * now available, chosen by `Caps.redistribute` — the "Always redistribute"
+ * tick at the top of the dashboard, persisted on Params so the browser, the
+ * server's /api/state validation and every user agree on which one is live.
+ *  - ABSENT or false (the default, and every dataset stored before the tick
+ *    existed): everything above holds unchanged. Proven bit-identical by the
+ *    frozen goldens, which must not move.
+ *  - true: the pre-25-August pool-funded model, restored. The unlocked rows'
+ *    DA draw is deducted from each state pool BEFORE anyone is scaled, so a
+ *    grant lowers every other unlocked row and a reduction hands that money
+ *    back to the team. calcBonus then INCLUDES the DA and finalBonus is
+ *    calcBonus alone, so the "Calc bonus + Discretionary = Final" identity
+ *    deliberately does not hold — that identity is what the on-top model
+ *    bought. getMaxDA switches to the state-pool bound (the cap-measured one
+ *    reads as zero when the scale already pins the total at the cap), and
+ *    getVicAlloc/getNswAlloc count the DA as part of the draw.
+ * Site managers sit outside the state pool under either model, so the tick
+ * does not reach them.
  */
 import type { Employee, Overrides } from "./schema";
 
@@ -72,6 +91,15 @@ export interface Caps {
   vCap: number;
   nCap: number;
   gCap: number;
+  /**
+   * The "Always redistribute" tick — see the DISCRETIONARY UPDATE note in the
+   * module header. Optional and falsy-by-default so the on-top model stays the
+   * behaviour of every existing caller and every stored dataset; it rides on
+   * Caps rather than a separate argument because every caller already threads
+   * the dataset in here, so there is exactly one place the two models can be
+   * chosen and no call site can accidentally pick a different one.
+   */
+  redistribute?: boolean;
 }
 
 /**
@@ -97,6 +125,13 @@ export const ZERO_SHARED: SharedAgg = {
 export interface PoolAgg {
   empLockedVp: number;
   empLockedNp: number;
+  /**
+   * The unlocked rows' discretionary draw on each state, weighted by vp/np.
+   * Zero under the on-top model (a DA draws on no pool there); populated when
+   * `redistribute` is on, where it is what the scale has to absorb.
+   */
+  empDaVpUnlocked: number;
+  empDaNpUnlocked: number;
 }
 
 export interface PoolState {
@@ -110,6 +145,12 @@ export interface PoolState {
   stateVicAvail: number;
   stateNswAvail: number;
   poolAgg: PoolAgg;
+  /**
+   * Which funding model produced these figures — carried through so the
+   * allocation helpers below, which only ever receive a PoolState, cannot
+   * measure a pool draw under the wrong model.
+   */
+  redistribute: boolean;
 }
 
 /**
@@ -232,6 +273,7 @@ export function computeScalesAndBonuses(
   caps: Caps,
   shared: SharedAgg = ZERO_SHARED
 ): PoolState {
+  const redistribute = caps.redistribute === true;
   emps.forEach((e) => {
     e.preIpm = e.pkg * e.bpEdit * e.cpm;
     e.bipmCalc = e.preIpm * e.ipmEdit;
@@ -276,6 +318,8 @@ export function computeScalesAndBonuses(
     empLockedNp = 0;
   let empBipmVpUnlocked = 0,
     empBipmNpUnlocked = 0;
+  let empDaVpUnlocked = 0,
+    empDaNpUnlocked = 0;
 
   emps.forEach((e) => {
     if (e.sm) {
@@ -302,10 +346,16 @@ export function computeScalesAndBonuses(
     } else {
       empBipmVpUnlocked += e.bipmCalc * e.vp;
       empBipmNpUnlocked += e.bipmCalc * e.np;
+      // Only drawn on below when `redistribute` is on; under the on-top model
+      // these are measured but deliberately never deducted, so the aggregate
+      // is honest and the two models differ in one place instead of two.
+      empDaVpUnlocked += e.daEdit * e.vp;
+      empDaNpUnlocked += e.daEdit * e.np;
     }
   });
 
-  // Two-step scale: shared services locked first, DA redistributes within state only.
+  // Two-step scale: shared services' allocation is fixed first, so a state's
+  // discretionary spending can never reach into it.
 
   // Step 1: base scale (no state DA) — sets shared services' fixed allocation
   const vicBaseDenom = empBipmVpUnlocked + shared.sharedBipmVp;
@@ -330,31 +380,52 @@ export function computeScalesAndBonuses(
   // Step 4: state scale. Capped at 1: an under-subscribed pool is no longer
   // scaled up above 100% to force the cap to be fully spent — the remainder
   // is left as "pool remaining" (FY26 methodology update; previously
-  // uncapped). Discretionary adjustments are NOT deducted here — they sit on
-  // top of the pool entirely (see the module header).
+  // uncapped).
+  //
+  // This is THE line the "Always redistribute" tick moves. With it off,
+  // discretionary amounts are not deducted here at all — they sit on top of
+  // the pool and move no scale, so a grant shaves nobody. With it on, the
+  // unlocked rows' discretionary draw comes out of the state pool before
+  // anyone is scaled, so granting one lowers every other unlocked row's bonus
+  // and reducing one hands that money back to the team.
+  const daVp = redistribute ? empDaVpUnlocked : 0;
+  const daNp = redistribute ? empDaNpUnlocked : 0;
   const vicScale =
     empBipmVpUnlocked !== 0
-      ? clampScale((stateVicAvail - empLockedVp) / empBipmVpUnlocked)
+      ? clampScale((stateVicAvail - empLockedVp - daVp) / empBipmVpUnlocked)
       : 1;
   const nswScale =
     empBipmNpUnlocked !== 0
-      ? clampScale((stateNswAvail - empLockedNp) / empBipmNpUnlocked)
+      ? clampScale((stateNswAvail - empLockedNp - daNp) / empBipmNpUnlocked)
       : 1;
 
   emps.forEach((e) => {
     if (e.sm) {
       // The fixed bonus never scales; a discretionary amount rides on top of
       // it, keeping the dashboard identity Calc bonus + Discretionary = Final.
+      // A site manager sits outside the state pool either way, so the
+      // redistribute tick does not reach them — the pool-funded model treated
+      // them exactly the same.
       e.calcBonus = e.bipmCalc;
       // A locked site manager keeps the figure frozen at lock time, exactly as
       // a locked pooled row does — this assignment is what used to make the
       // lock flag a no-op for them.
       if (!e.locked) e.finalBonus = e.bipmCalc + e.daEdit;
     } else if (!e.locked) {
-      e.calcBonus = e.bipmCalc * e.vp * vicScale + e.bipmCalc * e.np * nswScale;
-      e.finalBonus = e.calcBonus + e.daEdit;
+      // Under the pool-funded model the DA is INSIDE calcBonus (it was paid
+      // for by the scale above), so Final is calcBonus alone and the
+      // dashboard's "Calc bonus + Discretionary = Final" identity is expected
+      // not to hold — that identity is what the on-top model bought.
+      e.calcBonus =
+        e.bipmCalc * e.vp * vicScale +
+        e.bipmCalc * e.np * nswScale +
+        (redistribute ? e.daEdit : 0);
+      e.finalBonus = redistribute ? e.calcBonus : e.calcBonus + e.daEdit;
     } else {
-      e.calcBonus = e.bipmCalc * e.vp * vicScale + e.bipmCalc * e.np * nswScale;
+      e.calcBonus =
+        e.bipmCalc * e.vp * vicScale +
+        e.bipmCalc * e.np * nswScale +
+        (redistribute ? e.daEdit : 0);
       // finalBonus stays frozen at its locked value
     }
   });
@@ -364,7 +435,8 @@ export function computeScalesAndBonuses(
     nswScale,
     stateVicAvail,
     stateNswAvail,
-    poolAgg: { empLockedVp, empLockedNp },
+    poolAgg: { empLockedVp, empLockedNp, empDaVpUnlocked, empDaNpUnlocked },
+    redistribute,
   };
 }
 
@@ -399,10 +471,30 @@ export function computeScalesAndBonuses(
 export function getMaxDA(
   e: CalcEmployee,
   emps: readonly CalcEmployee[],
-  caps: Caps
+  caps: Caps,
+  pool?: PoolState
 ): number {
   if (e.locked) return 0;
   if (e.vp + e.np === 0) return Infinity;
+  // Under the pool-funded model the cap-measured bound below is meaningless:
+  // the scale already pins Σ final at the cap, so "room left under the cap"
+  // reads as zero and every grant would be refused. The real bound there is
+  // the state pool's own remaining room, net of the locked draw and every
+  // OTHER unlocked row's discretionary draw, divided by this row's weight —
+  // the pre-25-August formula, restored verbatim.
+  if (caps.redistribute === true) {
+    if (!pool) return Infinity;
+    const { poolAgg, stateVicAvail, stateNswAvail } = pool;
+    const otherDaVp = poolAgg.empDaVpUnlocked - e.daEdit * e.vp;
+    const otherDaNp = poolAgg.empDaNpUnlocked - e.daEdit * e.np;
+    const vicRoom = stateVicAvail - poolAgg.empLockedVp - otherDaVp;
+    const nswRoom = stateNswAvail - poolAgg.empLockedNp - otherDaNp;
+    let maxDa = Infinity;
+    if (e.vp > 0) maxDa = Math.min(maxDa, vicRoom / e.vp);
+    if (e.np > 0) maxDa = Math.min(maxDa, nswRoom / e.np);
+    if (isNaN(maxDa) || !isFinite(maxDa)) return 0;
+    return Math.max(0, Math.floor(maxDa));
+  }
   let groupTotal = 0;
   let homeTotal = 0;
   for (const r of emps) {
@@ -420,22 +512,33 @@ export function getMaxDA(
   return Math.floor(room);
 }
 
-/** VIC pool allocation of one employee — pool money only, DA sits on top. */
+/**
+ * VIC pool allocation of one employee. Pool money only when a DA sits on top;
+ * when `redistribute` is on the DA was funded by the scale above, so it is
+ * part of the draw and has to be counted here — leaving it out would make the
+ * pool cards under-report by exactly the net DA.
+ */
 export function getVicAlloc(e: CalcEmployee, pool: PoolState): number {
   // `locked` is tested FIRST, site manager or not: a frozen row draws its
   // frozen payout from the pool, which is what makes the lock real for an NSW
   // site manager (24 Aug 2026). Reversing these two silently unfreezes them.
   if (e.locked) return e.finalBonus * e.vp;
   if (e.sm) return e.bipmCalc * e.vp;
-  return e.bipmCalc * e.vp * pool.vicScale;
+  return (
+    e.bipmCalc * e.vp * pool.vicScale +
+    (pool.redistribute ? e.daEdit * e.vp : 0)
+  );
 }
 
-/** NSW pool allocation of one employee — pool money only, DA sits on top. */
+/** NSW pool allocation of one employee — see getVicAlloc. */
 export function getNswAlloc(e: CalcEmployee, pool: PoolState): number {
   // `locked` first, for the same reason as getVicAlloc.
   if (e.locked) return e.finalBonus * e.np;
   if (e.sm) return e.bipmCalc * e.np;
-  return e.bipmCalc * e.np * pool.nswScale;
+  return (
+    e.bipmCalc * e.np * pool.nswScale +
+    (pool.redistribute ? e.daEdit * e.np : 0)
+  );
 }
 
 /**

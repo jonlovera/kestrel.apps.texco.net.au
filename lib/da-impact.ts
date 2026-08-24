@@ -31,6 +31,7 @@
  * the audit record).
  */
 import { applyOverrides, computeScalesAndBonuses, getMaxDA } from "./calc";
+import type { PoolState } from "./calc";
 import type { CalcEmployee, Caps } from "./calc";
 import type { Employee, Overrides } from "./schema";
 
@@ -91,9 +92,10 @@ export const DA_POLICY: DaPolicy = {
 export function daHeadroom(
   e: CalcEmployee,
   emps: readonly CalcEmployee[],
-  caps: Caps
+  caps: Caps,
+  pool?: PoolState
 ): number {
-  return getMaxDA(e, emps, caps);
+  return getMaxDA(e, emps, caps, pool);
 }
 
 /**
@@ -185,10 +187,12 @@ function run(
   emps: Employee[],
   caps: Caps,
   doc: Overrides
-): { rows: CalcEmployee[] } {
+): { rows: CalcEmployee[]; pool: PoolState } {
   const rows = applyOverrides(emps, doc);
-  computeScalesAndBonuses(rows, caps);
-  return { rows };
+  // The pool state comes back too: under the redistribute model the headroom
+  // bound is measured off it, not off the rows.
+  const pool = computeScalesAndBonuses(rows, caps);
+  return { rows, pool };
 }
 
 /**
@@ -215,7 +219,7 @@ export function daGrants(
       from: was.daEdit,
       to: row.daEdit,
       amount: row.daEdit - was.daEdit,
-      headroom: daHeadroom(was, before.rows, caps),
+      headroom: daHeadroom(was, before.rows, caps, before.pool),
     });
   }
   return grants;

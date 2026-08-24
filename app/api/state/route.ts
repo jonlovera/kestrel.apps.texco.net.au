@@ -217,11 +217,11 @@ export async function POST(req: Request) {
   // in one save are judged against each other rather than each in isolation:
   // each one eats the room the next one would have had.
   const nextRows = applyOverrides(data.emp, sanitised);
-  computeScalesAndBonuses(nextRows, data);
+  const nextPool = computeScalesAndBonuses(nextRows, data);
   for (const grant of impact.grants) {
     const row = nextRows.find((e) => e.id === grant.empId);
     if (!row) continue;
-    const ceiling = daHeadroom(row, nextRows, data);
+    const ceiling = daHeadroom(row, nextRows, data, nextPool);
     if (!Number.isFinite(ceiling)) continue;
     if (row.daEdit <= ceiling + DA_EPSILON) continue;
     console.log(

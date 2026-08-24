@@ -61,6 +61,23 @@ export const BonusDataSchema = z.object({
    * about. Defaulted so a dataset stored before this existed keeps parsing.
    */
   excludedIds: z.array(z.string()).default([]),
+  /**
+   * Whether a discretionary amount is funded FROM the capped pool (so it moves
+   * the pool scale and every other unlocked row's bonus reflows) or sits ON
+   * TOP of it (the default: the money it frees is simply room left under the
+   * cap and nobody else moves). The "Always redistribute" tick on the
+   * dashboard. Lives on the dataset for the same reason the caps do — an
+   * import replaces `emp` and carries the rest forward — and, crucially,
+   * because it changes the figures: the browser, /api/state's validation and
+   * every user have to agree on which funding model is in force.
+   *
+   * Optional, and absent means off: a dataset stored before this existed, and
+   * every deployment that has not been ticked, keeps today's behaviour exactly.
+   * Left optional on the OUTPUT type too (rather than `.default(false)`) so
+   * every existing fixture and caller that builds a dataset literal still
+   * type-checks — the engine reads it as `=== true`.
+   */
+  redistribute: z.boolean().optional(),
 });
 
 export type Employee = z.infer<typeof EmployeeSchema>;

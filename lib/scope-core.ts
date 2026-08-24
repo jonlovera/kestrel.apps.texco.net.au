@@ -137,15 +137,16 @@ export function buildPayloadCore(
     return row;
   });
 
-  // The header: this manager's OWN pool, not a state's. The card this replaces
-  // handed a scoped lead a whole-state figure — for a group rule covering
-  // fifteen delivery positions inside VIC, a number about several hundred
-  // people they are not accountable for, and one that silently dropped the
-  // in-scope SHARED row the table footer counted. `allowed` is already the
-  // engine-computed population narrowed by ruleMatches, so this is a
-  // filter-and-sum with no second engine pass — /api/preview runs it on every
-  // keystroke burst.
-  const managerPool = managerPoolFrom(scope.rule, allowed);
+  // The header: this manager's own pool. For a whole-state grant that IS the
+  // state's cap (owner decision, 25 Aug 2026) — their scope is exactly that
+  // pool card, so their budget should be the card's. For anything narrower it
+  // stays the entitlement of the rows they actually hold: handing a group rule
+  // covering fifteen delivery positions inside VIC the whole VIC cap would be
+  // a budget for several hundred people they are not accountable for. See
+  // lib/manager-pool.ts. `allowed` is already the engine-computed population
+  // narrowed by ruleMatches, so this is a filter-and-sum with no second engine
+  // pass — /api/preview runs it on every keystroke burst.
+  const managerPool = managerPoolFrom(scope.rule, allowed, data);
 
   // Filter option lists derived from the user's own rows only.
   const uniq = (xs: string[]) => [...new Set(xs)].sort();

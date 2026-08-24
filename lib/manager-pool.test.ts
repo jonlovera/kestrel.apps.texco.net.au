@@ -9,6 +9,10 @@
  * still hold. The single pinned figure at the end is a reconciliation anchor
  * against the CFO's sheet, not the contract.
  *
+ * Clint's grant is a GROUP rule (VIC + SHARED, fifteen positions), so these
+ * figures use the entitlement definition of `pool` rather than a state cap —
+ * see lib/manager-pool.ts. The state-cap case is covered separately below.
+ *
  * The fixture is a point-in-time PRODUCTION capture (data/prod-fixture.json,
  * gitignored, created 2026-08-21 — regenerate with a read-only pull of the
  * four kestrel_docs rows if it goes stale). Three assertions reproduce, to the
@@ -142,7 +146,7 @@ describe.skipIf(!existsSync(FIXTURE))(
 
     it("managerPoolFrom agrees with managerPool on already-computed rows", () => {
       // the read path takes the cheaper one; they must not diverge
-      expect(managerPoolFrom(scope.rule, population())).toEqual(result);
+      expect(managerPoolFrom(scope.rule, population(), data)).toEqual(result);
     });
 
     it("resolves Clint's cap to $1,087,114 on this fixture", () => {
@@ -268,9 +272,68 @@ describe("poolBreach", () => {
 
   it("the fixture starts exactly spent — pool equals allocated", () => {
     const p = managerPool(lead, data, {});
+    // a VIC-only lead's pool IS vCap (25 Aug 2026); here the two rows demand
+    // exactly that between them, so the cap starts exactly spent either way
+    expect(p.pool).toBe(data.vCap);
     expect(p.pool).toBeCloseTo(1000, 8);
     expect(p.allocated).toBeCloseTo(1000, 8);
     expect(p.remaining).toBeCloseTo(0, 8);
+  });
+
+  it("a whole-state lead's pool is the state cap, not what their rows demand", () => {
+    // raise the cap and the lead's budget rises with it, though nobody's
+    // entitlement moved — the whole point of the change
+    const roomy: Dataset = { ...data, vCap: 1500, gCap: 2500 };
+    const p = managerPool(lead, roomy, {});
+    expect(p.pool).toBe(1500);
+    expect(p.allocated).toBeCloseTo(1000, 8); // scale clamps at 1
+    expect(p.remaining).toBeCloseTo(500, 8);
+    // and that room is genuinely spendable now, where the entitlement
+    // definition would have refused every dollar of it
+    expect(poolBreach(lead, roomy, { A: { daEdit: 500 } }, {})).toBeNull();
+    expect(poolBreach(lead, roomy, { A: { daEdit: 501 } }, {})).not.toBeNull();
+  });
+
+  it("several states sum their caps", () => {
+    const both: Scope = {
+      ...lead,
+      rule: { ...lead.rule, type: "state", states: ["VIC", "NSW"] } as typeof lead.rule,
+    };
+    expect(managerPool(both, data, {}).pool).toBe(data.vCap + data.nCap);
+  });
+
+  it("Shared Services has no cap, so those rows fall back to their entitlement", () => {
+    const shared: Dataset = {
+      ...data,
+      emp: [...data.emp, emp({ id: "S", st: "SHARED", vp: 0.5, np: 0.5, bipm: 200 })],
+    };
+    const rule = { ...lead.rule, states: ["VIC", "SHARED"] } as typeof lead.rule;
+    const both: Scope = { ...lead, rule };
+    const emps = applyOverrides(shared.emp, {});
+    computeScalesAndBonuses(emps, shared);
+    const sCalc = emps.find((e) => e.id === "S")!.calcBonus;
+    expect(sCalc).toBeGreaterThan(0);
+    expect(managerPool(both, shared, {}).pool).toBeCloseTo(shared.vCap + sCalc, 8);
+  });
+
+  it("a group rule keeps the entitlement definition — a state cap is not its budget", () => {
+    const group: Scope = {
+      ...lead,
+      rule: {
+        type: "group",
+        states: ["VIC"],
+        positions: ["Role"],
+        visibleFields: ["da", "final"],
+        editableFields: ["da"],
+        canLock: true,
+        canActAs: [],
+      },
+      label: "VIC group lead",
+    };
+    const roomy: Dataset = { ...data, vCap: 1500, gCap: 2500 };
+    const p = managerPool(group, roomy, {});
+    expect(p.pool).not.toBe(roomy.vCap);
+    expect(p.pool).toBeCloseTo(p.allocated, 8); // entitlement, so no free room
   });
 
   it("blocks a save that goes over from a balanced start", () => {

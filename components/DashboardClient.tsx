@@ -1105,7 +1105,7 @@ export default function DashboardClient({
       if (!emp || emp.locked) return;
       // VIC site managers are deliberately not adjustable; NSW ones are.
       if (!isDaEditable(rowRule(emp))) return;
-      const ceiling = pool ? daHeadroom(emp, emps, params) : Infinity;
+      const ceiling = pool ? daHeadroom(emp, emps, params, pool) : Infinity;
       const held = clampDa(num, emp.daEdit, ceiling);
       num = held.value;
       if (held.clamped) {
@@ -1139,7 +1139,7 @@ export default function DashboardClient({
       if (!emp || emp.locked) return null;
       // no ceiling badge on a cell that isn't adjustable in the first place
       if (!isDaEditable(rowRule(emp))) return null;
-      const ceiling = daHeadroom(emp, emps, params);
+      const ceiling = daHeadroom(emp, emps, params, pool);
       return Number.isFinite(ceiling) ? Math.max(0, Math.floor(ceiling)) : null;
     },
     [isEditor, pool, empById, emps, params]
@@ -1598,6 +1598,34 @@ export default function DashboardClient({
               Show this banner
             </label>
           )}
+        </div>
+      )}
+
+      {/* "Always redistribute" — the funding model for discretionary amounts.
+          Off (the default) a discretionary amount sits ON TOP of the pool: the
+          money a reduction frees is simply room left under the cap and nobody
+          else's bonus moves. On, it is funded FROM the pool, so granting one
+          lowers every other unlocked row and reducing one hands that money
+          back to the team. It takes the same grant a cap change does, because
+          it moves everyone's figure — everyone else sees it read-only, so it
+          is always visible which model produced the numbers on screen. */}
+      {isEditor && !viewingAs && (
+        <div className="flex items-center justify-center gap-2 border-b border-neutral-100 bg-neutral-50 px-6 py-1.5 text-[11px]">
+          <label className="inline-flex items-center gap-1.5 font-bold">
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5"
+              checked={params.redistribute === true}
+              disabled={!canEditCapsNow || dsBusy}
+              onChange={(e) => updateParams({ redistribute: e.target.checked })}
+            />
+            Always redistribute
+          </label>
+          <span className="text-brand-70">
+            {params.redistribute
+              ? "a discretionary amount is funded from the pool — changing one reflows everyone else's bonus"
+              : "a discretionary amount sits on top of the pool — changing one frees money into the pool without moving anyone else"}
+          </span>
         </div>
       )}
 

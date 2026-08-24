@@ -5,7 +5,24 @@
  *
  * Definitions (per the stakeholder spec, adjudicated Aug 2026):
  *
- *   pool       Σ calcBonus over EVERY in-scope row. `calcBonus` at the live
+ *   pool       THE STATE CAP, for a lead whose grant is a whole state or
+ *              states (owner decision, 25 August 2026). A state lead's scope
+ *              IS that state's card — ruleMatches tests the same `st` the
+ *              dashboard groups its pool cards by — so their budget is that
+ *              card's cap and their headroom is the room under it, exactly the
+ *              figure an admin sees on the card. Several states sum their
+ *              caps. Shared Services has no cap of its own, so a rule
+ *              covering it falls back to the entitlement sum below for those
+ *              rows only.
+ *
+ *              For every other grant shape it stays the entitlement sum: a
+ *              group rule ("fifteen delivery positions inside VIC") or a
+ *              subset covers part of a state, so the state's cap would be a
+ *              budget for several hundred people they are not accountable
+ *              for — the very thing this module was written to stop handing
+ *              them. Their pool is therefore still:
+ *
+ *              Σ calcBonus over EVERY in-scope row. `calcBonus` at the live
  *              scale is the one honest "draw from the pool" figure in the
  *              engine: over unlocked non-site-manager rows it partitions the
  *              post-locks, post-site-manager pool to the cent (see
@@ -44,21 +61,19 @@
  *   remaining  pool - allocated (the header paints it red at or below 0).
  *   people     the in-scope row count.
  *
- * Note what remaining is made of: with no locks and no discretionary
- * adjustments, pool and allocated are equal by construction (finalBonus IS
- * calcBonus on every unlocked row), so a manager's headroom comes entirely
- * from locked rows frozen BELOW their live entitlement, plus any
- * under-subscribed pool. It is normally thin, which is why poolBreach names
- * the unabsorbable amount rather than clamping quietly.
- *
- * Since the 25 August 2026 reversal (see lib/calc.ts) a DA sits ON TOP of the
- * pool draw, which is what makes these figures simple again: it moves no
- * scale, so `pool` does not move with a DA edit and nobody outside the scope
- * is touched. A DA of X inside the scope raises `allocated` by exactly X and
- * lowers `remaining` by exactly X, so a lead's own pool is the binding
- * constraint on their grants — poolBreach refuses the save that exceeds it.
- * The state and group caps are policed separately, by the editor's getMaxDA
- * clamp at type time and /api/state's headroom gate.
+ * Note what remaining is made of, and why the state-cap definition matters.
+ * Since the 25 August 2026 reversal (see lib/calc.ts) a discretionary amount
+ * sits ON TOP of the pool draw: it moves no scale, so `pool` never moves with
+ * a DA edit, a DA of X raises `allocated` by exactly X and lowers `remaining`
+ * by exactly X, and nobody outside the scope is touched. On the entitlement
+ * definition that leaves a lead with almost no headroom at all — with no locks
+ * and no DA, pool and allocated are equal by construction (finalBonus IS
+ * calcBonus on every unlocked row), so their room comes only from locked rows
+ * frozen BELOW their live entitlement — and every grant they tried would be
+ * refused. Against the state cap their headroom is the real room under the
+ * cap, the same room the editor's getMaxDA clamp and /api/state's headroom
+ * gate allow, so the three agree instead of the lead's own gate being the
+ * tightest by an accident of arithmetic.
  *
  * Pure: one engine pass over the whole population (the scale is a
  * whole-population fact), then the scope filter — the same ruleMatches the
@@ -74,6 +89,7 @@ import {
   computeScalesAndBonuses,
   sumAllocated,
   type CalcEmployee,
+  type Caps,
 } from "./calc";
 
 export interface ManagerPool {
@@ -91,12 +107,41 @@ export interface ManagerPool {
  */
 export function managerPoolFrom(
   rule: GrantingRule,
-  emps: readonly CalcEmployee[]
+  emps: readonly CalcEmployee[],
+  caps: Caps
 ): ManagerPool {
   const mine = emps.filter((e) => ruleMatches(rule, e));
-  const pool = mine.reduce((s, e) => s + e.calcBonus, 0);
+  const pool = rulePool(rule, mine, caps);
   const allocated = sumAllocated(mine, (e) => e.finalBonus);
   return { pool, allocated, remaining: pool - allocated, people: mine.length };
+}
+
+/** Σ calcBonus — the entitlement definition, for scopes with no cap of their own. */
+function entitlement(rows: readonly CalcEmployee[]): number {
+  return rows.reduce((s, e) => s + e.calcBonus, 0);
+}
+
+/**
+ * The budget for one grant shape (see the module header for why they differ).
+ *
+ * A whole-state grant gets that state's cap, because the lead's scope is
+ * precisely that state's pool card. Anything narrower gets the entitlement of
+ * the rows it actually holds. Shared Services has no cap, so it contributes
+ * its rows' entitlement even inside a state rule.
+ */
+function rulePool(
+  rule: GrantingRule,
+  mine: readonly CalcEmployee[],
+  caps: Caps
+): number {
+  if (rule.type !== "state") return entitlement(mine);
+  let pool = 0;
+  for (const st of rule.states) {
+    if (st === "VIC") pool += caps.vCap;
+    else if (st === "NSW") pool += caps.nCap;
+    else pool += entitlement(mine.filter((e) => e.st === st));
+  }
+  return pool;
 }
 
 /**
@@ -112,7 +157,7 @@ export function managerPool(
 ): ManagerPool {
   const emps = applyOverrides(data.emp, overrides);
   computeScalesAndBonuses(emps, data);
-  return managerPoolFrom(scope.rule, emps);
+  return managerPoolFrom(scope.rule, emps, data);
 }
 
 export interface PoolBreach {

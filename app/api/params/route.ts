@@ -39,10 +39,13 @@ export async function POST(req: Request) {
     );
   }
   const previous = await getParams();
+  // The redistribute tick is grouped with the caps deliberately: it changes
+  // every unlocked row's figure, so it takes the same grant a cap change does.
   const capsChanged =
     parsed.data.vCap !== previous.vCap ||
     parsed.data.nCap !== previous.nCap ||
-    parsed.data.gCap !== previous.gCap;
+    parsed.data.gCap !== previous.gCap ||
+    (parsed.data.redistribute === true) !== (previous.redistribute === true);
 
   if (capsChanged && !canChangeCaps(scope)) {
     return NextResponse.json(
@@ -53,9 +56,19 @@ export async function POST(req: Request) {
 
   const params = canChangeCaps(scope)
     ? parsed.data
-    : { ...parsed.data, vCap: previous.vCap, nCap: previous.nCap, gCap: previous.gCap };
+    : {
+        ...parsed.data,
+        vCap: previous.vCap,
+        nCap: previous.nCap,
+        gCap: previous.gCap,
+        redistribute: previous.redistribute,
+      };
 
   const changes: string[] = [];
+  if ((previous.redistribute === true) !== (params.redistribute === true))
+    changes.push(
+      `Always redistribute ${params.redistribute ? "on" : "off"} (discretionary amounts ${params.redistribute ? "now funded from the pool" : "now sit on top of the pool"})`
+    );
   if (previous.companyModifier !== params.companyModifier)
     changes.push(
       `company modifier ${previous.companyModifier} → ${params.companyModifier}`
