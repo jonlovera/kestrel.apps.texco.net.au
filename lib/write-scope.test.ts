@@ -151,14 +151,7 @@ describe("who may write what", () => {
   });
 
   it("a partially-granted lead who also holds Can lock gets both", () => {
-    // daPooled comes with daEdit, not on its own: the funding flag rides the
-    // same "da" grant as the amount (owner decision, 24 Aug 2026).
-    expect(writableFields(daOnlyLead)).toEqual([
-      "daEdit",
-      "daPooled",
-      "locked",
-      "lockedFinal",
-    ]);
+    expect(writableFields(daOnlyLead)).toEqual(["daEdit", "locked", "lockedFinal"]);
   });
 
   it("a lead granted nothing at all may write nothing", () => {
@@ -564,22 +557,9 @@ describe("the editable-fields grant", () => {
   });
 
   it("grants exactly what was ticked", () => {
-    // The "da" tick carries both the amount and its funding; the "ipm" tick
-    // carries neither, so ticking IPM alone can never let someone change how
-    // somebody's discretionary money is funded.
-    expect(writableFields(lead(["da"]))).toEqual(["daEdit", "daPooled"]);
+    expect(writableFields(lead(["da"]))).toEqual(["daEdit"]);
     expect(writableFields(lead(["ipm"]))).toEqual(["ipmEdit"]);
-    expect(writableFields(lead(["da", "ipm"]))).toEqual([
-      "daEdit",
-      "daPooled",
-      "ipmEdit",
-    ]);
-  });
-
-  it("offers the funding flag no column of its own", () => {
-    // It lives on the "da" column, so editableColumns must name that column
-    // once — the affordance list and the write boundary stay the same set.
-    expect(editableColumns(lead(["da"]))).toEqual(["da"]);
+    expect(writableFields(lead(["da", "ipm"]))).toEqual(["daEdit", "ipmEdit"]);
   });
 
   it("cannot grant a figure the person was never sent", () => {

@@ -38,8 +38,6 @@ export interface TableHandlers {
   updateDatasetFigure: (id: string, current: number, raw: string) => void;
   updateSplit: (id: string, field: "vp" | "np", current: number, raw: string) => void;
   toggleLock: (id: string) => void;
-  /** flips whether this row's discretionary amount is funded from the pool */
-  toggleDaPooled: (id: string) => void;
   renameColumn: (key: string, label: string) => void;
   /** opens the per-person edit modal (state change, remove from model) */
   editEmployee: (id: string) => void;
@@ -48,6 +46,19 @@ export interface TableHandlers {
 interface Props {
   columns: TableColumn[];
   rows: DisplayRow[];
+  /**
+   * Whether to render the leading selection column at all. False for anyone who
+   * cannot redistribute, so the frozen block is one column wide for them and the
+   * offsets below collapse back to `left-0`.
+   */
+  canSelect: boolean;
+  isSelected: (id: string) => boolean;
+  /** false for a locked or non-adjustable row — the checkbox renders disabled */
+  canSelectRow: (id: string) => boolean;
+  onToggleSelected: (id: string) => void;
+  onToggleSelectAll: () => void;
+  /** drives the header checkbox: every listed, selectable row is ticked */
+  allVisibleSelected: boolean;
   totals: Partial<Record<NumericField, number>>;
   /** admin, not viewing as someone — governs the header double-click-to-rename affordance only */
   canRenameColumns: boolean;
@@ -75,6 +86,22 @@ interface Props {
   /** The scroll box, exposed so the shell can watch scrollTop (pool collapse). */
   scrollRef?: React.Ref<HTMLDivElement>;
 }
+
+/**
+ * The frozen left block: the selection checkbox, then the first configured
+ * column (Name, unless someone has reordered or hidden it).
+ *
+ * PIN_W and PIN_LEFT must move together — PIN_LEFT is where the second frozen
+ * column starts, which is exactly the width of the first. Tailwind needs both
+ * as literals, so they live here as a pair rather than being derived.
+ *
+ * The offset is NOT keyed on `c.key === "name"`: name is an ordinary
+ * configurable column (lib/columns.ts) and can be hidden or moved, which would
+ * silently freeze the wrong column or none at all. Whatever is rendered first
+ * is what gets pinned.
+ */
+const PIN_W = "w-9";
+const PIN_LEFT = "left-9";
 
 const cellInput =
   "border border-neutral-300 px-1.5 py-1 text-xs outline-none focus:border-brand-orange disabled:opacity-50";
@@ -141,6 +168,12 @@ export default function EmployeeTable({
   columns,
   rows,
   totals,
+  canSelect,
+  isSelected,
+  canSelectRow,
+  onToggleSelected,
+  onToggleSelectAll,
+  allVisibleSelected,
   canRenameColumns,
   busy,
   showAll,
@@ -359,46 +392,6 @@ export default function EmployeeTable({
       case "final":
         return <span className="font-bold">{show(c, r.final!)}</span>;
 
-      case "daPooled": {
-        // Same eligibility as the Discretionary cell itself: a row that cannot
-        // hold an amount cannot be given a share of one.
-        if (!isDaEditable(r))
-          return (
-            <span
-              title="Not adjustable, so there is no share to give"
-              className="cursor-help text-sm"
-            >
-              —
-            </span>
-          );
-        if (r.locked)
-          return (
-            <span
-              title="Locked, so this bonus is frozen and takes no share — unlock to include them"
-              className="cursor-help text-sm"
-            >
-              {r.daPooled ? "◉" : "○"}
-            </span>
-          );
-        return (
-          <button
-            type="button"
-            onClick={() => handlers.toggleDaPooled(r.id)}
-            title={
-              r.daPooled
-                ? "Sharing what is left of the pool, in proportion to their calculated bonus. Click to leave them out."
-                : "Not sharing what is left of the pool. Click to include them."
-            }
-            className={`h-7 w-7 border-[1.5px] text-sm transition-colors ${
-              r.daPooled
-                ? "border-brand-orange bg-brand-orange text-white"
-                : "border-neutral-300 bg-transparent hover:border-brand-orange"
-            }`}
-          >
-            {r.daPooled ? "◉" : "○"}
-          </button>
-        );
-      }
       case "lock": {
         // NSW site managers became lockable on 24 Aug 2026; VIC ones stay out,
         // along with anyone drawing from no pool (isLockable holds both rules).
@@ -452,9 +445,33 @@ export default function EmployeeTable({
       style={SCROLL_SHADOW}
     >
       <table className="w-full border-collapse bg-white text-xs">
+        {/* Declares the frozen checkbox column's width once for the whole
+            table, so the three sections cannot disagree about it. PIN_LEFT is
+            that same width — if they drift, the second frozen column overlaps
+            or leaves a gap. Remaining columns are left to auto-size. */}
+        {canSelect && (
+          <colgroup>
+            <col className={PIN_W} />
+          </colgroup>
+        )}
         <thead>
           <tr>
-            {columns.map((c) => (
+            {canSelect && (
+              <th
+                scope="col"
+                className={`sticky top-0 left-0 z-20 ${PIN_W} bg-brand-95 px-2 py-2.5 text-left`}
+              >
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 accent-brand-orange"
+                  checked={allVisibleSelected}
+                  onChange={onToggleSelectAll}
+                  title="Select or clear every person currently listed"
+                  aria-label="Select all listed people"
+                />
+              </th>
+            )}
+            {columns.map((c, colIdx) => (
               <th
                 key={c.key}
                 onClick={c.noSort ? undefined : () => onSort(c.key)}
@@ -470,9 +487,11 @@ export default function EmployeeTable({
                 title={canRenameColumns && !c.noSort ? "Double-click to rename" : undefined}
                 className={`sticky top-0 whitespace-nowrap bg-brand-95 px-2 py-2.5 text-left text-[11px] tracking-wide text-white select-none ${
                   // Pinned corner cell: stuck to both edges, above every other
-                  // sticky cell (the header row at z-10, the name column's own
+                  // sticky cell (the header row at z-10, the frozen column's own
                   // body cells at z-[1]) so it is never scrolled under.
-                  c.key === "name" ? "left-0 z-20" : "z-10"
+                  colIdx === 0
+                    ? `${canSelect ? PIN_LEFT : "left-0"} z-20 border-r border-neutral-700`
+                    : "z-10"
                 } ${c.noSort ? "" : "cursor-pointer hover:bg-[#333]"} ${c.num ? "text-right" : ""}`}
               >
                 {c.label}
@@ -497,13 +516,40 @@ export default function EmployeeTable({
                 toggleRow(r.id);
               }}
             >
-              {columns.map((c) => (
+              {canSelect && (
+                <td
+                  className={`sticky left-0 z-[1] ${PIN_W} border-b border-neutral-100 bg-white px-2 py-2 group-hover:bg-neutral-50`}
+                >
+                  {/* Disabled on a locked row: its payout is frozen, so a
+                      redistribution would skip it anyway (lib/redistribute.ts's
+                      `eligible`). The rule is enforced there either way — this
+                      just stops the control promising something it cannot do. */}
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-brand-orange disabled:opacity-30"
+                    checked={isSelected(r.id)}
+                    disabled={!canSelectRow(r.id)}
+                    onChange={() => onToggleSelected(r.id)}
+                    title={
+                      r.locked
+                        ? "Locked, so this bonus is frozen and cannot take a share"
+                        : canSelectRow(r.id)
+                          ? "Include in the next redistribution"
+                          : "Not adjustable, so this person cannot take a share"
+                    }
+                    aria-label={`Select ${r.name}`}
+                  />
+                </td>
+              )}
+              {columns.map((c, colIdx) => (
                 <td
                   key={c.key}
                   className={`whitespace-nowrap border-b border-neutral-100 px-2 py-2 group-hover:bg-neutral-50 ${
                     // Sticky needs its own opaque background — otherwise the
                     // columns scrolling underneath show straight through it.
-                    c.key === "name" ? "sticky left-0 z-[1] bg-white" : ""
+                    colIdx === 0
+                      ? `sticky ${canSelect ? PIN_LEFT : "left-0"} z-[1] border-r border-neutral-200 bg-white`
+                      : ""
                   } ${c.num ? "text-right tabular-nums" : ""} ${c.key === "final" ? "bg-brand-lavender" : c.key === "f25" ? "bg-surface-sunken" : ""}`}
                 >
                   {cell(r, c, rowIdx)}
@@ -514,10 +560,15 @@ export default function EmployeeTable({
         </tbody>
         <tfoot>
           <tr>
-            {columns.map((c) => {
+            {canSelect && (
+              <td
+                className={`sticky bottom-0 left-0 z-20 ${PIN_W} bg-brand-orange px-2 py-2`}
+              />
+            )}
+            {columns.map((c, colIdx) => {
               // percentages don't sum meaningfully — no total for them
               const v =
-                c.key === "name"
+                colIdx === 0
                   ? `Totals (${rows.length})`
                   : c.format === "percent"
                     ? ""
@@ -540,9 +591,11 @@ export default function EmployeeTable({
                   // stops the rows scrolling underneath showing through.
                   className={`sticky bottom-0 whitespace-nowrap px-2 py-2 text-[13px] font-bold text-white ${
                     // Pinned corner: stuck to both edges, so it outranks the
-                    // rest of the footer row (z-10) and the name column's body
-                    // cells (z-[1]) — mirrors the heading row's own z-order.
-                    c.key === "name" ? "left-0 z-20" : "z-10"
+                    // rest of the footer row (z-10) and the frozen column's own
+                    // body cells (z-[1]) — mirrors the heading row's z-order.
+                    colIdx === 0
+                      ? `${canSelect ? PIN_LEFT : "left-0"} z-20`
+                      : "z-10"
                   } ${c.num ? "text-right tabular-nums" : ""} ${c.key === "final" ? "bg-brand-lavender" : "bg-brand-orange"}`}
                 >
                   {v}

@@ -230,17 +230,7 @@ describe("daGrants", () => {
   it("names the row, the movement and the ceiling that applied", () => {
     const grants = daGrants(data.emp, data, {}, { A: { daEdit: 300 } });
     expect(grants).toEqual([
-      {
-        empId: "A",
-        name: "Ann Alpha",
-        from: 0,
-        to: 300,
-        amount: 300,
-        headroom: 300,
-        pooledFrom: false,
-        pooledTo: false,
-        fundingChanged: false,
-      },
+      { empId: "A", name: "Ann Alpha", from: 0, to: 300, amount: 300, headroom: 300 },
     ]);
   });
 

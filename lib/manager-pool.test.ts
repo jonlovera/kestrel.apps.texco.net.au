@@ -281,43 +281,30 @@ describe("poolBreach", () => {
   });
 
   /**
-   * The gate now bounds a ticked row exactly like any other, which is what
-   * makes redistribution safe: `remaining` is a real budget again. Before the
-   * funding behaviour was removed, a ticked amount was budget-neutral across
-   * the scope and this gate could not see it at all.
-   *
-   * Hand-checkable on this fixture — vCap 1000, A demands 400, B demands 600,
-   * scale exactly 1, so 200 to A gives allocated 1200 against a pool of 1000.
+   * This gate is what bounds a redistribution, so `remaining` has to be a real
+   * budget: every dollar written must land on `allocated`, and an amount must
+   * move nobody else. Hand-checkable on this fixture — vCap 1000, A demands
+   * 400, B demands 600, scale exactly 1.
    */
-  it("an on-top amount over the pool is refused", () => {
-    const next = { A: { daEdit: 200 } };
+  it("an amount over the pool is refused, and moves nobody else", () => {
+    const next: Overrides = { A: { daEdit: 200 } };
     const p = managerPool(lead, data, next);
     expect(p.allocated).toBeCloseTo(1200, 8);
     expect(p.remaining).toBeCloseTo(-200, 8);
     expect(poolBreach(lead, data, next, {})).not.toBeNull();
-  });
-
-  it("ticking the row changes nothing — the gate still refuses it", () => {
-    const next = { A: { daEdit: 200, daPooled: true } };
-    const p = managerPool(lead, data, next);
-    expect(p.allocated).toBeCloseTo(1200, 8);
-    expect(p.remaining).toBeCloseTo(-200, 8);
-    expect(poolBreach(lead, data, next, {})).not.toBeNull();
-    // and B, who was granted nothing, is untouched — nobody funds anybody
+    // B was granted nothing and pays nothing — nobody funds anybody
     const rows = applyOverrides(data.emp, next);
     computeScalesAndBonuses(rows, data);
     expect(rows.find((r) => r.id === "B")!.finalBonus).toBeCloseTo(600, 8);
   });
 
   it("a redistribution that exactly spends the pool is allowed", () => {
-    // this is the shape lib/redistribute.ts produces: the remaining, split
-    // across ticked rows, landing allocated exactly on the pool
-    const p0 = managerPool(lead, data, {});
-    expect(p0.remaining).toBeCloseTo(0, 8); // fixture starts exactly spent
+    // the shape lib/redistribute.ts produces: the remaining, split across the
+    // selected rows, landing allocated exactly on the pool
+    expect(managerPool(lead, data, {}).remaining).toBeCloseTo(0, 8);
     const roomy = { ...data, vCap: 1200 };
-    const room = managerPool(lead, roomy, {}).remaining;
-    expect(Math.round(room)).toBe(200);
-    const next = { A: { daEdit: 120, daPooled: true }, B: { daEdit: 80, daPooled: true } };
+    expect(Math.round(managerPool(lead, roomy, {}).remaining)).toBe(200);
+    const next: Overrides = { A: { daEdit: 120 }, B: { daEdit: 80 } };
     expect(managerPool(lead, roomy, next).remaining).toBeCloseTo(0, 8);
     expect(poolBreach(lead, roomy, next, {})).toBeNull();
   });

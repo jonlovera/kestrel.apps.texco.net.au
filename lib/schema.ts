@@ -77,27 +77,6 @@ export const EmployeeOverrideSchema = z.object({
   // no floor: a discretionary adjustment may be negative (a deliberate
   // manual reduction that frees pool money back to the other unlocked rows)
   daEdit: z.number().optional(),
-  /**
-   * Whether THIS row's discretionary amount is funded FROM the capped pool —
-   * deducted before anyone is scaled, so every other row's scaled portion
-   * reflows — or sits ON TOP of the pool, adding to the total and moving
-   * nobody through the scale.
-   *
-   * Absent means on top: the default, what every override stored before this
-   * existed keeps, and what the frozen goldens are computed under. Optional on
-   * the output type too, so existing fixtures and documents keep type-checking
-   * — the engine reads it as `=== true`.
-   *
-   * It lives here, on the override document, rather than on EmployeeSchema
-   * because it is an EDITING decision: source data is replaced wholesale by
-   * every import, and this has to survive one the way daEdit and locked do.
-   *
-   * Note what it does NOT mean. An unflagged row is not immune to other
-   * people's grants — a flagged grant lowers the state scale, which lowers the
-   * scaled portion of EVERY row, flagged or not. This flag decides only where
-   * THIS row's own discretionary money comes from.
-   */
-  daPooled: z.boolean().optional(),
   locked: z.boolean().optional(),
   /** finalBonus frozen at the moment the row was locked */
   lockedFinal: z.number().optional(),

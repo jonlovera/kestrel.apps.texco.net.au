@@ -39,32 +39,20 @@ import { ruleMatches, type ScopableEmployee } from "./access-rules";
  * gated individually by the access screen's "Can edit" grant
  * (`editableFields`) intersected with visibility, in `writableFields` below.
  */
-export const WRITABLE_BY_LEAD = ["daEdit", "daPooled", "ipmEdit"] as const;
+export const WRITABLE_BY_LEAD = ["daEdit", "ipmEdit"] as const;
 
 /**
  * Everything an admin may write. `locked`/`lockedFinal` have no column and no
  * visibility (see the comment on `writableFields`), so they're listed here
  * directly rather than derived from `editableFields`.
  */
-export const WRITABLE_BY_ADMIN = [
-  "daEdit",
-  "daPooled",
-  "ipmEdit",
-  "locked",
-  "lockedFinal",
-] as const;
+export const WRITABLE_BY_ADMIN = ["daEdit", "ipmEdit", "locked", "lockedFinal"] as const;
 
 export type WritableField = (typeof WRITABLE_BY_ADMIN)[number];
 
 /** Column keys matching the writable override fields, for the table to key off. */
 const COLUMN_FOR_FIELD: Partial<Record<WritableField, string>> = {
   daEdit: "da",
-  // How a discretionary amount is FUNDED rides the same grant as the amount
-  // itself (owner decision, 24 Aug 2026): whoever may set the figure may set
-  // where it comes from. Mapping it to "da" rather than giving it its own
-  // entry in EDITABLE_FIELDS is what keeps that true with no access-rule
-  // migration and no new tick on the access screen.
-  daPooled: "da",
   ipmEdit: "ipm",
 };
 
@@ -137,16 +125,9 @@ export function writableEmployeeIds(
  * the same set by construction.
  */
 export function editableColumns(scope: Scope): string[] {
-  // De-duplicated: more than one override field can map to the same column
-  // (daEdit and daPooled both belong to "da"), and this feeds the table's
-  // affordances, which want each column named once.
-  return [
-    ...new Set(
-      writableFields(scope)
-        .map((f) => COLUMN_FOR_FIELD[f])
-        .filter((c): c is string => !!c)
-    ),
-  ];
+  return writableFields(scope)
+    .map((f) => COLUMN_FOR_FIELD[f])
+    .filter((c): c is string => !!c);
 }
 
 /**

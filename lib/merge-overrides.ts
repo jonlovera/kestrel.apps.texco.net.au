@@ -17,13 +17,8 @@ export type ScalarField = "daEdit" | "ipmEdit";
 
 export interface OverrideConflict {
   empId: string;
-  /**
-   * "lock" covers the {locked, lockedFinal} pair, which moves as one unit.
-   * "daPooled" is the funding flag — a standalone boolean, merged on its own
-   * because two people can disagree about how a row is funded without either
-   * of them touching the amount.
-   */
-  field: ScalarField | "lock" | "daPooled";
+  /** "lock" covers the {locked, lockedFinal} pair, which moves as one unit */
+  field: ScalarField | "lock";
   /** display values; for "lock" this is the locked flag */
   ours: number | boolean | undefined;
   theirs: number | boolean | undefined;
@@ -99,27 +94,6 @@ export function mergeOverrides(
       if (winner !== undefined) entry[field] = winner;
     }
 
-    // The funding flag, merged exactly like a scalar but on a boolean. It is
-    // deliberately NOT bundled with daEdit: changing the amount and changing
-    // where it comes from are independent decisions, and bundling them would
-    // report a conflict whenever two people touched the same row for different
-    // reasons.
-    {
-      const bV = b?.daPooled;
-      const oV = o?.daPooled;
-      const tV = t?.daPooled;
-      let winner: boolean | undefined;
-      if (oV === bV) {
-        winner = tV;
-      } else if (tV === bV || tV === oV) {
-        winner = oV;
-      } else {
-        conflicts.push({ empId: id, field: "daPooled", ours: oV, theirs: tV });
-        winner = oV;
-      }
-      if (winner !== undefined) entry.daPooled = winner;
-    }
-
     const bL = lockOf(b);
     const oL = lockOf(o);
     const tL = lockOf(t);
@@ -164,13 +138,6 @@ export function resolveConflicts(
       delete entry.locked;
       delete entry.lockedFinal;
       applyLock(entry, lockOf(t));
-    } else if (c.field === "daPooled") {
-      // Split from the scalar branch only to keep the types honest: daPooled is
-      // a boolean and the scalars are numbers, so one indexed assignment cannot
-      // serve both without widening EmployeeOverride's field types.
-      const tV = t?.daPooled;
-      if (tV === undefined) delete entry.daPooled;
-      else entry.daPooled = tV;
     } else {
       const tV = t?.[c.field];
       if (tV === undefined) delete entry[c.field];

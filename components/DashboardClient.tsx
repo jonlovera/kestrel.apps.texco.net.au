@@ -28,7 +28,7 @@ import {
   type PoolState,
 } from "@/lib/calc";
 import { clampDa, daHeadroom, type DaImpact } from "@/lib/da-impact";
-import { redistribute, type Redistributable } from "@/lib/redistribute";
+import { redistribute, eligible, type Redistributable } from "@/lib/redistribute";
 import { fmt } from "@/lib/fmt";
 import DaConfirmModal from "./DaConfirmModal";
 import { TexcoX, TexcoWordmark } from "./TexcoBrand";
@@ -327,10 +327,14 @@ export default function DashboardClient({
   const conflictRef = useRef(conflict);
   const blockedRef = useRef<string | null>(blockedMsg);
   /**
-   * Set when the pending document contains amounts an automatic redistribution
-   * wrote. It has to survive until the next save — the pass happens on the edit,
-   * the save happens later (autosave, Ctrl+S, tab close) — which is why it is a
-   * ref and not part of the save call. Cleared once the server has taken it.
+   * Set when the pending document holds amounts the Redistribute button wrote.
+   * Purely a label: it tells /api/state to record the run as ONE history entry
+   * rather than one per person. It does NOT stand in for consent — the button's
+   * save goes through the confirmation modal like any other grant.
+   *
+   * A ref rather than a save argument because the real save happens after the
+   * modal is confirmed, and can also be an autosave or a tab-close flush that
+   * knows nothing about what put the figures there. Cleared once taken.
    */
   const redistributedRef = useRef(false);
   useEffect(() => {
@@ -427,9 +431,9 @@ export default function DashboardClient({
           ...(viewingAs ? { viewFor: viewingAs } : {}),
           // only ever true straight off the confirmation modal's button
           ...(opts?.confirmDa ? { confirmDa: true } : {}),
-          // Carried off the ref rather than the call: the redistribution that
-          // put these amounts here happened on an earlier edit, and this save
-          // may be an autosave or a tab-close flush that knows nothing about it.
+          // Off the ref rather than the call: the button set it, but the save
+          // that actually carries the figures is the one after the confirmation
+          // modal — or an autosave that knows nothing about either.
           ...(redistributedRef.current || opts?.redistributed
             ? { redistributed: true }
             : {}),
@@ -872,6 +876,16 @@ export default function DashboardClient({
   // ── privacy: figures are masked by default; reveal per row, or all at once
   //    via the header button / Space ──
   const [showAll, setShowAll] = useState(false);
+  /**
+   * Who is ticked for the next "Redistribute the pool".
+   *
+   * Transient by design: it lives here, is never written to an override, never
+   * reaches the server and clears on reload. It is a selection for an action,
+   * not a property of a person — an earlier design persisted it and paid for
+   * that with a schema field, a merge-conflict slot and a history line, for no
+   * gain. Modelled on revealedIds below, which is the same shape.
+   */
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
   const isRevealed = (id: string) => showAll || revealedIds.has(id);
 
@@ -952,7 +966,6 @@ export default function DashboardClient({
       cat: e.cat,
       sm: e.sm,
       locked: e.locked,
-      daPooled: e.daPooled,
       inPool: e.vp > 0 || e.np > 0,
       vp: e.vp,
       np: e.np,
@@ -1007,13 +1020,6 @@ export default function DashboardClient({
     // the model entirely is a different, heavier action than freezing their
     // bonus.
     const tools: TableColumn[] = [
-      // Who shares the remaining when it is redistributed. Rides the SAME grant
-      // as the amount itself (lib/write-scope.ts maps daPooled -> the "da"
-      // column), so the control appears exactly for the people who can set a
-      // figure in the first place.
-      ...(canEditFields.includes("da")
-        ? [{ key: "daPooled", label: "Share", noSort: true }]
-        : []),
       ...(canLockAnything
         ? [{ key: "lock", label: "Lock", noSort: true }]
         : []),
@@ -1154,15 +1160,7 @@ export default function DashboardClient({
       const row = rowById.get(id);
       if (!row || row.locked || !isDaEditable(row)) return;
     }
-    // Typing an amount by hand takes this person OUT of the redistribution and
-    // pins their figure. A row is either auto-managed or hand-set, never both —
-    // otherwise the next pass would quietly overwrite what was just typed. Both
-    // fields move in one patch, so the row is never briefly in both states.
-    //
-    // `skip` then leaves them out of this pass as well. That is belt and braces
-    // (they are no longer ticked, so they are already ineligible) but it keeps
-    // the intent readable at the call site.
-    applyAndRedistribute({ [id]: { daEdit: num, daPooled: undefined } }, { skip: id });
+    setOverride(id, { daEdit: num });
   }
 
   /**
@@ -1202,10 +1200,7 @@ export default function DashboardClient({
       const row = rowById.get(id);
       if (!row || row.locked) return;
     }
-    // An IPM change moves this row's calculated bonus, so it moves Allocated
-    // and therefore Remaining. `skip` keeps the person being edited out of the
-    // pass, so their own figure is not rewritten under them mid-edit.
-    applyAndRedistribute({ [id]: { ipmEdit: next } }, { skip: id });
+    setOverride(id, { ipmEdit: next });
   }
 
   /**
@@ -1251,11 +1246,11 @@ export default function DashboardClient({
           )} will be released back into the pool and all unlocked bonuses will be redistributed.\n\nChanges made while locked will be kept.`;
           if (!confirm(msg)) return;
         }
-        applyAndRedistribute({ [id]: { locked: false, lockedFinal: undefined } });
+        setOverride(id, { locked: false, lockedFinal: undefined });
       } else {
         // finalBonus is the actual payout to freeze — identical to calcBonus
         // for an unlocked row, but it's the one that means "what gets paid".
-        applyAndRedistribute({ [id]: { locked: true, lockedFinal: emp.finalBonus } });
+        setOverride(id, { locked: true, lockedFinal: emp.finalBonus });
       }
       return;
     }
@@ -1286,9 +1281,9 @@ export default function DashboardClient({
         )} will be released back into the pool and all unlocked bonuses will be redistributed.\n\nChanges made while locked will be kept.`;
         if (!confirm(msg)) return;
       }
-      applyAndRedistribute({ [id]: { locked: false, lockedFinal: undefined } });
+      setOverride(id, { locked: false, lockedFinal: undefined });
     } else {
-      applyAndRedistribute({ [id]: { locked: true, lockedFinal: row.final } });
+      setOverride(id, { locked: true, lockedFinal: row.final });
     }
   }
 
@@ -1432,29 +1427,14 @@ export default function DashboardClient({
   const poolCardEls = useMemo(() => {
     if (!poolSummary) return null;
     if (poolSummary.kind === "manager") {
-      // The Remaining card carries the action that spends it. PoolCard's
-      // `footer` already takes any node (the cap editor on the admin cards is
-      // the precedent), so nothing about the card component changes.
-      const canRedistribute = canEditFields.includes("da") && !viewReadOnly;
+      // The action itself lives in the toolbar beside the selection it acts on,
+      // not here — see the "N selected" bar. These cards stay pure figures.
       return poolSummary.items.map((it) => (
         <PoolCard
           key={it.key}
           title={it.title}
           value={it.value}
           tone={it.alert ? "alert" : "normal"}
-          footer={
-            it.key === "remaining" && canRedistribute ? (
-              <button
-                type="button"
-                onClick={redistributeNow}
-                disabled={dsBusy || saveStatus === "saving"}
-                title="Split what is left of the pool across the people ticked in the 'Share' column, in proportion to their calculated bonus"
-                className="mt-1.5 border border-brand-orange/50 px-2.5 py-1 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-brand-orange-soft"
-              >
-                Redistribute
-              </button>
-            ) : undefined
-          }
         />
       ));
     }
@@ -1544,7 +1524,6 @@ export default function DashboardClient({
       rows.push({
         id: r.id,
         daEdit: da,
-        daPooled: next[r.id]?.daPooled ?? r.daPooled,
         locked,
         calcBonus: r.calc ?? 0,
         sm: r.sm,
@@ -1554,37 +1533,13 @@ export default function DashboardClient({
     }
     const remaining = canMeasure ? mgrPool.pool - allocated : mgrPool.remaining;
 
-    const shares = redistribute(rows, remaining, opts);
+    const shares = redistribute(rows, remaining, selected);
     if (shares.size === 0) return null;
     const out: Overrides = { ...next };
     for (const [id, daEdit] of shares) {
       out[id] = { ...out[id], daEdit };
     }
     return out;
-  }
-
-  /**
-   * Apply a change and let the redistribution follow it, in ONE write.
-   *
-   * Deliberately not a useEffect: an effect that writes overrides re-triggers
-   * itself, and while the split is idempotent (a second pass distributes a
-   * remaining of zero) relying on that to terminate a render loop would be
-   * fragile. Every trigger calls this instead, so each user action produces
-   * exactly one deterministic pass.
-   */
-  function applyAndRedistribute(
-    patch: Overrides,
-    opts: { skip?: string } = {}
-  ) {
-    setOverrides((prev) => {
-      const next: Overrides = { ...prev };
-      for (const [id, p] of Object.entries(patch)) {
-        next[id] = { ...next[id], ...p };
-      }
-      const spread = withRedistribution(next, opts);
-      if (spread) redistributedRef.current = true;
-      return spread ?? next;
-    });
   }
 
   /**
@@ -1604,34 +1559,77 @@ export default function DashboardClient({
       setNotice("Nothing to redistribute — either the pool is fully allocated or nobody is ticked.");
       return;
     }
-    // Cleared deliberately: pressing the button is a request to be shown what
-    // it does, so this save must reach gate 5 and raise the confirmation even if
-    // an earlier automatic pass had already marked the document silent.
-    redistributedRef.current = false;
+    // Marks the document so the history records one line for the run. Gate 5
+    // still fires — pressing the button is a request to be shown what it does.
+    redistributedRef.current = true;
     setOverrides(next);
     void save("manual", next);
   }
 
-  /** One human-readable line per contested figure in the conflict banner. */
   /**
-   * Take this person in or out of the redistribution.
-   *
-   * The tick means one thing: include them when the remaining is split. It does
-   * not fund anybody by itself and the engine never reads it (lib/calc.ts) —
-   * which is what lets it work identically on NSW, where the pinned scale left
-   * the previous funding-based design with nothing to move.
-   *
-   * Ticking changes who shares the remaining, so the split re-runs immediately.
+   * Which rows may be ticked at all: the ones a redistribution would actually
+   * act on. Read off lib/redistribute.ts's own rule rather than restated, so a
+   * checkbox can never be offered where the action would skip the row.
    */
-  function toggleDaPooled(id: string) {
-    if (viewReadOnly || !canEditFields.includes("da")) return;
-    const row = isEditor ? empById.get(id) : rowById.get(id);
-    if (!row || row.locked) return;
-    if (!isDaEditable(isEditor ? rowRule(row as CalcEmployee) : (row as DisplayRow)))
-      return;
-    applyAndRedistribute({ [id]: { daPooled: !(row.daPooled ?? false) } });
-    setDaNonce((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }));
+  const selectableIds = useMemo(() => {
+    // `mgrPool` is the gate as much as the grant is: redistribution spends a
+    // lead's Remaining, and a full-access admin has no such figure (they see the
+    // four cap cards instead). Offering them checkboxes would be offering an
+    // action that cannot run.
+    if (!mgrPool || viewReadOnly || !canEditFields.includes("da")) {
+      return new Set<string>();
+    }
+    const rows: Redistributable[] = allRows.map((r) => ({
+      id: r.id,
+      daEdit: r.da ?? 0,
+      locked: r.locked,
+      calcBonus: r.calc ?? 0,
+      sm: r.sm,
+      st: r.st,
+      inPool: r.inPool,
+    }));
+    // every row is a candidate here; the filter is what we are after
+    return new Set(
+      eligible(rows, new Set(rows.map((r) => r.id))).map((r) => r.id)
+    );
+  }, [allRows, mgrPool, viewReadOnly, canEditFields]);
+
+  const isSelected = (id: string) => selected.has(id);
+
+  function toggleSelected(id: string) {
+    if (!selectableIds.has(id)) return;
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
+
+  /**
+   * Select-all over the rows currently VISIBLE, so a search or a facet narrows
+   * what it means — ticking everything after filtering to one department is the
+   * point of having it. Rows selected outside the current filter are left
+   * alone rather than silently dropped.
+   */
+  const visibleSelectable = useMemo(
+    () => visibleRows.filter((r) => selectableIds.has(r.id)).map((r) => r.id),
+    [visibleRows, selectableIds]
+  );
+  const allVisibleSelected =
+    visibleSelectable.length > 0 &&
+    visibleSelectable.every((id) => selected.has(id));
+
+  function toggleSelectAll() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) visibleSelectable.forEach((id) => next.delete(id));
+      else visibleSelectable.forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
+  /** One human-readable line per contested figure in the conflict banner. */
 
   function conflictLine(c: OverrideConflict): string {
     const name = isEditor
@@ -1641,9 +1639,7 @@ export default function DashboardClient({
       })()
       : (rowById.get(c.empId)?.name ?? c.empId);
     const label =
-      c.field === "daPooled"
-        ? "Funded from pool"
-        : c.field === "lock"
+      c.field === "lock"
         ? "Lock"
         : (columns.find((col) => col.key === (c.field === "daEdit" ? "da" : "ipm"))
           ?.label ?? (c.field === "daEdit" ? "Discretionary" : "IPM"));
@@ -1864,6 +1860,32 @@ export default function DashboardClient({
                 buildupOpen={buildupOpen}
                 onToggleBuildup={toggleBuildup}
               />
+              {/* The only way anything is ever redistributed. Appears only with
+                  a selection, so the action and what it will act on are never
+                  more than a glance apart. */}
+              {selected.size > 0 && (
+                <div className="flex items-center gap-2 border-2 border-brand-orange/40 bg-brand-orange-tint/40 px-2.5 py-1">
+                  <span className="text-[12px] font-bold text-brand-95">
+                    {selected.size} selected
+                  </span>
+                  <button
+                    type="button"
+                    onClick={redistributeNow}
+                    disabled={dsBusy || saveStatus === "saving"}
+                    title="Split what is left of the pool across the selected people, in proportion to their calculated bonus"
+                    className="bg-brand-orange px-2.5 py-1 text-[11px] font-bold tracking-wide text-white transition-colors hover:bg-brand-orange-hover disabled:opacity-40"
+                  >
+                    Redistribute the pool
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(new Set())}
+                    className="px-1 text-[11px] font-semibold text-brand-70 underline underline-offset-2"
+                  >
+                    clear
+                  </button>
+                </div>
+              )}
               <div className="ml-auto flex items-center gap-3 text-xs text-brand-70">
                 <span className="bg-neutral-100 px-2.5 py-1">
                   Showing: {visibleRows.length} / {allRows.length}
@@ -2117,13 +2139,18 @@ export default function DashboardClient({
               onSort={doSort}
               daNonce={daNonce}
               daHeadroomFor={daHeadroomFor}
+              canSelect={selectableIds.size > 0}
+              isSelected={isSelected}
+              canSelectRow={(id) => selectableIds.has(id)}
+              onToggleSelected={toggleSelected}
+              onToggleSelectAll={toggleSelectAll}
+              allVisibleSelected={allVisibleSelected}
               handlers={{
                 updateDA,
                 updateIPM,
                 updateDatasetFigure,
                 updateSplit,
                 toggleLock,
-                toggleDaPooled,
                 renameColumn,
                 editEmployee: setEditingId,
               }}

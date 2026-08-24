@@ -57,11 +57,10 @@
  * pool bonus. It enters no pool deduction, moves no scale, and therefore
  * shaves nobody else's calculated bonus.
  *
- * `daPooled` on an override is NOT read here, and that is deliberate. It marks
- * who takes part when a lead redistributes what is left of their pool, and
- * the redistribution is performed by lib/redistribute.ts computing explicit
- * amounts and writing them to those rows. The flag is a label on a person, not
- * a funding mode.
+ * Who takes part in a redistribution is not modelled here at all, and that is
+ * deliberate. It is a transient selection the user makes in the browser, and
+ * lib/redistribute.ts turns it into explicit amounts. Nothing about it is
+ * persisted, and nothing about it reaches this engine.
  *
  * Why it was built that way, since the alternative was tried first: funding an
  * amount from the pool means moving the scale, and NSW_FULL_ENTITLEMENT pins
@@ -78,8 +77,6 @@ export interface CalcEmployee extends Employee {
   bpEdit: number;
   ipmEdit: number;
   daEdit: number;
-  /** true when this row's daEdit is funded from the pool rather than on top */
-  daPooled: boolean;
   locked: boolean;
   /** company performance modifier, derived once from the source figures */
   cpm: number;
@@ -276,10 +273,6 @@ export function applyOverrides(
       // an imported `da` on a row that may not carry one would otherwise be
       // paid with no override and no history entry behind it.
       daEdit: isDaEditable(rule) ? ov.daEdit ?? e.da : 0,
-      // Absent means on top — the default. There is deliberately no source-data
-      // fallback here (unlike daEdit's `?? e.da`): an import brings amounts,
-      // never a funding decision.
-      daPooled: ov.daPooled === true,
       locked,
       cpm,
       preIpm,
@@ -435,9 +428,8 @@ export function computeScalesAndBonuses(
       // A flagged row's amount is INSIDE calcBonus — the scale above already
       // A discretionary amount always sits ON TOP of the scaled pool bonus, so
       // the dashboard identity "Calc bonus + Discretionary = Final" holds on
-      // every unlocked row. daPooled does not appear here at all: it marks who
-      // takes part in a redistribution (lib/redistribute.ts), it does not
-      // change how an amount is funded.
+      // every unlocked row. There is no per-row funding mode: an amount is
+      // always on top, whoever it belongs to.
       e.calcBonus = e.bipmCalc * e.vp * vicScale + e.bipmCalc * e.np * nswScale;
       e.finalBonus = e.calcBonus + e.daEdit;
     } else {

@@ -99,13 +99,11 @@ export async function POST(req: Request) {
         // default, so nothing is ever committed by omission.
         confirmDa: z.boolean().optional().default(false),
         /**
-         * Set when the amounts in this document came from a redistribution of
-         * the sender's own remaining pool (lib/redistribute.ts), which follows
-         * an edit automatically. Those are consented to by the policy — the
-         * ticks, and the Redistribute button — rather than one modal per
-         * keystroke, and gate 3 still holds them inside the pool. NOT a blanket
-         * bypass: a hand-typed grant has no redistribution behind it and still
-         * has to be confirmed.
+         * Set when the amounts in this document came from the Redistribute
+         * button (lib/redistribute.ts). A label only: it collapses the grant log
+         * into one entry for the run instead of one per person. It grants no
+         * exemption — gate 5 below still requires `confirmDa`, so a
+         * redistribution is confirmed exactly like a hand-typed grant.
          */
         redistributed: z.boolean().optional().default(false),
       })
@@ -176,21 +174,7 @@ export async function POST(req: Request) {
     // to. An NSW site manager's IS adjustable (24 Aug 2026) — it rides on top of
     // their fixed bonus — but a VIC site manager's is not, so the VIC fixed
     // bonuses stay untouchable. isDaEditable holds that rule.
-    if (!isDaEditable(rowRule(emp))) {
-      delete clean.daEdit;
-      // No amount means no funding decision either.
-      delete clean.daPooled;
-    } else if (emp.sm) {
-      // A site manager sits outside the state pool: their fixed bonus is not
-      // scaled, so there is no pool for their amount to come out of and the
-      // engine ignores the flag. Stripped rather than stored, so the document
-      // never records a decision that has no effect.
-      delete clean.daPooled;
-    }
-    // A stored `false` is the default said twice. Dropping it keeps the history
-    // and snapshot diffs free of no-op entries, exactly as the lockedFinal
-    // housekeeping below does.
-    if (clean.daPooled === false) delete clean.daPooled;
+    if (!isDaEditable(rowRule(emp))) delete clean.daEdit;
     // daEdit is deliberately not floored: an adjustment may be negative
     // (owner decision, kept through every change of funding model — a negative
     // DA lowers the recipient's final and its pool's total with it)
@@ -264,11 +248,7 @@ export async function POST(req: Request) {
   // calculated bonuses, so the person making it has to see what it does to the
   // pool and say yes. Refused rather than recorded, which is what stops an
   // autosave or a tab-close flush committing one on their behalf.
-  // A redistribution is consented to by the ticks and the button, not by a
-  // modal on every keystroke — it follows each edit automatically, so gate 5
-  // would otherwise fire on all of them with one line per ticked person. Gate 3
-  // still holds it inside the lead's pool, which is what makes that safe.
-  if (impact.grants.length > 0 && !confirmDa && !redistributed) {
+  if (impact.grants.length > 0 && !confirmDa) {
     console.log(
       `[audit] state-write NEEDS-CONFIRM email=${email} grants=${impact.grants.length} granted=${impact.granted.toFixed(2)} pools=${impact.pools.map((p) => p.key).join(",")} ts=${new Date().toISOString()}`
     );
@@ -306,11 +286,10 @@ export async function POST(req: Request) {
   // grant is a decision about other people's money, and the record has to hold
   // what bounded it and what it cost them — not just "da 0 → 50,000".
   //
-  // A redistribution is logged as ONE decision rather than one per person. It
-  // touches every ticked row and follows each edit automatically, so per-row
-  // grant entries would bury the History tab under thousands of lines and
-  // obscure the thing that actually happened. The per-figure diff above still
-  // records each amount, so no detail is lost — only the duplication.
+  // A redistribution is logged as ONE decision rather than one per person,
+  // because that is what it is: a single press that touched every ticked row.
+  // Per-row grant entries would bury the thing that actually happened. The
+  // per-figure diff above still records each amount, so no detail is lost.
   if (impact.grants.length > 0) {
     await appendHistory(
       redistributed

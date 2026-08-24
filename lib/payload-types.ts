@@ -27,14 +27,6 @@ export interface ScopedRow {
   cat: string;
   sm: 0 | 1;
   locked: boolean;
-  /**
-   * Whether this row's discretionary amount is funded from the pool rather than
-   * sitting on top of it. Sent to read-only viewers too: the figures they are
-   * looking at mean different things depending on it ("if this is funded from
-   * the pool, my team paid for it"), so it has to be on screen rather than
-   * inferable only by an admin. Not a cap, so it leaks no figure.
-   */
-  daPooled: boolean;
   /** whether the row participates in any pool (drives the DA '—' rendering) */
   inPool: boolean;
   elig?: number;

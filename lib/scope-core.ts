@@ -112,7 +112,6 @@ export function buildPayloadCore(
       cat: e.cat,
       sm: e.sm,
       locked: e.locked,
-      daPooled: e.daPooled,
       inPool: e.vp > 0 || e.np > 0,
     };
     if (fields.has("elig")) row.elig = e.elig;

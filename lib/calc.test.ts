@@ -1022,44 +1022,34 @@ describe("isDaEditable", () => {
 });
 
 /**
- * `daPooled` marks who takes part when a lead redistributes their remaining
- * pool (lib/redistribute.ts). The ENGINE must not read it at all: an amount
- * always sits on top of the pool, whoever is flagged. These tests exist to keep
- * it that way — a funding behaviour was tried here first and removed, because
- * it was inert on NSW (nswScale is pinned) and reached across scope boundaries.
+ * There is ONE discretionary model in this engine: the amount sits on top of
+ * the pool. Nothing selects a funding mode, per row or per scheme — a
+ * redistribution is performed by writing amounts (lib/redistribute.ts), and the
+ * engine never learns who took part.
+ *
+ * These are the properties that design rests on. Two funding-based designs were
+ * tried and removed on 24 August 2026: both moved the state scale, which was
+ * inert on NSW (nswScale is pinned at 1, so there was nothing to move) and
+ * reached every lead in the state rather than the one making the decision.
  */
-describe("daPooled is inert in the engine", () => {
+describe("a discretionary amount always sits on top of the pool", () => {
   function run(overrides: Overrides, caps: Caps = CAPS) {
     const emps = applyOverrides(FIXTURE, overrides);
     const pool = computeScalesAndBonuses(emps, caps);
     return { emps, pool, by: new Map(emps.map((e) => [e.id, e])) };
   }
 
-  it("flagging a row changes no figure anywhere", () => {
-    const off = run({ A: { daEdit: 100 } });
-    const on = run({ A: { daEdit: 100, daPooled: true } });
-    for (const e of off.emps) {
-      expect(on.by.get(e.id)!.finalBonus).toBe(e.finalBonus);
-      expect(on.by.get(e.id)!.calcBonus).toBe(e.calcBonus);
-    }
-    expect(on.pool.vicScale).toBe(off.pool.vicScale);
-    expect(on.pool.nswScale).toBe(off.pool.nswScale);
-  });
-
-  it("Calc + Discretionary = Final on every unlocked row, flagged or not", () => {
-    const { by } = run({
-      A: { daEdit: 100, daPooled: true },
-      B: { daEdit: 250 },
-    });
+  it("Calc + Discretionary = Final on every unlocked row", () => {
+    const { by } = run({ A: { daEdit: 100 }, B: { daEdit: 250 } });
     for (const id of ["A", "B"]) {
       const r = by.get(id)!;
       expect(r.finalBonus).toBeCloseTo(r.calcBonus + r.daEdit, 6);
     }
   });
 
-  it("an amount moves nobody else, and raises its pool total by exactly itself", () => {
+  it("moves nobody else, and moves no scale", () => {
     const base = run({});
-    const granted = run({ A: { daEdit: 100, daPooled: true } });
+    const granted = run({ A: { daEdit: 100 } });
     expect(granted.by.get("A")!.finalBonus).toBeCloseTo(
       base.by.get("A")!.finalBonus + 100,
       6
@@ -1068,32 +1058,25 @@ describe("daPooled is inert in the engine", () => {
       base.by.get("B")!.finalBonus,
       6
     );
-    const vicTotal = (r: ReturnType<typeof run>) =>
-      r.emps.reduce((s, e) => s + getVicAlloc(e, r.pool), 0);
-    // the pool DRAW is unchanged — an amount is not pool money
-    expect(vicTotal(granted)).toBeCloseTo(vicTotal(base), 6);
+    expect(granted.pool.vicScale).toBe(base.pool.vicScale);
+    expect(granted.pool.nswScale).toBe(base.pool.nswScale);
   });
 
-  it("the ceiling is the cap bound, flagged or not", () => {
-    const off = run({ A: { daEdit: 0 } });
-    const on = run({ A: { daEdit: 0, daPooled: true } });
-    expect(getMaxDA(on.by.get("A")!, on.emps, CAPS)).toBe(
-      getMaxDA(off.by.get("A")!, off.emps, CAPS)
+  it("is no part of the pool draw", () => {
+    const vicTotal = (r: ReturnType<typeof run>) =>
+      r.emps.reduce((s, e) => s + getVicAlloc(e, r.pool), 0);
+    // an amount is not pool money, so the draw against the cap is untouched
+    expect(vicTotal(run({ A: { daEdit: 100 } }))).toBeCloseTo(
+      vicTotal(run({})),
+      6
     );
   });
 
-  it("NSW and VIC behave the same way, which the funding model could not", () => {
+  it("lands the same on NSW as on VIC, which a funding model could not", () => {
     const base = run({});
-    const vic = run({ A: { daEdit: 100, daPooled: true } });
-    const nsw = run({ D: { daEdit: 100, daPooled: true } });
+    const vic = run({ A: { daEdit: 100 } });
+    const nsw = run({ D: { daEdit: 100 } });
     expect(vic.by.get("A")!.finalBonus - base.by.get("A")!.finalBonus).toBeCloseTo(100, 6);
     expect(nsw.by.get("D")!.finalBonus - base.by.get("D")!.finalBonus).toBeCloseTo(100, 6);
-  });
-
-  it("a site manager is unaffected either way", () => {
-    const on = run({ C: { daEdit: 50, daPooled: true } });
-    const off = run({ C: { daEdit: 50 } });
-    expect(on.by.get("C")!.calcBonus).toBe(off.by.get("C")!.calcBonus);
-    expect(on.by.get("C")!.finalBonus).toBe(off.by.get("C")!.finalBonus);
   });
 });

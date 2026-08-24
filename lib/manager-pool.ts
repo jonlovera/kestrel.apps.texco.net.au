@@ -77,9 +77,8 @@
  * REDISTRIBUTION RELIES ON ALL OF THAT
  *
  * `remaining` is the budget lib/redistribute.ts spends: it splits that figure
- * across the people a lead has ticked (`daPooled`) by writing explicit
- * amounts. Every property above is what makes that safe and is worth keeping
- * true —
+ * across the people a lead has selected, by writing explicit amounts. Every
+ * property above is what makes that safe and is worth keeping true —
  *
  *  - each dollar written lowers `remaining` by exactly a dollar, so one pass
  *    lands it on zero and a second pass distributes nothing;

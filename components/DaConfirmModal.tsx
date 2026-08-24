@@ -96,25 +96,6 @@ export default function DaConfirmModal({
                     ({g.amount > 0 ? "+" : ""}
                     {fmt(g.amount)})
                   </span>
-                  {/* Which model this row is on, and whether that is what
-                      changed — a flip with an unchanged amount reads as
-                      "+$0" above, so without this the line looks like a
-                      no-op when it has just moved everyone else's money. */}
-                  <span
-                    className={`ml-2 px-1 text-[10px] font-bold uppercase ${
-                      g.pooledTo
-                        ? "bg-brand-orange text-white"
-                        : "border border-neutral-300 text-brand-70"
-                    }`}
-                  >
-                    {g.fundingChanged
-                      ? g.pooledTo
-                        ? "now from pool"
-                        : "now on top"
-                      : g.pooledTo
-                        ? "from pool"
-                        : "on top"}
-                  </span>
                 </span>
               </li>
             ))}

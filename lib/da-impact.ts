@@ -129,17 +129,6 @@ export interface DaGrant {
   amount: number;
   /** the ceiling that applied when the grant was made, for the audit record */
   headroom: number;
-  /** how the amount was funded before this change */
-  pooledFrom: boolean;
-  /** how it is funded after it */
-  pooledTo: boolean;
-  /**
-   * True when the funding changed. A flag flip with the amount untouched is a
-   * material change with real impact on everyone else, so it counts as a grant
-   * and gets confirmed like one — `amount` is 0 in that case, which is why
-   * callers must not treat amount === 0 as "nothing happened".
-   */
-  fundingChanged: boolean;
 }
 
 /**
@@ -224,13 +213,7 @@ export function daGrants(
   for (const row of run(emps, caps, next).rows) {
     const was = byId.get(row.id);
     if (!was) continue;
-    const amountChanged = Math.abs(row.daEdit - was.daEdit) > EPSILON;
-    // A funding flip counts even with the amount untouched: it moves everyone
-    // else's scaled portion, so it has to reach the confirmation step. Before
-    // the per-row flag existed only the amount could change, which is why this
-    // used to be a single comparison.
-    const fundingChanged = row.daPooled !== was.daPooled;
-    if (!amountChanged && !fundingChanged) continue;
+    if (Math.abs(row.daEdit - was.daEdit) <= EPSILON) continue;
     grants.push({
       empId: row.id,
       name: `${row.gn} ${row.sn}`,
@@ -238,9 +221,6 @@ export function daGrants(
       to: row.daEdit,
       amount: row.daEdit - was.daEdit,
       headroom: daHeadroom(was, before.rows, caps),
-      pooledFrom: was.daPooled,
-      pooledTo: row.daPooled,
-      fundingChanged,
     });
   }
   return grants;
