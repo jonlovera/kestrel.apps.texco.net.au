@@ -945,6 +945,9 @@ export default function DashboardClient({
 
   function openTab(t: Tab) {
     setActiveTab(t);
+    // Selection is tab-scoped for redistribution. Clear it when changing tabs
+    // so a hidden carry-over selection can never drive the next run.
+    setSelected(new Set());
     // Back to the top of the new tab's list, which also re-expands the pool
     // cards — a tab change is a fresh look, not a continuation of a scroll.
     tableScrollEl?.scrollTo({ top: 0 });
@@ -1400,10 +1403,31 @@ export default function DashboardClient({
     return {
       kind: "editor",
       items: [
-        { key: "vic", title: t.vic, value: vicTotal, cap: vCap, over: over(vicTotal, vCap) },
-        { key: "nsw", title: t.nsw, value: nswTotal, cap: nCap, over: over(nswTotal, nCap) },
+        {
+          key: "vic",
+          title: t.vic,
+          value: vicTotal,
+          cap: vCap,
+          remaining: vCap - vicTotal,
+          over: over(vicTotal, vCap),
+        },
+        {
+          key: "nsw",
+          title: t.nsw,
+          value: nswTotal,
+          cap: nCap,
+          remaining: nCap - nswTotal,
+          over: over(nswTotal, nCap),
+        },
         { key: "shared", title: "Shared Services", value: sharedTotal, over: false },
-        { key: "group", title: t.group, value: groupTotal, cap: gCap, over: over(groupTotal, gCap) },
+        {
+          key: "group",
+          title: t.group,
+          value: groupTotal,
+          cap: gCap,
+          remaining: gCap - groupTotal,
+          over: over(groupTotal, gCap),
+        },
       ],
     };
   }, [isEditor, mgrPool, pool, emps, copy, params]);
@@ -1427,17 +1451,32 @@ export default function DashboardClient({
     // only ever an input for the ones holding canEditCapsNow (its own grant,
     // separate from isEditor). The server decides again on every write
     // (lib/params-apply.ts's canChangeCaps), this only renders the affordance.
-    const capFooter = (label: string, cap: number, onCommit: (next: string) => void) => (
-      <div className="mt-1.5 flex items-center gap-1 text-[11px] text-brand-70">
-        Cap:
-        <EditableText
-          value={fmt(cap)}
-          editing={canEditCapsNow}
-          disabled={dsBusy}
-          label={label}
-          onCommit={onCommit}
-          inputClassName="w-[110px]"
-        />
+    const capFooter = (
+      label: string,
+      cap: number,
+      remaining: number | undefined,
+      onCommit: (next: string) => void
+    ) => (
+      <div className="mt-1.5 space-y-0.5 text-[11px] text-brand-70">
+        <div className="flex items-center gap-1">
+          Cap:
+          <EditableText
+            value={fmt(cap)}
+            editing={canEditCapsNow}
+            disabled={dsBusy}
+            label={label}
+            onCommit={onCommit}
+            inputClassName="w-[110px]"
+          />
+        </div>
+        {typeof remaining === "number" && (
+          <div className="flex items-center gap-1">
+            Remaining:
+            <span className={remaining < 0 ? "font-bold text-red-600" : "font-semibold text-brand-95"}>
+              {fmt(remaining)}
+            </span>
+          </div>
+        )}
       </div>
     );
     const capCommits: Record<string, { label: string; commit: (next: string) => void }> = {
@@ -1453,7 +1492,7 @@ export default function DashboardClient({
         value={fmt(it.value)}
         footer={
           it.cap !== undefined && capCommits[it.key]
-            ? capFooter(capCommits[it.key].label, it.cap, capCommits[it.key].commit)
+            ? capFooter(capCommits[it.key].label, it.cap, it.remaining, capCommits[it.key].commit)
             : undefined
         }
         tone={it.over ? "alert" : "normal"}
@@ -1480,7 +1519,8 @@ export default function DashboardClient({
     next: Overrides,
     opts: { skip?: string } = {}
   ): Overrides | null {
-    if (!mgrPool || !canEditFields.includes("da")) return null;
+    if (!canEditFields.includes("da")) return null;
+    if (isEditor && activeTab !== "VIC" && activeTab !== "NSW") return null;
 
     // Remaining, recomputed locally rather than waiting for the preview round
     // trip. This is only possible because a discretionary amount no longer
@@ -1490,12 +1530,15 @@ export default function DashboardClient({
     // edit, which does move `calc` — and that self-corrects, because the next
     // pass sees a negative remaining and reclaims it.
     //
-    // Falls back to the server's figure when this lead is not sent Calc bonus
-    // at all, since then there is nothing local to add up.
+    // Falls back to the server's figure for a scoped view that is not sent
+    // Calc bonus at all, since then there is nothing local to add up.
+    const sourceRows = isEditor
+      ? allRows.filter((r) => r.st === activeTab)
+      : scopedRows;
     const rows: Redistributable[] = [];
     let allocated = 0;
     let canMeasure = true;
-    for (const r of scopedRows) {
+    for (const r of sourceRows) {
       const da = next[r.id]?.daEdit ?? r.da ?? 0;
       const locked = next[r.id]?.locked ?? r.locked;
       if (locked) {
@@ -1515,7 +1558,15 @@ export default function DashboardClient({
         inPool: r.inPool,
       });
     }
-    const remaining = canMeasure ? mgrPool.pool - allocated : mgrPool.remaining;
+    let remaining: number;
+    if (isEditor) {
+      // Admin redistribution is state-tab scoped and spends that state's room
+      // under its cap.
+      remaining = activeTab === "VIC" ? params.vCap - allocated : params.nCap - allocated;
+    } else {
+      if (!mgrPool) return null;
+      remaining = canMeasure ? mgrPool.pool - allocated : mgrPool.remaining;
+    }
 
     const shares = redistribute(rows, remaining, selected);
     if (shares.size === 0) return null;
@@ -1534,6 +1585,7 @@ export default function DashboardClient({
    */
   function redistributeNow() {
     if (viewReadOnly || !canEditFields.includes("da")) return;
+    if (isEditor && activeTab !== "VIC" && activeTab !== "NSW") return;
     // overridesRef, not `overrides`: this runs from a button inside the
     // memoised pool cards, whose dep list deliberately omits the document (see
     // the eslint-disable below it), so a captured `overrides` could be a render
@@ -1556,14 +1608,14 @@ export default function DashboardClient({
    * checkbox can never be offered where the action would skip the row.
    */
   const selectableIds = useMemo(() => {
-    // `mgrPool` is the gate as much as the grant is: redistribution spends a
-    // lead's Remaining, and a full-access admin has no such figure (they see the
-    // four cap cards instead). Offering them checkboxes would be offering an
-    // action that cannot run.
-    if (!mgrPool || viewReadOnly || !canEditFields.includes("da")) {
+    if (viewReadOnly || !canEditFields.includes("da")) {
       return new Set<string>();
     }
-    const rows: Redistributable[] = allRows.map((r) => ({
+    if (isEditor && activeTab !== "VIC" && activeTab !== "NSW") {
+      return new Set<string>();
+    }
+    const candidates = isEditor ? allRows.filter((r) => r.st === activeTab) : allRows;
+    const rows: Redistributable[] = candidates.map((r) => ({
       id: r.id,
       daEdit: r.da ?? 0,
       locked: r.locked,
@@ -1576,7 +1628,12 @@ export default function DashboardClient({
     return new Set(
       eligible(rows, new Set(rows.map((r) => r.id))).map((r) => r.id)
     );
-  }, [allRows, mgrPool, viewReadOnly, canEditFields]);
+  }, [allRows, viewReadOnly, canEditFields, isEditor, activeTab]);
+
+  const canShowSelection =
+    !viewReadOnly &&
+    canEditFields.includes("da") &&
+    (!isEditor || activeTab === "VIC" || activeTab === "NSW");
 
   const isSelected = (id: string) => selected.has(id);
 
@@ -1907,7 +1964,7 @@ export default function DashboardClient({
               {/* The only way anything is ever redistributed. Appears only with
                   a selection, so the action and what it will act on are never
                   more than a glance apart. */}
-              {selected.size > 0 && (
+              {canShowSelection && selected.size > 0 && (
                 <div className="flex items-center gap-2 border-2 border-brand-orange/40 bg-brand-orange-tint/40 px-2.5 py-1">
                   <span className="text-[12px] font-bold text-brand-95">
                     {selected.size} selected
@@ -2183,7 +2240,7 @@ export default function DashboardClient({
               onSort={doSort}
               daNonce={daNonce}
               daHeadroomFor={daHeadroomFor}
-              canSelect={selectableIds.size > 0}
+              canSelect={canShowSelection}
               isSelected={isSelected}
               canSelectRow={(id) => selectableIds.has(id)}
               onToggleSelected={toggleSelected}
