@@ -1022,35 +1022,44 @@ describe("isDaEditable", () => {
 });
 
 /**
- * The per-row funding flag (`daPooled` on an override). Each row chooses
- * whether its own discretionary amount is funded FROM the pool — deducted
- * before anyone is scaled, so everyone else's scaled portion reflows — or sits
- * ON TOP of it, adding to the total and moving nobody through the scale.
- *
- * The fixture's VIC pool is genuinely oversubscribed, so vicScale is below 1
- * and there is real scale to move. NSW is pinned at 1 by NSW_FULL_ENTITLEMENT,
- * which is exactly why the redistribution cases below use VIC rows (A and B) —
- * see the last test, which pins that limitation down rather than hiding it.
+ * `daPooled` marks who takes part when a lead redistributes their remaining
+ * pool (lib/redistribute.ts). The ENGINE must not read it at all: an amount
+ * always sits on top of the pool, whoever is flagged. These tests exist to keep
+ * it that way — a funding behaviour was tried here first and removed, because
+ * it was inert on NSW (nswScale is pinned) and reached across scope boundaries.
  */
-describe("daPooled: per-row discretionary funding", () => {
+describe("daPooled is inert in the engine", () => {
   function run(overrides: Overrides, caps: Caps = CAPS) {
     const emps = applyOverrides(FIXTURE, overrides);
     const pool = computeScalesAndBonuses(emps, caps);
     return { emps, pool, by: new Map(emps.map((e) => [e.id, e])) };
   }
 
-  it("no row flagged is identical to the on-top model", () => {
-    const bare = run({ A: { daEdit: 100 } });
-    const explicit = run({ A: { daEdit: 100, daPooled: false } });
-    for (const e of bare.emps) {
-      expect(explicit.by.get(e.id)!.finalBonus).toBe(e.finalBonus);
+  it("flagging a row changes no figure anywhere", () => {
+    const off = run({ A: { daEdit: 100 } });
+    const on = run({ A: { daEdit: 100, daPooled: true } });
+    for (const e of off.emps) {
+      expect(on.by.get(e.id)!.finalBonus).toBe(e.finalBonus);
+      expect(on.by.get(e.id)!.calcBonus).toBe(e.calcBonus);
     }
-    expect(explicit.pool.vicScale).toBe(bare.pool.vicScale);
+    expect(on.pool.vicScale).toBe(off.pool.vicScale);
+    expect(on.pool.nswScale).toBe(off.pool.nswScale);
   });
 
-  it("unflagged: the amount lands on top and moves nobody", () => {
+  it("Calc + Discretionary = Final on every unlocked row, flagged or not", () => {
+    const { by } = run({
+      A: { daEdit: 100, daPooled: true },
+      B: { daEdit: 250 },
+    });
+    for (const id of ["A", "B"]) {
+      const r = by.get(id)!;
+      expect(r.finalBonus).toBeCloseTo(r.calcBonus + r.daEdit, 6);
+    }
+  });
+
+  it("an amount moves nobody else, and raises its pool total by exactly itself", () => {
     const base = run({});
-    const granted = run({ A: { daEdit: 100 } });
+    const granted = run({ A: { daEdit: 100, daPooled: true } });
     expect(granted.by.get("A")!.finalBonus).toBeCloseTo(
       base.by.get("A")!.finalBonus + 100,
       6
@@ -1059,115 +1068,32 @@ describe("daPooled: per-row discretionary funding", () => {
       base.by.get("B")!.finalBonus,
       6
     );
-    expect(granted.pool.vicScale).toBeCloseTo(base.pool.vicScale, 12);
-  });
-
-  it("flagged: the amount comes OUT of the other rows", () => {
-    const base = run({});
-    const granted = run({ A: { daEdit: 100, daPooled: true } });
-    expect(granted.pool.vicScale).toBeLessThan(base.pool.vicScale);
-    // B granted nothing and pays part of it
-    expect(granted.by.get("B")!.finalBonus).toBeLessThan(
-      base.by.get("B")!.finalBonus
-    );
-    // the VIC pool total does not rise: the grant was funded, not added
     const vicTotal = (r: ReturnType<typeof run>) =>
       r.emps.reduce((s, e) => s + getVicAlloc(e, r.pool), 0);
+    // the pool DRAW is unchanged — an amount is not pool money
     expect(vicTotal(granted)).toBeCloseTo(vicTotal(base), 6);
   });
 
-  it("flagged: Final is the scaled figure, the amount already inside it", () => {
-    const a = run({ A: { daEdit: 100, daPooled: true } }).by.get("A")!;
-    // the "Calc bonus + Discretionary = Final" identity deliberately does not
-    // hold on a flagged row — the scale already paid for the amount
-    expect(a.finalBonus).toBe(a.calcBonus);
+  it("the ceiling is the cap bound, flagged or not", () => {
+    const off = run({ A: { daEdit: 0 } });
+    const on = run({ A: { daEdit: 0, daPooled: true } });
+    expect(getMaxDA(on.by.get("A")!, on.emps, CAPS)).toBe(
+      getMaxDA(off.by.get("A")!, off.emps, CAPS)
+    );
   });
 
-  it("unflagged keeps the Calc + Discretionary = Final identity", () => {
-    const a = run({ A: { daEdit: 100 } }).by.get("A")!;
-    expect(a.finalBonus).toBeCloseTo(a.calcBonus + 100, 6);
-  });
-
-  it("mixed: one flagged, one on top — only the flagged one is absorbed", () => {
+  it("NSW and VIC behave the same way, which the funding model could not", () => {
     const base = run({});
-    const mixed = run({
-      A: { daEdit: 100, daPooled: true },
-      B: { daEdit: 100 },
-    });
-    // B's own amount is on top, so B ends up above its baseline...
-    const bBase = base.by.get("B")!.finalBonus;
-    expect(mixed.by.get("B")!.finalBonus).toBeGreaterThan(bBase);
-    // ...but its SCALED portion fell, so it is NOT baseline + 100. This is the
-    // "on top is not immune" semantic: A's flagged grant moved the scale under
-    // everyone, B included.
-    expect(mixed.by.get("B")!.finalBonus).toBeLessThan(bBase + 100);
-    expect(mixed.pool.vicScale).toBeLessThan(base.pool.vicScale);
+    const vic = run({ A: { daEdit: 100, daPooled: true } });
+    const nsw = run({ D: { daEdit: 100, daPooled: true } });
+    expect(vic.by.get("A")!.finalBonus - base.by.get("A")!.finalBonus).toBeCloseTo(100, 6);
+    expect(nsw.by.get("D")!.finalBonus - base.by.get("D")!.finalBonus).toBeCloseTo(100, 6);
   });
 
-  it("un-flagging hands the money back to the team", () => {
-    const flagged = run({ A: { daEdit: 100, daPooled: true } });
-    const onTop = run({ A: { daEdit: 100 } });
-    expect(onTop.pool.vicScale).toBeGreaterThan(flagged.pool.vicScale);
-    expect(onTop.by.get("B")!.finalBonus).toBeGreaterThan(
-      flagged.by.get("B")!.finalBonus
-    );
-  });
-
-  it("flipping the flag alone, amount unchanged, moves other rows", () => {
-    const before = run({ A: { daEdit: 100 } });
-    const after = run({ A: { daEdit: 100, daPooled: true } });
-    expect(after.by.get("A")!.daEdit).toBe(before.by.get("A")!.daEdit);
-    expect(after.by.get("B")!.finalBonus).not.toBeCloseTo(
-      before.by.get("B")!.finalBonus,
-      6
-    );
-  });
-
-  it("getMaxDA bounds each row by its OWN mode, in one population", () => {
-    const { emps, pool, by } = run({ A: { daPooled: true } });
-    // the fixture starts with no room under the group cap, so the cap-measured
-    // bound is ~0 — but a flagged row is self-funding, so its pool bound is real
-    const flagged = getMaxDA(by.get("A")!, emps, CAPS, pool);
-    const onTop = getMaxDA(by.get("B")!, emps, CAPS, pool);
-    expect(flagged).toBeGreaterThan(0);
-    expect(flagged).toBeGreaterThan(onTop);
-  });
-
-  it("a site manager is outside the pool under either mode", () => {
-    const flagged = run({ C: { daEdit: 50, daPooled: true } });
-    const onTop = run({ C: { daEdit: 50 } });
-    expect(flagged.by.get("C")!.calcBonus).toBe(onTop.by.get("C")!.calcBonus);
-  });
-
-  it("flagging never becomes a cap override on a pinned pool", () => {
-    // Owner decision, 24 Aug 2026. D draws only on NSW and nswScale is pinned,
-    // so nobody funds a flagged amount there — it must stay bounded by the
-    // CAPS, exactly as an on-top amount is, rather than by the NSW pool. If
-    // this ever starts returning the pool figure, a flagged NSW row can spend
-    // past the group cap and take money from no one.
-    const flagged = run({ D: { daPooled: true } });
-    const onTop = run({});
-    expect(
-      getMaxDA(flagged.by.get("D")!, flagged.emps, CAPS, flagged.pool)
-    ).toBe(getMaxDA(onTop.by.get("D")!, onTop.emps, CAPS, onTop.pool));
-
-    // VIC keeps the pool bound, where the grant genuinely is self-funding
-    const vic = run({ A: { daPooled: true } });
-    expect(getMaxDA(vic.by.get("A")!, vic.emps, CAPS, vic.pool)).toBeGreaterThan(
-      getMaxDA(onTop.by.get("A")!, onTop.emps, CAPS, onTop.pool)
-    );
-  });
-
-  it("a pinned pool cannot redistribute: flagging an NSW-only row moves nobody", () => {
-    // D draws only on NSW (vp 0, np 1) and NSW_FULL_ENTITLEMENT pins nswScale
-    // at 1, so there is no scale left to move. Flagging D folds its amount into
-    // calcBonus but reduces no one — the documented limitation, asserted so it
-    // cannot regress silently into a surprise.
-    const base = run({});
-    const flagged = run({ D: { daEdit: 100, daPooled: true } });
-    expect(flagged.pool.nswScale).toBe(base.pool.nswScale);
-    const d = flagged.by.get("D")!;
-    expect(d.finalBonus).toBe(d.calcBonus);
-    expect(d.finalBonus).toBeCloseTo(base.by.get("D")!.finalBonus + 100, 6);
+  it("a site manager is unaffected either way", () => {
+    const on = run({ C: { daEdit: 50, daPooled: true } });
+    const off = run({ C: { daEdit: 50 } });
+    expect(on.by.get("C")!.calcBonus).toBe(off.by.get("C")!.calcBonus);
+    expect(on.by.get("C")!.finalBonus).toBe(off.by.get("C")!.finalBonus);
   });
 });

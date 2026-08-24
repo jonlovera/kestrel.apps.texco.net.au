@@ -62,10 +62,9 @@
  *   people     the in-scope row count.
  *
  * Note what remaining is made of, and why the state-cap definition matters.
- * For an ON-TOP discretionary amount (the default) it moves no scale, so
- * `pool` never moves with a DA edit, a DA of X raises `allocated` by exactly X
- * and lowers `remaining` by exactly X, and nobody outside the scope is
- * touched. On the entitlement
+ * A discretionary amount moves no scale, so `pool` never moves with a DA edit,
+ * a DA of X raises `allocated` by exactly X and lowers `remaining` by exactly
+ * X, and nobody outside the scope is touched. On the entitlement
  * definition that leaves a lead with almost no headroom at all — with no locks
  * and no DA, pool and allocated are equal by construction (finalBonus IS
  * calcBonus on every unlocked row), so their room comes only from locked rows
@@ -75,39 +74,25 @@
  * gate allow, so the three agree instead of the lead's own gate being the
  * tightest by an accident of arithmetic.
  *
- * WHAT A POOL-FUNDED DISCRETIONARY AMOUNT DOES TO THESE FIGURES
+ * REDISTRIBUTION RELIES ON ALL OF THAT
  *
- * Every clause of the paragraph above fails for a row flagged `daPooled`
- * (lib/schema.ts). This is not an oversight; it was put to the owner on
- * 24 August 2026 alongside the decision that whoever may set a discretionary
- * amount may choose how it is funded, and accepted. Written down here because
- * the figures on a lead's screen stop meaning what this module has always said
- * they mean:
+ * `remaining` is the budget lib/redistribute.ts spends: it splits that figure
+ * across the people a lead has ticked (`daPooled`) by writing explicit
+ * amounts. Every property above is what makes that safe and is worth keeping
+ * true —
  *
- *  - `pool` DOES move, on the entitlement definition (`group`/`subset` rules,
- *    and SHARED rows inside a state rule), because `pool` is Σ calcBonus and a
- *    pool-funded amount is inside calcBonus. Summed over a whole STATE it is
- *    invariant — the scale deducts exactly what the amounts add back — but not
- *    per scope. A pool-funded grant therefore TRANSFERS entitlement across the
- *    scope boundary, which is the very thing this module exists to make
- *    visible and now does silently.
- *  - `allocated` does NOT rise by exactly X. The recipient rises by X while
- *    every in-scope row's scaled portion falls, so the net rise is X minus
- *    whatever share of the reclaim lands inside this scope.
- *  - `remaining` does NOT fall by X, and for a whole-state lead (whose `pool`
- *    is a fixed cap) it barely moves at all: the reclaim lands almost entirely
- *    inside their own scope. poolBreach below therefore does not bound a
- *    pool-funded amount of ANY size. What still bounds it is /api/state's
- *    gate 4 (getMaxDA's state-pool branch) — a whole-state figure the lead is
- *    not entitled to see, which is why that gate's refusal must not quote it.
- *  - "nobody outside the scope is touched" is FALSE. The scale is a
- *    whole-population fact, so flagging one row reflows every unlocked row in
- *    that state, including rows in other leads' scopes. The converse also
- *    holds: a lead's own `allocated` and `remaining` can move because someone
- *    else flagged a row, with no action of their own. poolBreach's
- *    comparison-against-stored design is what keeps that from locking them out
- *    of saving — it refuses only a WORSENING breach — so that much still works
- *    as intended.
+ *  - each dollar written lowers `remaining` by exactly a dollar, so one pass
+ *    lands it on zero and a second pass distributes nothing;
+ *  - `pool` does not move underneath the calculation while it runs;
+ *  - and nobody outside the scope is touched, so one lead redistributing
+ *    cannot move another lead's people or their `remaining`.
+ *
+ * An earlier design funded an amount FROM the pool by moving the state scale,
+ * and broke all three: `allocated` no longer rose by the amount, `remaining`
+ * barely moved for a whole-state lead so poolBreach below could not bound it at
+ * all, and the whole state reflowed regardless of scope. It was removed. If
+ * anything ever reintroduces a scale-moving discretionary amount, this gate
+ * stops being a budget and redistribution stops converging.
  *
  * Pure: one engine pass over the whole population (the scale is a
  * whole-population fact), then the scope filter — the same ruleMatches the
@@ -229,12 +214,10 @@ function overBy(scope: Scope, data: Dataset, doc: Overrides): number {
  * Null for a full-access scope: an admin allocates against the group caps,
  * which the pool cards already report, and has no manager pool to breach.
  *
- * It does NOT bound a pool-funded amount — see the module header. Such an
- * amount is roughly budget-neutral across the scope (the recipient's rise is
- * paid for by the other in-scope rows), so `over` barely moves and this gate
- * essentially never fires for one. Deliberately left as it is: the gate that
- * does bound it is /api/state's gate 4, and making this one tighter would
- * require a per-manager scale, which cannot exist (header, last paragraph).
+ * This is the gate that bounds a redistribution. Because every discretionary
+ * amount lands on `allocated` dollar for dollar, spending exactly `remaining`
+ * leaves this at null and spending a dollar more does not — which is the whole
+ * reason redistribution writes amounts rather than moving a scale.
  */
 export function poolBreach(
   scope: Scope,

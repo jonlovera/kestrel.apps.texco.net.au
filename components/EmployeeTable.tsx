@@ -361,11 +361,11 @@ export default function EmployeeTable({
 
       case "daPooled": {
         // Same eligibility as the Discretionary cell itself: a row that cannot
-        // hold an amount has no funding decision to make.
+        // hold an amount cannot be given a share of one.
         if (!isDaEditable(r))
           return (
             <span
-              title="Not adjustable, so there is no discretionary amount to fund"
+              title="Not adjustable, so there is no share to give"
               className="cursor-help text-sm"
             >
               —
@@ -374,7 +374,7 @@ export default function EmployeeTable({
         if (r.locked)
           return (
             <span
-              title="Frozen at lock time — unlock to change how it is funded"
+              title="Locked, so this bonus is frozen and takes no share — unlock to include them"
               className="cursor-help text-sm"
             >
               {r.daPooled ? "◉" : "○"}
@@ -386,8 +386,8 @@ export default function EmployeeTable({
             onClick={() => handlers.toggleDaPooled(r.id)}
             title={
               r.daPooled
-                ? "Funded FROM the pool: this amount comes out of everyone else's scaled bonus. Click to put it on top instead."
-                : "On TOP of the pool: this amount adds to the total and takes nothing from anyone. Click to fund it from the pool instead."
+                ? "Sharing what is left of the pool, in proportion to their calculated bonus. Click to leave them out."
+                : "Not sharing what is left of the pool. Click to include them."
             }
             className={`h-7 w-7 border-[1.5px] text-sm transition-colors ${
               r.daPooled

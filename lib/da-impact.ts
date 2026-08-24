@@ -86,16 +86,15 @@ export const DA_POLICY: DaPolicy = {
  * cap, which honestly means "no room at all" — callers hold at the row's
  * current amount rather than dragging it down.
  *
- * HOOK: DA_POLICY.minBonusFloor would tighten this if grants ever became
- * pool-funded again.
+ * HOOK: DA_POLICY.minBonusFloor would tighten this if a floor were ever set
+ * on how far a redistribution may push a bonus down.
  */
 export function daHeadroom(
   e: CalcEmployee,
   emps: readonly CalcEmployee[],
-  caps: Caps,
-  pool?: PoolState
+  caps: Caps
 ): number {
-  return getMaxDA(e, emps, caps, pool);
+  return getMaxDA(e, emps, caps);
 }
 
 /**
@@ -238,7 +237,7 @@ export function daGrants(
       from: was.daEdit,
       to: row.daEdit,
       amount: row.daEdit - was.daEdit,
-      headroom: daHeadroom(was, before.rows, caps, before.pool),
+      headroom: daHeadroom(was, before.rows, caps),
       pooledFrom: was.daPooled,
       pooledTo: row.daPooled,
       fundingChanged,

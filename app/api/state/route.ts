@@ -81,6 +81,7 @@ export async function POST(req: Request) {
   let source: "manual" | "auto";
   let viewFor: string | undefined;
   let confirmDa: boolean;
+  let redistributed: boolean;
   try {
     const body = z
       .object({
@@ -97,6 +98,16 @@ export async function POST(req: Request) {
         // document, after being shown who pays for them (gate 5). Absent by
         // default, so nothing is ever committed by omission.
         confirmDa: z.boolean().optional().default(false),
+        /**
+         * Set when the amounts in this document came from a redistribution of
+         * the sender's own remaining pool (lib/redistribute.ts), which follows
+         * an edit automatically. Those are consented to by the policy — the
+         * ticks, and the Redistribute button — rather than one modal per
+         * keystroke, and gate 3 still holds them inside the pool. NOT a blanket
+         * bypass: a hand-typed grant has no redistribution behind it and still
+         * has to be confirmed.
+         */
+        redistributed: z.boolean().optional().default(false),
       })
       .parse(await req.json());
     incoming = body.overrides;
@@ -104,6 +115,7 @@ export async function POST(req: Request) {
     source = body.source;
     viewFor = body.viewFor;
     confirmDa = body.confirmDa;
+    redistributed = body.redistributed;
   } catch {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
@@ -224,11 +236,11 @@ export async function POST(req: Request) {
   // each one eats the room the next one would have had.
   const fullAccess = scope.rule.type === "full";
   const nextRows = applyOverrides(data.emp, sanitised);
-  const nextPool = computeScalesAndBonuses(nextRows, data);
+  computeScalesAndBonuses(nextRows, data);
   for (const grant of impact.grants) {
     const row = nextRows.find((e) => e.id === grant.empId);
     if (!row) continue;
-    const ceiling = daHeadroom(row, nextRows, data, nextPool);
+    const ceiling = daHeadroom(row, nextRows, data);
     if (!Number.isFinite(ceiling)) continue;
     if (row.daEdit <= ceiling + DA_EPSILON) continue;
     console.log(
@@ -252,7 +264,11 @@ export async function POST(req: Request) {
   // calculated bonuses, so the person making it has to see what it does to the
   // pool and say yes. Refused rather than recorded, which is what stops an
   // autosave or a tab-close flush committing one on their behalf.
-  if (impact.grants.length > 0 && !confirmDa) {
+  // A redistribution is consented to by the ticks and the button, not by a
+  // modal on every keystroke — it follows each edit automatically, so gate 5
+  // would otherwise fire on all of them with one line per ticked person. Gate 3
+  // still holds it inside the lead's pool, which is what makes that safe.
+  if (impact.grants.length > 0 && !confirmDa && !redistributed) {
     console.log(
       `[audit] state-write NEEDS-CONFIRM email=${email} grants=${impact.grants.length} granted=${impact.granted.toFixed(2)} pools=${impact.pools.map((p) => p.key).join(",")} ts=${new Date().toISOString()}`
     );
@@ -289,19 +305,35 @@ export async function POST(req: Request) {
   // The grant log. Separate from the figure-by-figure diff above because a
   // grant is a decision about other people's money, and the record has to hold
   // what bounded it and what it cost them — not just "da 0 → 50,000".
+  //
+  // A redistribution is logged as ONE decision rather than one per person. It
+  // touches every ticked row and follows each edit automatically, so per-row
+  // grant entries would bury the History tab under thousands of lines and
+  // obscure the thing that actually happened. The per-figure diff above still
+  // records each amount, so no detail is lost — only the duplication.
   if (impact.grants.length > 0) {
     await appendHistory(
-      impact.grants.map((g) => ({
-        ts,
-        actor: email,
-        kind: "grant" as const,
-        summary: grantSummary(g),
-        empId: g.empId,
-        field: "daEdit",
-        from: Math.round(g.from),
-        to: Math.round(g.to),
-        ...(viewingAs ? { viewingAs } : {}),
-      }))
+      redistributed
+        ? [
+            {
+              ts,
+              actor: email,
+              kind: "grant" as const,
+              summary: `Redistributed ${fmt(impact.granted)} across ${impact.grants.length} ${impact.grants.length === 1 ? "person" : "people"}`,
+              ...(viewingAs ? { viewingAs } : {}),
+            },
+          ]
+        : impact.grants.map((g) => ({
+            ts,
+            actor: email,
+            kind: "grant" as const,
+            summary: grantSummary(g),
+            empId: g.empId,
+            field: "daEdit",
+            from: Math.round(g.from),
+            to: Math.round(g.to),
+            ...(viewingAs ? { viewingAs } : {}),
+          }))
     );
   }
   console.log(

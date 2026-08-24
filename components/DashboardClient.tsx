@@ -28,6 +28,7 @@ import {
   type PoolState,
 } from "@/lib/calc";
 import { clampDa, daHeadroom, type DaImpact } from "@/lib/da-impact";
+import { redistribute, type Redistributable } from "@/lib/redistribute";
 import { fmt } from "@/lib/fmt";
 import DaConfirmModal from "./DaConfirmModal";
 import { TexcoX, TexcoWordmark } from "./TexcoBrand";
@@ -325,6 +326,13 @@ export default function DashboardClient({
   const viewingAsRef = useRef(viewingAs);
   const conflictRef = useRef(conflict);
   const blockedRef = useRef<string | null>(blockedMsg);
+  /**
+   * Set when the pending document contains amounts an automatic redistribution
+   * wrote. It has to survive until the next save — the pass happens on the edit,
+   * the save happens later (autosave, Ctrl+S, tab close) — which is why it is a
+   * ref and not part of the save call. Cleared once the server has taken it.
+   */
+  const redistributedRef = useRef(false);
   useEffect(() => {
     overridesRef.current = overrides;
     savedOverridesRef.current = savedOverrides;
@@ -389,7 +397,7 @@ export default function DashboardClient({
   async function save(
     source: "manual" | "auto" = "manual",
     docOverride?: Overrides,
-    opts?: { confirmDa?: boolean }
+    opts?: { confirmDa?: boolean; redistributed?: boolean }
   ): Promise<boolean> {
     // Belt-and-braces: the Save button is not rendered in a read-only view,
     // and requireScopedWriter would refuse anyway. Neither is a reason to
@@ -419,6 +427,12 @@ export default function DashboardClient({
           ...(viewingAs ? { viewFor: viewingAs } : {}),
           // only ever true straight off the confirmation modal's button
           ...(opts?.confirmDa ? { confirmDa: true } : {}),
+          // Carried off the ref rather than the call: the redistribution that
+          // put these amounts here happened on an earlier edit, and this save
+          // may be an autosave or a tab-close flush that knows nothing about it.
+          ...(redistributedRef.current || opts?.redistributed
+            ? { redistributed: true }
+            : {}),
         }),
       });
       if (res.status === 409) {
@@ -489,6 +503,9 @@ export default function DashboardClient({
       if (typeof body.version === "number") versionRef.current = body.version;
       const stored = (body.overrides ?? sent) as Overrides;
       retriesRef.current = 0;
+      // The server has taken whatever a redistribution wrote, so the next save
+      // starts clean and a later hand-typed grant confirms normally.
+      redistributedRef.current = false;
       savedOverridesRef.current = stored;
       setSavedOverrides(stored);
       // adopt what the server actually stored (it re-clamps discretionary
@@ -990,11 +1007,12 @@ export default function DashboardClient({
     // the model entirely is a different, heavier action than freezing their
     // bonus.
     const tools: TableColumn[] = [
-      // How a discretionary amount is funded rides the SAME grant as the amount
-      // (lib/write-scope.ts maps daPooled -> the "da" column), so the control
-      // appears exactly for the people who can set a figure in the first place.
+      // Who shares the remaining when it is redistributed. Rides the SAME grant
+      // as the amount itself (lib/write-scope.ts maps daPooled -> the "da"
+      // column), so the control appears exactly for the people who can set a
+      // figure in the first place.
       ...(canEditFields.includes("da")
-        ? [{ key: "daPooled", label: "From pool", noSort: true }]
+        ? [{ key: "daPooled", label: "Share", noSort: true }]
         : []),
       ...(canLockAnything
         ? [{ key: "lock", label: "Lock", noSort: true }]
@@ -1118,7 +1136,7 @@ export default function DashboardClient({
       if (!emp || emp.locked) return;
       // VIC site managers are deliberately not adjustable; NSW ones are.
       if (!isDaEditable(rowRule(emp))) return;
-      const ceiling = pool ? daHeadroom(emp, emps, params, pool) : Infinity;
+      const ceiling = pool ? daHeadroom(emp, emps, params) : Infinity;
       const held = clampDa(num, emp.daEdit, ceiling);
       num = held.value;
       if (held.clamped) {
@@ -1136,7 +1154,15 @@ export default function DashboardClient({
       const row = rowById.get(id);
       if (!row || row.locked || !isDaEditable(row)) return;
     }
-    setOverride(id, { daEdit: num });
+    // Typing an amount by hand takes this person OUT of the redistribution and
+    // pins their figure. A row is either auto-managed or hand-set, never both —
+    // otherwise the next pass would quietly overwrite what was just typed. Both
+    // fields move in one patch, so the row is never briefly in both states.
+    //
+    // `skip` then leaves them out of this pass as well. That is belt and braces
+    // (they are no longer ticked, so they are already ineligible) but it keeps
+    // the intent readable at the call site.
+    applyAndRedistribute({ [id]: { daEdit: num, daPooled: undefined } }, { skip: id });
   }
 
   /**
@@ -1152,7 +1178,7 @@ export default function DashboardClient({
       if (!emp || emp.locked) return null;
       // no ceiling badge on a cell that isn't adjustable in the first place
       if (!isDaEditable(rowRule(emp))) return null;
-      const ceiling = daHeadroom(emp, emps, params, pool);
+      const ceiling = daHeadroom(emp, emps, params);
       return Number.isFinite(ceiling) ? Math.max(0, Math.floor(ceiling)) : null;
     },
     [isEditor, pool, empById, emps, params]
@@ -1176,7 +1202,10 @@ export default function DashboardClient({
       const row = rowById.get(id);
       if (!row || row.locked) return;
     }
-    setOverride(id, { ipmEdit: next });
+    // An IPM change moves this row's calculated bonus, so it moves Allocated
+    // and therefore Remaining. `skip` keeps the person being edited out of the
+    // pass, so their own figure is not rewritten under them mid-edit.
+    applyAndRedistribute({ [id]: { ipmEdit: next } }, { skip: id });
   }
 
   /**
@@ -1222,11 +1251,11 @@ export default function DashboardClient({
           )} will be released back into the pool and all unlocked bonuses will be redistributed.\n\nChanges made while locked will be kept.`;
           if (!confirm(msg)) return;
         }
-        setOverride(id, { locked: false, lockedFinal: undefined });
+        applyAndRedistribute({ [id]: { locked: false, lockedFinal: undefined } });
       } else {
         // finalBonus is the actual payout to freeze — identical to calcBonus
         // for an unlocked row, but it's the one that means "what gets paid".
-        setOverride(id, { locked: true, lockedFinal: emp.finalBonus });
+        applyAndRedistribute({ [id]: { locked: true, lockedFinal: emp.finalBonus } });
       }
       return;
     }
@@ -1257,9 +1286,9 @@ export default function DashboardClient({
         )} will be released back into the pool and all unlocked bonuses will be redistributed.\n\nChanges made while locked will be kept.`;
         if (!confirm(msg)) return;
       }
-      setOverride(id, { locked: false, lockedFinal: undefined });
+      applyAndRedistribute({ [id]: { locked: false, lockedFinal: undefined } });
     } else {
-      setOverride(id, { locked: true, lockedFinal: row.final });
+      applyAndRedistribute({ [id]: { locked: true, lockedFinal: row.final } });
     }
   }
 
@@ -1403,12 +1432,29 @@ export default function DashboardClient({
   const poolCardEls = useMemo(() => {
     if (!poolSummary) return null;
     if (poolSummary.kind === "manager") {
+      // The Remaining card carries the action that spends it. PoolCard's
+      // `footer` already takes any node (the cap editor on the admin cards is
+      // the precedent), so nothing about the card component changes.
+      const canRedistribute = canEditFields.includes("da") && !viewReadOnly;
       return poolSummary.items.map((it) => (
         <PoolCard
           key={it.key}
           title={it.title}
           value={it.value}
           tone={it.alert ? "alert" : "normal"}
+          footer={
+            it.key === "remaining" && canRedistribute ? (
+              <button
+                type="button"
+                onClick={redistributeNow}
+                disabled={dsBusy || saveStatus === "saving"}
+                title="Split what is left of the pool across the people ticked in the 'Share' column, in proportion to their calculated bonus"
+                className="mt-1.5 border border-brand-orange/50 px-2.5 py-1 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-brand-orange-soft"
+              >
+                Redistribute
+              </button>
+            ) : undefined
+          }
         />
       ));
     }
@@ -1454,15 +1500,128 @@ export default function DashboardClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [poolSummary, canEditCapsNow, dsBusy]);
 
+  /**
+   * Spend what is left of the pool across the ticked people.
+   *
+   * `next` is the override document AFTER whatever change triggered this, so
+   * the split is measured on the figures the user is about to have rather than
+   * the ones they had. Returns a document with the redistribution applied, or
+   * null when there was nothing to do — the caller then writes only its own
+   * change, so an edit that moves nothing does not look like a redistribution.
+   *
+   * Only a lead has a pool to spend. `mgrPool` is null for an admin, who sees
+   * cap cards rather than a Remaining figure, so this is a no-op for them.
+   */
+  function withRedistribution(
+    next: Overrides,
+    opts: { skip?: string } = {}
+  ): Overrides | null {
+    if (!mgrPool || !canEditFields.includes("da")) return null;
+
+    // Remaining, recomputed locally rather than waiting for the preview round
+    // trip. This is only possible because a discretionary amount no longer
+    // moves the scale: `calc` is therefore INVARIANT under a DA edit, so
+    // pool − Σ(locked ? final : calc + da) is exact for the case that matters
+    // (a DA change or a tick). It goes stale for one pass after an IPM or lock
+    // edit, which does move `calc` — and that self-corrects, because the next
+    // pass sees a negative remaining and reclaims it.
+    //
+    // Falls back to the server's figure when this lead is not sent Calc bonus
+    // at all, since then there is nothing local to add up.
+    const rows: Redistributable[] = [];
+    let allocated = 0;
+    let canMeasure = true;
+    for (const r of scopedRows) {
+      const da = next[r.id]?.daEdit ?? r.da ?? 0;
+      const locked = next[r.id]?.locked ?? r.locked;
+      if (locked) {
+        allocated += r.final ?? 0;
+      } else if (r.calc === undefined) {
+        canMeasure = false;
+      } else {
+        allocated += r.calc + da;
+      }
+      rows.push({
+        id: r.id,
+        daEdit: da,
+        daPooled: next[r.id]?.daPooled ?? r.daPooled,
+        locked,
+        calcBonus: r.calc ?? 0,
+        sm: r.sm,
+        st: r.st,
+        inPool: r.inPool,
+      });
+    }
+    const remaining = canMeasure ? mgrPool.pool - allocated : mgrPool.remaining;
+
+    const shares = redistribute(rows, remaining, opts);
+    if (shares.size === 0) return null;
+    const out: Overrides = { ...next };
+    for (const [id, daEdit] of shares) {
+      out[id] = { ...out[id], daEdit };
+    }
+    return out;
+  }
+
+  /**
+   * Apply a change and let the redistribution follow it, in ONE write.
+   *
+   * Deliberately not a useEffect: an effect that writes overrides re-triggers
+   * itself, and while the split is idempotent (a second pass distributes a
+   * remaining of zero) relying on that to terminate a render loop would be
+   * fragile. Every trigger calls this instead, so each user action produces
+   * exactly one deterministic pass.
+   */
+  function applyAndRedistribute(
+    patch: Overrides,
+    opts: { skip?: string } = {}
+  ) {
+    setOverrides((prev) => {
+      const next: Overrides = { ...prev };
+      for (const [id, p] of Object.entries(patch)) {
+        next[id] = { ...next[id], ...p };
+      }
+      const spread = withRedistribution(next, opts);
+      if (spread) redistributedRef.current = true;
+      return spread ?? next;
+    });
+  }
+
+  /**
+   * The Redistribute button. Same computation as the automatic pass; the only
+   * difference is that this one is deliberate, so it goes through the normal
+   * save and lets gate 5's confirmation modal name what it did. An automatic
+   * pass rides along with the edit that caused it and stays silent.
+   */
+  function redistributeNow() {
+    if (viewReadOnly || !canEditFields.includes("da")) return;
+    // overridesRef, not `overrides`: this runs from a button inside the
+    // memoised pool cards, whose dep list deliberately omits the document (see
+    // the eslint-disable below it), so a captured `overrides` could be a render
+    // behind. The ref is the same guard the save path uses.
+    const next = withRedistribution(overridesRef.current);
+    if (!next) {
+      setNotice("Nothing to redistribute — either the pool is fully allocated or nobody is ticked.");
+      return;
+    }
+    // Cleared deliberately: pressing the button is a request to be shown what
+    // it does, so this save must reach gate 5 and raise the confirmation even if
+    // an earlier automatic pass had already marked the document silent.
+    redistributedRef.current = false;
+    setOverrides(next);
+    void save("manual", next);
+  }
+
   /** One human-readable line per contested figure in the conflict banner. */
   /**
-   * Flip how one row's discretionary amount is funded.
+   * Take this person in or out of the redistribution.
    *
-   * Mirrors toggleLock: one override field, committed through the same
-   * setOverride/dirty/save path, with no separate endpoint. The bound that
-   * applies to the amount changes with it — a flagged row is bounded by the
-   * state pool, an unflagged one by the caps — so the DA cell is remounted
-   * through daNonce, which is what makes the "max $X" badge re-derive.
+   * The tick means one thing: include them when the remaining is split. It does
+   * not fund anybody by itself and the engine never reads it (lib/calc.ts) —
+   * which is what lets it work identically on NSW, where the pinned scale left
+   * the previous funding-based design with nothing to move.
+   *
+   * Ticking changes who shares the remaining, so the split re-runs immediately.
    */
   function toggleDaPooled(id: string) {
     if (viewReadOnly || !canEditFields.includes("da")) return;
@@ -1470,7 +1629,7 @@ export default function DashboardClient({
     if (!row || row.locked) return;
     if (!isDaEditable(isEditor ? rowRule(row as CalcEmployee) : (row as DisplayRow)))
       return;
-    setOverride(id, { daPooled: !(row.daPooled ?? false) });
+    applyAndRedistribute({ [id]: { daPooled: !(row.daPooled ?? false) } });
     setDaNonce((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }));
   }
 

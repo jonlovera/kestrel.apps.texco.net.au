@@ -281,14 +281,13 @@ describe("poolBreach", () => {
   });
 
   /**
-   * The documented hole (lib/manager-pool.ts's header): a pool-funded amount is
-   * budget-neutral across the scope, so a lead's own gate does not bound it.
-   * Hand-checkable on this fixture — vCap 1000, A demands 400, B demands 600,
-   * scale exactly 1.
+   * The gate now bounds a ticked row exactly like any other, which is what
+   * makes redistribution safe: `remaining` is a real budget again. Before the
+   * funding behaviour was removed, a ticked amount was budget-neutral across
+   * the scope and this gate could not see it at all.
    *
-   * On top, 200 to A:      A 600, B 600 → allocated 1200, pool 1000, remaining -200 → refused.
-   * Pool-funded, 200 to A: scale (1000-200)/1000 = 0.8, so A 320+200 = 520 and
-   *                        B 480 → allocated 1000, pool 1000, remaining 0 → allowed.
+   * Hand-checkable on this fixture — vCap 1000, A demands 400, B demands 600,
+   * scale exactly 1, so 200 to A gives allocated 1200 against a pool of 1000.
    */
   it("an on-top amount over the pool is refused", () => {
     const next = { A: { daEdit: 200 } };
@@ -298,17 +297,29 @@ describe("poolBreach", () => {
     expect(poolBreach(lead, data, next, {})).not.toBeNull();
   });
 
-  it("the same amount funded FROM the pool is not refused — the gate cannot see it", () => {
+  it("ticking the row changes nothing — the gate still refuses it", () => {
     const next = { A: { daEdit: 200, daPooled: true } };
     const p = managerPool(lead, data, next);
-    // remaining does NOT fall by the amount: B paid for it inside the scope
-    expect(p.allocated).toBeCloseTo(1000, 8);
-    expect(p.remaining).toBeCloseTo(0, 8);
-    expect(poolBreach(lead, data, next, {})).toBeNull();
-    // and B, who granted nothing, is the one who paid
+    expect(p.allocated).toBeCloseTo(1200, 8);
+    expect(p.remaining).toBeCloseTo(-200, 8);
+    expect(poolBreach(lead, data, next, {})).not.toBeNull();
+    // and B, who was granted nothing, is untouched — nobody funds anybody
     const rows = applyOverrides(data.emp, next);
     computeScalesAndBonuses(rows, data);
-    expect(rows.find((r) => r.id === "B")!.finalBonus).toBeCloseTo(480, 8);
+    expect(rows.find((r) => r.id === "B")!.finalBonus).toBeCloseTo(600, 8);
+  });
+
+  it("a redistribution that exactly spends the pool is allowed", () => {
+    // this is the shape lib/redistribute.ts produces: the remaining, split
+    // across ticked rows, landing allocated exactly on the pool
+    const p0 = managerPool(lead, data, {});
+    expect(p0.remaining).toBeCloseTo(0, 8); // fixture starts exactly spent
+    const roomy = { ...data, vCap: 1200 };
+    const room = managerPool(lead, roomy, {}).remaining;
+    expect(Math.round(room)).toBe(200);
+    const next = { A: { daEdit: 120, daPooled: true }, B: { daEdit: 80, daPooled: true } };
+    expect(managerPool(lead, roomy, next).remaining).toBeCloseTo(0, 8);
+    expect(poolBreach(lead, roomy, next, {})).toBeNull();
   });
 
   it("a whole-state lead's pool is the state cap, not what their rows demand", () => {
