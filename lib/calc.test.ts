@@ -30,7 +30,13 @@ import {
  * bipm figures are deliberately chosen well above the old (100/300/250/100)
  * ones: since FY26's methodology caps scale at 1 (see clampScale in
  * lib/calc.ts), a fixture with scale > 1 would now just clamp to 1 and stop
- * exercising DA redistribution/locking at all.
+ * exercising locking at all.
+ *
+ * Note gCap: 1500 is exactly vCap + nCap, and with both pools fully spent the
+ * group total lands exactly on it — so the fixture starts with NO room under
+ * the group cap, which is the real dataset's situation too. Tests that need
+ * genuine headroom use their own roomier caps, as the real caps would have to
+ * be raised for a grant to fit.
  */
 const CAPS: Caps = { vCap: 1000, nCap: 500, gCap: 1500 };
 
@@ -77,6 +83,15 @@ function totalVicAlloc(emps: CalcEmployee[], pool: PoolState) {
 }
 function totalNswAlloc(emps: CalcEmployee[], pool: PoolState) {
   return emps.reduce((s, e) => s + getNswAlloc(e, pool), 0);
+}
+
+/**
+ * Σ final over one home state, or over everyone — the figure the dashboard's
+ * pool cards show, and the figure getMaxDA measures its room against. Not the
+ * same as a pool's draw: E is Shared Services but draws from both pools.
+ */
+function cardTotal(emps: CalcEmployee[], st?: Employee["st"]) {
+  return emps.reduce((s, e) => (!st || e.st === st ? s + e.finalBonus : s), 0);
 }
 
 describe("baseline (no edits, no locks)", () => {
@@ -130,62 +145,67 @@ describe("baseline (no edits, no locks)", () => {
   });
 });
 
-describe("discretionary adjustments are pool funded but recipient stable (owner decision, 24 Aug 2026)", () => {
-  it("Calc bonus + Discretionary = Final, exactly, and the recipient's calc does not move", () => {
+describe("discretionary adjustments sit on top of the pool (owner decision, 25 Aug 2026)", () => {
+  it("Calc bonus + Discretionary = Final, exactly, and no scale moves", () => {
     const base = run();
     const adj = run({ A: { daEdit: 100 } });
 
-    // the recipient is priced at the base scale, which never moves
-    expect(adj.pool.vicScaleBase).toBeCloseTo(base.pool.vicScaleBase, 12);
+    // the pool calculation is untouched: a DA is not deducted from it
+    expect(adj.pool.vicScale).toBeCloseTo(base.pool.vicScale, 12);
     expect(adj.byId.A.calcBonus).toBeCloseTo(base.byId.A.calcBonus, 12);
     // the identity the dashboard promises: typing 100 gives exactly 100 more
     expect(adj.byId.A.finalBonus).toBeCloseTo(adj.byId.A.calcBonus + 100, 12);
-    // the DA came out of the pool: the remaining rows' scale dropped
-    expect(adj.pool.vicScale).toBeLessThan(base.pool.vicScale);
-    // and the pool allocation still fills the cap exactly, DA included
+    // pool money alone still fills the cap exactly — the DA is not pool money
     expect(totalVicAlloc(adj.emps, adj.pool)).toBeCloseTo(1000, 8);
   });
 
-  it("everyone else funds the DA pro-rata, by exactly the DA amount", () => {
+  it("nobody else moves: not the other unlocked rows, not the other state", () => {
     const base = run();
     const adj = run({ A: { daEdit: 100 } });
-    // the other unlocked VIC-exposed rows shrink...
-    expect(adj.byId.B.finalBonus).toBeLessThan(base.byId.B.finalBonus);
-    expect(adj.byId.E.finalBonus).toBeLessThan(base.byId.E.finalBonus);
-    // ...their combined shortfall is exactly the 100 typed...
-    const othersDelta = adj.emps
-      .filter((e) => e.id !== "A")
-      .reduce((s, e) => s + e.finalBonus, 0);
-    const othersBase = base.emps
-      .filter((e) => e.id !== "A")
-      .reduce((s, e) => s + e.finalBonus, 0);
-    expect(othersBase - othersDelta).toBeCloseTo(100, 8);
-    // ...while the fixed site manager and the other state are untouched
-    expect(adj.byId.C.finalBonus).toBeCloseTo(base.byId.C.finalBonus, 12);
-    expect(adj.byId.D.finalBonus).toBeCloseTo(base.byId.D.finalBonus, 12);
+    for (const id of ["B", "C", "D", "E", "F"]) {
+      expect(adj.byId[id].finalBonus).toBeCloseTo(base.byId[id].finalBonus, 12);
+    }
     expect(adj.pool.nswScale).toBeCloseTo(base.pool.nswScale, 12);
   });
 
-  it("a negative DA reduces the final below the calc and frees money to the others", () => {
+  it("the pool totals move by exactly the grant — the point of the reversal", () => {
+    // The owner's own complaint about the pool-funded model: "I'm changing
+    // discretionary number and the total is not changing." It changes now.
+    const base = run();
+    const adj = run({ A: { daEdit: 100 } });
+    expect(cardTotal(adj.emps, "VIC") - cardTotal(base.emps, "VIC")).toBeCloseTo(100, 8);
+    expect(cardTotal(adj.emps) - cardTotal(base.emps)).toBeCloseTo(100, 8);
+    expect(cardTotal(adj.emps, "NSW")).toBeCloseTo(cardTotal(base.emps, "NSW"), 12);
+  });
+
+  it("a grant lands on the recipient's HOME state total, whichever pools fund them", () => {
+    // E belongs to Shared Services but draws 60/40 from the two pools. The
+    // grant shows up under Shared Services, which is how the dashboard groups
+    // it — and so how getMaxDA measures the room for it.
+    const base = run();
+    const adj = run({ E: { daEdit: 100 } });
+    expect(cardTotal(adj.emps, "SHARED") - cardTotal(base.emps, "SHARED")).toBeCloseTo(100, 8);
+    expect(cardTotal(adj.emps, "VIC")).toBeCloseTo(cardTotal(base.emps, "VIC"), 12);
+    expect(cardTotal(adj.emps, "NSW")).toBeCloseTo(cardTotal(base.emps, "NSW"), 12);
+  });
+
+  it("a negative DA reduces the final below the calc, and the total with it", () => {
     const base = run();
     const adj = run({ A: { daEdit: -50 } });
     expect(adj.byId.A.finalBonus).toBeCloseTo(base.byId.A.calcBonus - 50, 12);
-    expect(adj.pool.vicScale).toBeGreaterThan(base.pool.vicScale);
-    expect(adj.byId.B.finalBonus).toBeGreaterThan(base.byId.B.finalBonus);
-    // the cap is still exactly filled
-    expect(totalVicAlloc(adj.emps, adj.pool)).toBeCloseTo(1000, 8);
+    // it frees nothing to anyone else — it just lowers the pool total
+    expect(adj.pool.vicScale).toBeCloseTo(base.pool.vicScale, 12);
+    expect(adj.byId.B.finalBonus).toBeCloseTo(base.byId.B.finalBonus, 12);
+    expect(cardTotal(adj.emps, "VIC") - cardTotal(base.emps, "VIC")).toBeCloseTo(-50, 8);
   });
 
-  it("total payout no longer moves with DA while the pool stays oversubscribed", () => {
+  it("total payout exceeds the pools by exactly the net DA", () => {
     const base = run();
-    // both DAs land in VIC, which stays oversubscribed either way (a negative
-    // DA in a pool at the scale ceiling would legitimately underspend it)
-    const adj = run({ A: { daEdit: 100 }, B: { daEdit: -40 } });
+    const adj = run({ A: { daEdit: 100 }, D: { daEdit: -40 } });
     const totalBase = base.emps.reduce((s, e) => s + e.finalBonus, 0);
     const totalAdj = adj.emps.reduce((s, e) => s + e.finalBonus, 0);
-    // both DAs are absorbed inside the capped pool, so the group total is
-    // unchanged (the old on-top model drifted by the net DA here)
-    expect(totalAdj).toBeCloseTo(totalBase, 8);
+    expect(totalAdj - totalBase).toBeCloseTo(100 - 40, 10);
+    // the pools themselves are still spent to the cent, DA excluded
     expect(totalVicAlloc(adj.emps, adj.pool)).toBeCloseTo(1000, 8);
     expect(totalNswAlloc(adj.emps, adj.pool)).toBeCloseTo(500, 8);
   });
@@ -196,35 +216,26 @@ describe("discretionary adjustments are pool funded but recipient stable (owner 
     expect(two.byId.A.calcBonus).toBeCloseTo(one.byId.A.calcBonus, 12);
     expect(two.byId.A.finalBonus).toBeCloseTo(one.byId.A.finalBonus, 12);
     expect(two.byId.E.finalBonus).toBeCloseTo(two.byId.E.calcBonus + 30, 12);
-    // only the non-DA rows fund it
-    expect(two.byId.B.finalBonus).toBeLessThan(one.byId.B.finalBonus);
+    // and nobody funds either of them
+    expect(two.byId.B.finalBonus).toBeCloseTo(one.byId.B.finalBonus, 12);
   });
 
-  it("a zero-weight employee's final is exactly their DA and no pool funds it", () => {
+  it("a zero-weight employee's final is exactly their DA", () => {
     const base = run();
     const adj = run({ F: { daEdit: 500 } });
     expect(adj.byId.F.calcBonus).toBe(0);
     expect(adj.byId.F.finalBonus).toBe(500);
-    // F draws from no pool, so nobody else moves (F's DA sits outside both
-    // pools; /api/state refuses storing DA on such rows anyway)
     expect(adj.pool.vicScale).toBeCloseTo(base.pool.vicScale, 12);
     expect(adj.pool.nswScale).toBeCloseTo(base.pool.nswScale, 12);
-  });
-
-  it("with all DA at zero the two scales are the same value, bit for bit", () => {
-    const { pool } = run();
-    expect(pool.vicScale).toBe(pool.vicScaleBase);
-    expect(pool.nswScale).toBe(pool.nswScaleBase);
   });
 });
 
 /**
  * The acceptance case the business owner stated, in their own numbers:
  * 5,429 typed against a 24,571 calc bonus is $30,000, and it is still
- * $30,000 after someone else's discretionary amount lands. The 24 August
- * 2026 pool-funded reform preserves this exactly through recipient
- * stability: a DA row is priced at the base scale, which its own DA and
- * other people's DAs never move.
+ * $30,000 after someone else's discretionary amount lands. Trivially true
+ * once a DA is on top of the pool (25 August 2026) — no DA touches any
+ * scale — and kept as a test because it is the case the owner named.
  *
  * Its own fixture, because the figures have to be exact rather than close:
  * bp = 1 makes cpm exactly 1 (deriveCpm), and a cap far above demand clamps
@@ -264,8 +275,7 @@ describe("the stated discretionary case: 24,571 + 5,429 = 30,000", () => {
 
     expect(after.byId.P.finalBonus).toBe(30_000);
     expect(after.byId.P.calcBonus).toBe(before.byId.P.calcBonus);
-    // DA rows are priced at the base scale, and the pool is roomy enough
-    // that the remaining rows' scale stays clamped at 1 as well
+    // no DA moves a scale, and the pool is roomy enough to clamp at 1 anyway
     expect(after.pool.vicScale).toBe(before.pool.vicScale);
     expect(after.pool.nswScale).toBe(before.pool.nswScale);
     // Q got theirs on top too, without borrowing from P
@@ -293,25 +303,21 @@ describe("locked positions are excluded from re-proration", () => {
       A: { daEdit: 100 },
     });
     expect(adj.byId.B.finalBonus).toBeCloseTo(bFinal, 10);
-    // locked B moves into the locked aggregate: the base scale spans the
-    // remaining 320 bipm (A + E's VIC share)...
-    const base = (1000 - 200 - bFinal) / 320;
-    expect(adj.pool.vicScaleBase).toBeCloseTo(base, 10);
-    // ...A's whole draw (base-scaled bonus plus DA) then comes off the top,
-    // leaving E's VIC share (120 bipm) to absorb the rest
-    expect(adj.pool.vicScale).toBeCloseTo(
-      (1000 - 200 - bFinal - (200 * base + 100)) / 120,
-      10
-    );
-    expect(adj.byId.A.finalBonus).toBeCloseTo(200 * base + 100, 10);
+    // locked B moves into the locked aggregate: the scale spans the remaining
+    // 320 bipm (A + E's VIC share). A's DA is not in it.
+    const scale = (1000 - 200 - bFinal) / 320;
+    expect(adj.pool.vicScale).toBeCloseTo(scale, 10);
+    expect(adj.byId.A.finalBonus).toBeCloseTo(200 * scale + 100, 10);
+    // pool money still fills the cap; the DA is the overshoot on top of it
     expect(totalVicAlloc(adj.emps, adj.pool)).toBeCloseTo(1000, 8);
+    expect(cardTotal(adj.emps, "VIC")).toBeGreaterThan(895.65);
   });
 
   it("locked row still shows a live calcBonus but keeps frozen finalBonus", () => {
     // Locked at a figure deliberately different from B's natural share, so
     // the live calc and the frozen final must disagree. (Locking B at exactly
-    // its baseline share would leave the remaining scale unchanged and the
-    // two would coincide — DA no longer moves the scale to break that tie.)
+    // its baseline share would leave the scale unchanged and the two would
+    // coincide — a DA cannot break that tie, since it moves no scale.)
     const adj = run({ B: { locked: true, lockedFinal: 400 } });
     expect(adj.byId.B.finalBonus).toBe(400);
     expect(adj.byId.B.calcBonus).not.toBeCloseTo(400, 4);
@@ -319,18 +325,20 @@ describe("locked positions are excluded from re-proration", () => {
 
   it("unlocking releases the bonus back into the pool", () => {
     const relocked = run({ A: { daEdit: 100 } }); // as if B was unlocked again
-    expect(relocked.pool.vicScaleBase).toBeCloseTo(800 / 920, 10);
+    expect(relocked.pool.vicScale).toBeCloseTo(800 / 920, 10);
   });
 
   it("a DA left on a row that is then locked is inert: the frozen final already holds it", () => {
-    // B locked at a frozen figure that (say) included a DA at lock time,
-    // with the stale daEdit still stored in the override: the locked branch
-    // deducts the frozen final once and the DA accumulators must ignore it.
+    // B locked at a frozen figure that (say) included a DA at lock time, with
+    // the stale daEdit still stored in the override. Only the frozen figure
+    // counts — it is deducted once, and the stale amount is not paid again.
     const adj = run({ B: { locked: true, lockedFinal: 500, daEdit: 100 } });
-    expect(adj.pool.poolAgg.daDrawVp).toBe(0);
     expect(adj.byId.B.finalBonus).toBe(500);
     // scale derives from the frozen 500 alone, over A + E's VIC share
     expect(adj.pool.vicScale).toBeCloseTo((1000 - 200 - 500) / 320, 10);
+    // and locking is what puts a DA inside the pool: the frozen 500 comes off
+    // the top whether or not part of it was once discretionary
+    expect(adj.pool.poolAgg.empLockedVp).toBeCloseTo(200 + 500, 10);
   });
 });
 
@@ -342,21 +350,19 @@ describe("all-but-one locked", () => {
     E: { locked: true, lockedFinal: eFinal },
   };
 
-  it("the sole unlocked employee's DA rides on top of their base-scaled share", () => {
+  it("the sole unlocked employee's DA rides on top of their scaled share", () => {
     const adj = run({ ...locks, A: { daEdit: 100 } });
     // E is blended (vp 0.6/np 0.4) and locked: its contribution to VIC's pool
     // deduction is split via the no-locks-weighted method (FY26 fix), not raw
     // vp — so this isn't simply `eFinal * 0.6` any more. Assert against the
     // actual pool-math split via poolAgg.empLockedVp instead of re-deriving
-    // it by hand, since that's exactly the quantity under test. A is the only
-    // unlocked row and carries the DA, so it is priced at the BASE scale;
-    // with no unlocked non-DA rows left, vicScale itself defaults to 1.
-    expect(adj.pool.vicScaleBase).toBeCloseTo(
+    // it by hand, since that's exactly the quantity under test.
+    expect(adj.pool.vicScale).toBeCloseTo(
       (1000 - adj.pool.poolAgg.empLockedVp) / 200,
       8
     );
     expect(adj.byId.A.finalBonus).toBeCloseTo(
-      200 * adj.pool.vicScaleBase + 100,
+      200 * adj.pool.vicScale + 100,
       8
     );
     // Note: totalVicAlloc (getVicAlloc's raw-vp/np reporting split) no longer
@@ -416,120 +422,139 @@ describe("a blended (split-state) locked employee splits by the no-locks scale, 
   });
 });
 
-describe("a stored over-cap adjustment floors the others' scale at 0", () => {
-  // The engine never clamps a stored DA (the UI's getMaxDA clamp is what
-  // prevents typing one): a persisted figure bigger than the pool can absorb
-  // simply drives the remaining rows to zero and the overshoot is surfaced
-  // on the pool cards rather than silently trimmed.
-  it("the others are zeroed, the recipient keeps base share + DA, the overshoot is visible", () => {
+describe("a stored over-cap adjustment overshoots the cap and shows it", () => {
+  // The engine never clamps a stored DA — the editor's getMaxDA clamp and
+  // /api/state's headroom gate are what prevent typing one. A figure that is
+  // already stored is paid in full and the overshoot is surfaced on the pool
+  // cards (they paint red) rather than silently trimmed.
+  it("the recipient keeps the whole amount and nobody else is touched", () => {
     const base = run();
-    const adj = run({ A: { daEdit: 10000 } });
-    expect(adj.pool.vicScale).toBe(0);
-    expect(adj.byId.B.finalBonus).toBe(0);
-    // the recipient is still priced at the (unmoved) base scale
-    expect(adj.pool.vicScaleBase).toBeCloseTo(base.pool.vicScaleBase, 12);
-    expect(adj.byId.A.finalBonus).toBeCloseTo(base.byId.A.calcBonus + 10000, 10);
-    // the reported pool draw exceeds the cap by exactly what could not be
-    // absorbed: A's whole draw plus the site manager, minus everyone else's 0
-    const over = totalVicAlloc(adj.emps, adj.pool) - 1000;
-    expect(over).toBeCloseTo(base.byId.A.calcBonus + 10000 + 200 - 1000, 8);
+    const adj = run({ A: { daEdit: 10_000 } });
+    expect(adj.pool.vicScale).toBeCloseTo(base.pool.vicScale, 12);
+    expect(adj.byId.A.finalBonus).toBeCloseTo(base.byId.A.calcBonus + 10_000, 10);
+    expect(adj.byId.B.finalBonus).toBeCloseTo(base.byId.B.finalBonus, 12);
+    // pool money is still exactly the cap; the DA is the part that overshoots
+    expect(totalVicAlloc(adj.emps, adj.pool)).toBeCloseTo(1000, 8);
+    expect(cardTotal(adj.emps, "VIC")).toBeCloseTo(
+      cardTotal(base.emps, "VIC") + 10_000,
+      8
+    );
   });
 
-  it("getMaxDA is the largest DA the pool can absorb", () => {
-    const base = run();
-    const maxDa = getMaxDA(base.byId.A, base.pool);
-    // room = stateVicAvail - locked - A's own base-scaled draw, floored
-    expect(maxDa).toBe(Math.floor(1000 - 200 - 200 * (800 / 920)));
-    // at exactly maxDa the cap is filled and never breached
-    const atMax = run({ A: { daEdit: maxDa } });
-    expect(atMax.pool.vicScale).toBeGreaterThanOrEqual(0);
-    expect(totalVicAlloc(atMax.emps, atMax.pool)).toBeCloseTo(1000, 6);
-    // one dollar more starts overdrawing the pool
-    const overMax = run({ A: { daEdit: maxDa + 1 } });
-    expect(overMax.pool.vicScale).toBe(0);
-    expect(totalVicAlloc(overMax.emps, overMax.pool)).toBeGreaterThan(1000);
-  });
-
-  it("getMaxDA edge cases: site managers, locked rows, both-pool rows, no-pool rows", () => {
-    const base = run();
-    // A site manager can take a DA (24 Aug 2026): the room is everything
-    // left after their own fixed 200, i.e. what the unlocked rows would get
-    expect(getMaxDA(base.byId.C, base.pool)).toBe(800); // site manager
-    const locked = run({ B: { locked: true, lockedFinal: 500 } });
-    expect(getMaxDA(locked.byId.B, locked.pool)).toBe(0); // locked
-    // E draws from both pools: its bound is the tighter of the two rooms
-    const eMax = getMaxDA(base.byId.E, base.pool);
-    const vicRoom = (1000 - 200 - 120 * (800 / 920)) / 0.6;
-    const nswRoom = (500 - 80 * (500 / 580)) / 0.4;
-    expect(eMax).toBe(Math.floor(Math.min(vicRoom, nswRoom)));
-    // F draws from no pool: no pool-derived bound at all
-    expect(getMaxDA(base.byId.F, base.pool)).toBe(Infinity);
-    // and when stored data already overdraws the pool, the room is negative
-    const crowded = run({ A: { daEdit: 2000 } });
-    expect(getMaxDA(crowded.byId.B, crowded.pool)).toBeLessThan(0);
+  it("leaves the caps with no room at all — reported negative, not pretended away", () => {
+    const crowded = run({ A: { daEdit: 10_000 } });
+    // everyone else is over-cap by the overshoot, which is honestly "no room"
+    expect(getMaxDA(crowded.byId.B, crowded.emps, CAPS)).toBeLessThan(0);
+    // the row that caused it can hold what it holds and no more, so the
+    // figure stays correctable rather than being dragged down (see clampDa)
+    expect(getMaxDA(crowded.byId.A, crowded.emps, CAPS)).toBe(0);
   });
 });
 
 describe("a site manager's discretionary rides on the fixed bonus (24 Aug 2026)", () => {
-  it("final = fixed bonus + DA, funded off the top of the pool", () => {
+  it("final = fixed bonus + DA, with the pool untouched", () => {
     const base = run();
     const adj = run({ C: { daEdit: 100 } });
     // the fixed bonus itself never scales; the DA sits on top of it
     expect(adj.byId.C.calcBonus).toBeCloseTo(200, 10);
     expect(adj.byId.C.finalBonus).toBeCloseTo(300, 10);
-    // the pool pays: VIC's unlocked rows scale down by exactly the grant
-    expect(adj.pool.vicScale).toBeCloseTo((1000 - 300) / 920, 12);
-    expect(adj.pool.vicScale).toBeLessThan(base.pool.vicScale);
-    // NSW untouched — C draws purely from VIC
+    // the pool pays nothing for it: their fixed bonus comes off the top as
+    // always, and their DA sits outside the pool like everyone else's
+    expect(adj.pool.vicScale).toBeCloseTo(base.pool.vicScale, 12);
     expect(adj.pool.nswScale).toBeCloseTo(base.pool.nswScale, 12);
-    // and the cap still holds exactly
+    expect(adj.byId.A.finalBonus).toBeCloseTo(base.byId.A.finalBonus, 12);
     expect(totalVicAlloc(adj.emps, adj.pool)).toBeCloseTo(1000, 6);
+    // it does land on their state's total, like any other grant
+    expect(cardTotal(adj.emps, "VIC") - cardTotal(base.emps, "VIC")).toBeCloseTo(100, 8);
   });
 
-  it("a negative DA frees pool money back to the others", () => {
+  it("a negative DA lowers them and their pool's total, and frees nothing", () => {
     const base = run();
     const adj = run({ C: { daEdit: -50 } });
     expect(adj.byId.C.finalBonus).toBeCloseTo(150, 10);
-    expect(adj.pool.vicScale).toBeGreaterThan(base.pool.vicScale);
-  });
-
-  it("at exactly getMaxDA the unlocked rows floor at $0 and the cap holds", () => {
-    const base = run();
-    const maxDa = getMaxDA(base.byId.C, base.pool);
-    expect(maxDa).toBe(800); // everything the unlocked rows would have drawn
-    const atMax = run({ C: { daEdit: maxDa } });
-    expect(atMax.pool.vicScale).toBeCloseTo(0, 8);
-    expect(totalVicAlloc(atMax.emps, atMax.pool)).toBeCloseTo(1000, 6);
+    expect(adj.pool.vicScale).toBeCloseTo(base.pool.vicScale, 12);
+    expect(adj.byId.B.finalBonus).toBeCloseTo(base.byId.B.finalBonus, 12);
+    expect(cardTotal(adj.emps, "VIC") - cardTotal(base.emps, "VIC")).toBeCloseTo(-50, 8);
   });
 });
 
-describe("an under-subscribed pool absorbs a DA from its own headroom first", () => {
-  const bigCaps: Caps = { vCap: 100_000, nCap: 100_000, gCap: 200_000 };
+/**
+ * The automatic refusal the owner asked for (25 August 2026): "it will get
+ * refused automatically by each discretionary field". getMaxDA is that bound —
+ * the room left under the caps, measured off exactly the totals the pool cards
+ * show (Σ final by home state, and Σ final over everyone for the group).
+ *
+ * These use their own roomier caps because the fixture's own leave no group
+ * room at all (gCap === vCap + nCap with both pools fully spent) — which is
+ * the real dataset's position too, and the subject of the last test here.
+ */
+describe("getMaxDA is the room left under the caps", () => {
+  const ROOM: Caps = { vCap: 100_000, nCap: 100_000, gCap: 200_000 };
   function roomy(overrides: Overrides = {}) {
     const emps = applyOverrides(FIXTURE, overrides);
-    const pool = computeScalesAndBonuses(emps, bigCaps);
+    const pool = computeScalesAndBonuses(emps, ROOM);
     const byId = Object.fromEntries(emps.map((e) => [e.id, e]));
     return { emps, pool, byId };
   }
+  const max = (r: ReturnType<typeof roomy>, id: string) =>
+    getMaxDA(r.byId[id], r.emps, ROOM);
 
-  it("a small DA moves nobody: it comes out of the unspent remainder", () => {
-    const base = roomy();
-    const adj = roomy({ A: { daEdit: 100 } });
-    expect(adj.pool.vicScaleBase).toBe(1);
-    expect(adj.pool.vicScale).toBe(1); // still clamped: headroom absorbs it
-    expect(adj.byId.A.finalBonus).toBeCloseTo(200 + 100, 10);
-    expect(adj.byId.B.finalBonus).toBeCloseTo(base.byId.B.finalBonus, 12);
+  it("is the home-state cap minus everything else already on that card", () => {
+    const r = roomy();
+    // VIC's card holds A 200 + B 600 + C 200 + F 0 = 1,000 of a 100,000 cap,
+    // and A's own 200 counts against them too: 100,000 - 1,000 + 0 = 99,000
+    expect(cardTotal(r.emps, "VIC")).toBeCloseTo(1000, 10);
+    expect(max(r, "A")).toBe(99_000);
   });
 
-  it("a DA bigger than the headroom starts scaling the others down", () => {
-    // VIC headroom above full entitlements: 100000 - 200 (sm) - 920 = 98880
-    const adj = roomy({ A: { daEdit: 99_000 } });
-    expect(adj.pool.vicScaleBase).toBe(1);
-    expect(adj.pool.vicScale).toBeLessThan(1);
-    // the recipient still gets their full unscaled entitlement plus the DA
-    expect(adj.byId.A.calcBonus).toBeCloseTo(200, 10);
-    expect(adj.byId.A.finalBonus).toBeCloseTo(200 + 99_000, 8);
-    expect(totalVicAlloc(adj.emps, adj.pool)).toBeCloseTo(100_000, 6);
+  it("at exactly the ceiling the card lands on its cap, and one dollar more passes it", () => {
+    const atMax = roomy({ A: { daEdit: 99_000 } });
+    expect(cardTotal(atMax.emps, "VIC")).toBeCloseTo(100_000, 8);
+    expect(max(atMax, "B")).toBe(0); // and the card has nothing left for anyone
+    const over = roomy({ A: { daEdit: 99_001 } });
+    expect(cardTotal(over.emps, "VIC")).toBeGreaterThan(100_000);
+  });
+
+  it("does not move as the field fills up: it is what the field may HOLD", () => {
+    // the clamp compares the whole requested figure against this, so the
+    // ceiling has to be an absolute amount rather than a remaining increase
+    const r = roomy({ A: { daEdit: 500 } });
+    expect(max(r, "A")).toBe(99_000);
+    // ...while everyone else on the card has 500 less room than before
+    expect(max(r, "B")).toBe(98_500);
+  });
+
+  it("Shared Services has no cap of its own, so only the group bound applies", () => {
+    const r = roomy();
+    // group holds 1,700 of 200,000
+    expect(cardTotal(r.emps)).toBeCloseTo(1700, 10);
+    expect(max(r, "E")).toBe(198_300);
+  });
+
+  it("a site manager is bounded exactly like anyone else on their card", () => {
+    expect(max(roomy(), "C")).toBe(99_000);
+  });
+
+  it("a locked row has none, and a row drawing from no pool has no bound", () => {
+    const r = roomy({ B: { locked: true, lockedFinal: 500 } });
+    expect(max(r, "B")).toBe(0); // frozen: there is nothing to grant
+    expect(max(r, "F")).toBe(Infinity); // no pool, so no cap to overrun
+    // B's lock released 100 of card space, which the others may now hold
+    expect(max(r, "A")).toBe(99_100);
+  });
+
+  it("the group cap binds when it is the tighter of the two", () => {
+    // The fixture's own caps: VIC's card still has ~104 of room, but the group
+    // total sits exactly on gCap, so nothing can be granted at all. This is
+    // the real dataset's position (gCap === vCap + nCap, both pools spent):
+    // raising a state cap alone does not create room for a grant.
+    const base = run();
+    expect(Math.floor(1000 - cardTotal(base.emps, "VIC"))).toBe(104);
+    expect(cardTotal(base.emps)).toBeCloseTo(1500, 8);
+    expect(getMaxDA(base.byId.A, base.emps, CAPS)).toBe(0);
+    // lift the group cap alone and the state cap becomes the binding one
+    const lifted: Caps = { ...CAPS, gCap: 10_000 };
+    expect(getMaxDA(base.byId.A, base.emps, lifted)).toBe(104);
   });
 });
 
@@ -571,11 +596,11 @@ describe("edge guards", () => {
 
 describe("real-data regression (data/bonus.json)", () => {
   // Originally computed with an independent Python implementation of the
-  // prototype's algorithm. Re-anchored (deliberately) for the 24 August 2026
-  // pool-funded DA reform: one source row (ALANT) carries da=3000, which the
-  // VIC pool absorbs again, so the non-DA rows' vicScale drops a touch below
-  // the base scale (0.67178... lives on as vicScaleBase), NSW has no DA row
-  // and is untouched, and the group total lands exactly on gCap.
+  // prototype's algorithm. Re-anchored for the 25 August 2026 reversal back to
+  // DA-on-top, which restores the pre-reform figures exactly: one source row
+  // (ALANT) carries da=3000, which the pool no longer funds — so VIC's scale
+  // returns to 0.67178…, NSW is untouched, and the group total is gCap + 3000,
+  // the 3,000 being paid on top of two still-fully-spent pools.
   const data = JSON.parse(
     readFileSync(join(__dirname, "..", "data", "bonus.json"), "utf-8")
   );
@@ -583,15 +608,27 @@ describe("real-data regression (data/bonus.json)", () => {
   it("reproduces the baseline scales and group total exactly", () => {
     const emps = applyOverrides(data.emp, {});
     const pool = computeScalesAndBonuses(emps, data);
-    expect(pool.vicScale).toBeCloseTo(0.6701269613529727, 12);
-    expect(pool.vicScaleBase).toBeCloseTo(0.6717823483284814, 12);
+    expect(pool.vicScale).toBeCloseTo(0.6717823483284814, 12);
     expect(pool.nswScale).toBeCloseTo(0.7820525079336984, 12);
-    expect(pool.nswScaleBase).toBe(pool.nswScale);
     const totFinal = emps.reduce((s, e) => s + e.finalBonus, 0);
-    expect(totFinal).toBeCloseTo(2618822.75, 6);
-    expect(totFinal).toBeCloseTo(data.gCap, 6);
+    expect(totFinal).toBeCloseTo(2621822.75, 6);
+    // the pools are spent to the cent; the group total exceeds gCap by exactly
+    // the one stored discretionary amount, which is what "on top" means
+    expect(totFinal - data.gCap).toBeCloseTo(3000, 6);
     expect(totalVicAlloc(emps, pool)).toBeCloseTo(1580414.5, 6);
     expect(totalNswAlloc(emps, pool)).toBeCloseTo(1038408.25, 6);
+  });
+
+  it("leaves no room for a grant until the caps are raised", () => {
+    // gCap is exactly vCap + nCap and both pools are fully spent, so the group
+    // cap has nothing left even before ALANT's stored 3,000 — every field
+    // refuses. Worth pinning: it is the first thing anyone will hit.
+    const emps = applyOverrides(data.emp, {});
+    computeScalesAndBonuses(emps, data);
+    expect(data.gCap).toBe(data.vCap + data.nCap);
+    const pooled = emps.filter((e) => e.vp + e.np > 0);
+    expect(pooled.length).toBeGreaterThan(0);
+    for (const e of pooled) expect(getMaxDA(e, emps, data)).toBeLessThanOrEqual(0);
   });
 });
 
@@ -783,8 +820,8 @@ describe("a locked site manager really freezes (24 Aug 2026)", () => {
   });
 
   it("a frozen site manager has no discretionary headroom", () => {
-    const { byId, pool } = run({ C: { locked: true, lockedFinal: 50 } });
-    expect(getMaxDA(byId.C, pool)).toBe(0);
+    const { emps, byId } = run({ C: { locked: true, lockedFinal: 50 } });
+    expect(getMaxDA(byId.C, emps, CAPS)).toBe(0);
   });
 
   it("an unlocked site manager is untouched by any of this", () => {

@@ -124,18 +124,19 @@ describe.skipIf(!existsSync(FIXTURE))(
       expect(result.pool).toBeLessThan(everyone);
     });
 
-    it("a discretionary amount draws from the pool: remaining falls by at least the DA", () => {
-      // 24 Aug 2026 pool-funded DA reform: the DA is absorbed state-wide, so
-      // the other unlocked rows' calcBonus shrinks (moving `pool` itself) and
-      // the in-scope locked rows' live calc shrinks while their frozen finals
-      // do not — so remaining falls by the DA plus that locked shrinkage.
+    it("a discretionary amount spends the pool: remaining falls by exactly the DA", () => {
+      // 25 Aug 2026 reversal to DA-on-top: the DA moves no scale, so the pool
+      // itself (Σ calcBonus in scope) does not move at all and the whole grant
+      // lands on `allocated` — remaining falls by exactly the amount granted,
+      // which is what makes a lead's own pool a clean bound on their grants.
       const target = mine.find((e) => !e.locked && !e.sm && e.vp + e.np > 0)!;
       const withDa = managerPool(scope, data, {
         ...overrides,
         [target.id]: { ...overrides[target.id], daEdit: 1_000 },
       });
-      expect(withDa.pool).toBeLessThan(result.pool);
-      expect(withDa.remaining).toBeLessThanOrEqual(result.remaining - 1_000 + 0.01);
+      expect(withDa.pool).toBeCloseTo(result.pool, 6);
+      expect(withDa.allocated).toBeCloseTo(result.allocated + 1_000, 6);
+      expect(withDa.remaining).toBeCloseTo(result.remaining - 1_000, 6);
       expect(withDa.people).toBe(result.people);
     });
 

@@ -22,33 +22,34 @@
  *     Site managers are unaffected — they still split by raw vp/np, which
  *     already reconciled correctly.
  *
- * DISCRETIONARY UPDATE (business-owner decision, 24 August 2026, reversing
- * the earlier "DA on top" decision from August 2026): a discretionary
- * adjustment is funded from the capped pools again, as in the original
- * prototype, with one refinement over the prototype: the recipient is priced
- * at the BASE scale (the scale ignoring all DA), so editing a DA never moves
- * the recipient's own scaled bonus. Consequences, all deliberate:
+ * DISCRETIONARY UPDATE (business-owner decision, 25 August 2026, reversing
+ * the 24 August 2026 pool-funded reform and restoring the "DA on top" model
+ * that preceded it): a discretionary adjustment is a plain manual amount ON
+ * TOP of the pool calculation, may be negative, and is not funded from the
+ * capped pools. Consequences, all deliberate:
  *  - calcBonus is the scaled pool bonus alone; finalBonus = calcBonus +
  *    daEdit, so the dashboard identity "Calc bonus + Discretionary = Final"
- *    still holds exactly on every unlocked row, and typing a DA of X gives
- *    the recipient exactly X more.
- *  - A DA row's whole draw (base-scaled bonus plus DA) is deducted from the
- *    pool like a locked amount before the remaining unlocked rows are
- *    scaled, so everyone else pro-rata funds the DA and the pool total
- *    stays within the cap.
- *  - Negative DA remains allowed and frees pool money back to the others.
- *  - getMaxDA is restored: it is the largest DA the pool can absorb before
- *    the remaining rows' scale floors at 0. The editor clamps DA input to it
- *    at type time. The engine itself does NOT clamp stored figures: an
- *    over-cap DA already persisted simply floors the scale at 0 and the
- *    overshoot is surfaced (red pool card) rather than silently trimmed,
- *    consistent with /api/state's "the figure the user typed is the figure
- *    they keep or the figure they are told they cannot have" principle.
- *  - When every daEdit is 0 the output is bit-identical to the previous
- *    model (proven by the frozen "no-da" golden scenario).
+ *    holds exactly on every unlocked row, and typing a DA of X gives the
+ *    recipient exactly X more.
+ *  - A DA enters no pool deduction and moves no scale, so it shaves nobody
+ *    else's bonus — not the other unlocked rows', not the recipient's own.
+ *    Every pool total therefore rises by exactly the DA, which is what the
+ *    owner asked for: the figure on the card has to move with the grant.
+ *  - The bound is the cap itself. getMaxDA is the room left under the caps
+ *    the pool cards measure against — the row's home-state cap and the group
+ *    cap — so a discretionary field blocks automatically at the point its
+ *    pool would pass its cap. The editor holds input to it at type time and
+ *    /api/state refuses anything above it.
+ *  - The engine itself does NOT clamp stored figures: a figure that already
+ *    over-runs a cap stays exactly as typed and the overshoot is surfaced
+ *    (red pool card) rather than silently trimmed, consistent with
+ *    /api/state's "the figure the user typed is the figure they keep or the
+ *    figure they are told they cannot have" principle.
+ *  - When every daEdit is 0 the output is bit-identical to the pool-funded
+ *    model it replaces (proven by the frozen "no-da" golden scenario).
  * A locked row's frozen finalBonus still includes whatever DA it carried at
- * lock time and is still deducted from the pool once, through the locked
- * branch; a locked row is never treated as a DA row.
+ * lock time, and that whole frozen figure is deducted from the pool through
+ * the locked branch — locking a row is what puts its DA inside the pool.
  */
 import type { Employee, Overrides } from "./schema";
 
@@ -96,25 +97,16 @@ export const ZERO_SHARED: SharedAgg = {
 export interface PoolAgg {
   empLockedVp: number;
   empLockedNp: number;
-  /** DA rows' whole pool draw (base-scaled bonus plus DA), per state. */
-  daDrawVp: number;
-  daDrawNp: number;
 }
 
 export interface PoolState {
   /**
-   * The scale applied to unlocked rows WITHOUT a DA. When any DA exists this
-   * sits below the base scale (the DA rows' draw comes off the top first).
+   * The scale applied to every unlocked row. Discretionary amounts are not in
+   * it — they sit on top of the pool (see the module header), so typing one
+   * moves no scale.
    */
   vicScale: number;
   nswScale: number;
-  /**
-   * The scale ignoring all DA, identical to the pre-reform scale. DA rows'
-   * own bonuses are priced at this scale so a DA edit never moves the
-   * recipient's calc bonus. Equals vicScale/nswScale when no DA exists.
-   */
-  vicScaleBase: number;
-  nswScaleBase: number;
   stateVicAvail: number;
   stateNswAvail: number;
   poolAgg: PoolAgg;
@@ -151,11 +143,11 @@ export interface RowRule {
  * all, and a site manager must be on the NSW pool.
  *
  * The site-manager split is an owner decision (24 August 2026): NSW site
- * managers are adjustable — a discretionary amount rides on their fixed bonus
- * off the top of the pool, and their bonus can be frozen — while VIC site
- * managers are left alone entirely, so those 16 fixed bonuses stay
- * untouchable. A site manager outside both states (none today) is excluded,
- * the conservative reading of "only NSW".
+ * managers are adjustable — a discretionary amount rides on top of their fixed
+ * bonus, and their bonus can be frozen — while VIC site managers are left
+ * alone entirely, so those 16 fixed bonuses stay untouchable. A site manager
+ * outside both states (none today) is excluded, the conservative reading of
+ * "only NSW".
  */
 function isAdjustable(e: RowRule): boolean {
   if (!e.inPool) return false;
@@ -260,10 +252,10 @@ export function computeScalesAndBonuses(
     bipmNpNoLocks = 0;
   emps.forEach((e) => {
     if (e.sm) {
-      // A site manager's whole draw is fixed off the top — the fixed bonus
-      // and, since 24 Aug 2026, any discretionary amount on top of it.
-      smVp += e.bipmCalc * e.vp + e.daEdit * e.vp;
-      smNp += e.bipmCalc * e.np + e.daEdit * e.np;
+      // A site manager's fixed bonus comes off the top. Their discretionary
+      // amount does not: like everyone else's, it sits on top of the pool.
+      smVp += e.bipmCalc * e.vp;
+      smNp += e.bipmCalc * e.np;
     } else {
       bipmVpNoLocks += e.bipmCalc * e.vp;
       bipmNpNoLocks += e.bipmCalc * e.np;
@@ -284,30 +276,22 @@ export function computeScalesAndBonuses(
     empLockedNp = 0;
   let empBipmVpUnlocked = 0,
     empBipmNpUnlocked = 0;
-  // DA rows (unlocked, daEdit !== 0) and the rest, accumulated separately —
-  // nonDa* is NOT derived by subtraction, so with no DA rows it sums exactly
-  // the same terms in the same order as empBipm*Unlocked and the whole
-  // pipeline stays bit-identical to the pre-reform engine.
-  let daBipmVp = 0,
-    daBipmNp = 0;
-  let daVp = 0,
-    daNp = 0;
-  let nonDaBipmVp = 0,
-    nonDaBipmNp = 0;
 
   emps.forEach((e) => {
     if (e.sm) {
-      // A site manager's whole draw comes off the top either way; locking only
+      // A site manager's draw comes off the top either way; locking only
       // changes WHICH figure that is. Frozen when locked (24 Aug 2026, when
-      // NSW site managers became lockable), otherwise the live fixed bonus
-      // plus any discretionary amount. Split by raw vp/np — site managers
-      // always reconciled that way, unlike the blended locked rows below.
-      const draw = e.locked ? e.finalBonus : e.bipmCalc + e.daEdit;
+      // NSW site managers became lockable) — and a frozen figure includes
+      // whatever DA it carried at lock time — otherwise the live fixed bonus
+      // alone, their DA sitting outside the pool. Split by raw vp/np: site
+      // managers always reconciled that way, unlike the blended locked rows
+      // below.
+      const draw = e.locked ? e.finalBonus : e.bipmCalc;
       empLockedVp += draw * e.vp;
       empLockedNp += draw * e.np;
     } else if (e.locked) {
-      // A locked row is never a DA row: its frozen finalBonus already holds
-      // whatever DA it carried at lock time, deducted once right here.
+      // A frozen finalBonus already holds whatever DA the row carried at lock
+      // time, and the whole figure is deducted once right here.
       const wVic = e.vp * vicScaleNoLocks;
       const wNsw = e.np * nswScaleNoLocks;
       const wSum = wVic + wNsw;
@@ -318,15 +302,6 @@ export function computeScalesAndBonuses(
     } else {
       empBipmVpUnlocked += e.bipmCalc * e.vp;
       empBipmNpUnlocked += e.bipmCalc * e.np;
-      if (e.daEdit !== 0) {
-        daBipmVp += e.bipmCalc * e.vp;
-        daBipmNp += e.bipmCalc * e.np;
-        daVp += e.daEdit * e.vp;
-        daNp += e.daEdit * e.np;
-      } else {
-        nonDaBipmVp += e.bipmCalc * e.vp;
-        nonDaBipmNp += e.bipmCalc * e.np;
-      }
     }
   });
 
@@ -352,36 +327,18 @@ export function computeScalesAndBonuses(
   const stateVicAvail = caps.vCap - sharedVicFixed;
   const stateNswAvail = caps.nCap - sharedNswFixed;
 
-  // Step 4: state scales. Capped at 1: an under-subscribed pool is no longer
+  // Step 4: state scale. Capped at 1: an under-subscribed pool is no longer
   // scaled up above 100% to force the cap to be fully spent — the remainder
   // is left as "pool remaining" (FY26 methodology update; previously
-  // uncapped).
-  //
-  // Step 4a: base scale, ignoring all DA. Same formula as the pre-reform
-  // engine, so it never moves when a DA is typed. DA recipients' own bonuses
-  // are priced at this scale (recipient stability, see the module header).
-  const vicScaleBase =
+  // uncapped). Discretionary adjustments are NOT deducted here — they sit on
+  // top of the pool entirely (see the module header).
+  const vicScale =
     empBipmVpUnlocked !== 0
       ? clampScale((stateVicAvail - empLockedVp) / empBipmVpUnlocked)
       : 1;
-  const nswScaleBase =
+  const nswScale =
     empBipmNpUnlocked !== 0
       ? clampScale((stateNswAvail - empLockedNp) / empBipmNpUnlocked)
-      : 1;
-
-  // Step 4b: DA rows' whole pool draw (base-scaled bonus plus DA) comes off
-  // the top like a locked amount, and the remaining unlocked non-DA rows are
-  // scaled to what is left. With no DA rows this reduces to the base scale
-  // exactly (daDraw is 0 and nonDaBipm sums the same terms).
-  const daDrawVp = daBipmVp * vicScaleBase + daVp;
-  const daDrawNp = daBipmNp * nswScaleBase + daNp;
-  const vicScale =
-    nonDaBipmVp !== 0
-      ? clampScale((stateVicAvail - empLockedVp - daDrawVp) / nonDaBipmVp)
-      : 1;
-  const nswScale =
-    nonDaBipmNp !== 0
-      ? clampScale((stateNswAvail - empLockedNp - daDrawNp) / nonDaBipmNp)
       : 1;
 
   emps.forEach((e) => {
@@ -394,9 +351,7 @@ export function computeScalesAndBonuses(
       // lock flag a no-op for them.
       if (!e.locked) e.finalBonus = e.bipmCalc + e.daEdit;
     } else if (!e.locked) {
-      const v = e.daEdit !== 0 ? vicScaleBase : vicScale;
-      const n = e.daEdit !== 0 ? nswScaleBase : nswScale;
-      e.calcBonus = e.bipmCalc * e.vp * v + e.bipmCalc * e.np * n;
+      e.calcBonus = e.bipmCalc * e.vp * vicScale + e.bipmCalc * e.np * nswScale;
       e.finalBonus = e.calcBonus + e.daEdit;
     } else {
       e.calcBonus = e.bipmCalc * e.vp * vicScale + e.bipmCalc * e.np * nswScale;
@@ -407,90 +362,79 @@ export function computeScalesAndBonuses(
   return {
     vicScale,
     nswScale,
-    vicScaleBase,
-    nswScaleBase,
     stateVicAvail,
     stateNswAvail,
-    poolAgg: { empLockedVp, empLockedNp, daDrawVp, daDrawNp },
+    poolAgg: { empLockedVp, empLockedNp },
   };
 }
 
 /**
- * The largest discretionary adjustment a row can carry before the remaining
- * unlocked rows' scale floors at 0, i.e. before the pool cap would be
- * breached. Restored with the 24 August 2026 pool-funded DA reform (the
- * prototype had it as getMaxDA/clampDaToPool), with one new term: the
- * recipient's own base-scaled draw also comes off the top, because the
- * recipient is pinned at the base scale rather than scaled with the rest.
+ * The most a row's discretionary amount may be before its pool passes its cap
+ * — the automatic refusal the business owner asked for (25 August 2026): "it
+ * will get refused automatically by each discretionary field".
  *
- * Floored to whole dollars like the prototype. Returns 0 for rows that
- * cannot take a DA (locked rows — a site manager can take one since 24 Aug
- * 2026, funded off the top like their fixed bonus), Infinity for rows
- * drawing from no pool (vp + np === 0: no pool bound; /api/state strips
- * their DA anyway), and can be NEGATIVE when already-stored figures
- * over-draw the pool (pre-reform data): the pool has no room at all.
+ * A discretionary amount is on top of the pool and moves nothing else, so the
+ * room is simply what is left under the caps, measured EXACTLY the way the
+ * dashboard's pool cards measure their totals (components/DashboardClient.tsx):
+ * Σ finalBonus grouped by HOME STATE against that state's cap, and Σ finalBonus
+ * over everyone against the group cap. A row is bounded by both, whichever
+ * binds first; Shared Services has no state cap of its own, so only the group
+ * bound applies there. Measuring it off the cards rather than off each pool's
+ * draw is deliberate: the card is the figure the person is watching, and it is
+ * the one that must not go over.
+ *
+ * The row's own current amount is added back in, so this is "the most this
+ * field may hold", not "the most it may go up by" — which is what both the
+ * type-time clamp and /api/state's gate need.
+ *
+ * Reads everyone's finalBonus, so call it only after computeScalesAndBonuses.
+ *
+ * Floored to whole dollars like the prototype. Returns 0 for a locked row (its
+ * payout is frozen, so there is nothing to grant), Infinity for a row drawing
+ * from no pool (vp + np === 0: no cap to overrun, and /api/state strips their
+ * DA anyway), and can be NEGATIVE when stored figures already exceed a cap —
+ * honestly "no room at all", which callers hold at the stored figure rather
+ * than dragging it down.
  */
-export function getMaxDA(e: CalcEmployee, pool: PoolState): number {
+export function getMaxDA(
+  e: CalcEmployee,
+  emps: readonly CalcEmployee[],
+  caps: Caps
+): number {
   if (e.locked) return 0;
-  const { empLockedVp, empLockedNp, daDrawVp, daDrawNp } = pool.poolAgg;
-  if (e.sm) {
-    // A site manager's whole draw (fixed bonus + current DA) already sits
-    // inside empLocked*; back out only the DA so the room measures every
-    // OTHER draw on the pool. Their fixed bonus is a given, not headroom.
-    const vicRoomSm = pool.stateVicAvail - (empLockedVp - e.daEdit * e.vp) - daDrawVp;
-    const nswRoomSm = pool.stateNswAvail - (empLockedNp - e.daEdit * e.np) - daDrawNp;
-    let maxSm = Infinity;
-    if (e.vp > 0) maxSm = Math.min(maxSm, vicRoomSm / e.vp);
-    if (e.np > 0) maxSm = Math.min(maxSm, nswRoomSm / e.np);
-    return Number.isFinite(maxSm) ? Math.floor(maxSm) : Infinity;
+  if (e.vp + e.np === 0) return Infinity;
+  let groupTotal = 0;
+  let homeTotal = 0;
+  for (const r of emps) {
+    groupTotal += r.finalBonus;
+    if (r.st === e.st) homeTotal += r.finalBonus;
   }
-  // This row's own current contribution to daDraw* (0 if it has no DA), so
-  // the room measures every OTHER draw on the pool.
-  const ownDrawVp =
-    e.daEdit !== 0 ? e.bipmCalc * e.vp * pool.vicScaleBase + e.daEdit * e.vp : 0;
-  const ownDrawNp =
-    e.daEdit !== 0 ? e.bipmCalc * e.np * pool.nswScaleBase + e.daEdit * e.np : 0;
-  const vicRoom =
-    pool.stateVicAvail -
-    empLockedVp -
-    (daDrawVp - ownDrawVp) -
-    e.bipmCalc * e.vp * pool.vicScaleBase;
-  const nswRoom =
-    pool.stateNswAvail -
-    empLockedNp -
-    (daDrawNp - ownDrawNp) -
-    e.bipmCalc * e.np * pool.nswScaleBase;
-  let maxDa = Infinity;
-  if (e.vp > 0) maxDa = Math.min(maxDa, vicRoom / e.vp);
-  if (e.np > 0) maxDa = Math.min(maxDa, nswRoom / e.np);
-  return Number.isFinite(maxDa) ? Math.floor(maxDa) : Infinity;
+  // Back out this row's own amount so each figure measures every OTHER draw on
+  // the cap, then the room is what the cap has left for this one.
+  let room = caps.gCap - (groupTotal - e.daEdit);
+  const stateCap =
+    e.st === "VIC" ? caps.vCap : e.st === "NSW" ? caps.nCap : null;
+  if (stateCap !== null) {
+    room = Math.min(room, stateCap - (homeTotal - e.daEdit));
+  }
+  return Math.floor(room);
 }
 
-/**
- * VIC pool allocation of one employee, including any DA draw: a DA row is
- * priced at the base scale plus its vp-weighted DA (24 August 2026 reform).
- */
+/** VIC pool allocation of one employee — pool money only, DA sits on top. */
 export function getVicAlloc(e: CalcEmployee, pool: PoolState): number {
   // `locked` is tested FIRST, site manager or not: a frozen row draws its
   // frozen payout from the pool, which is what makes the lock real for an NSW
   // site manager (24 Aug 2026). Reversing these two silently unfreezes them.
   if (e.locked) return e.finalBonus * e.vp;
-  if (e.sm) return e.bipmCalc * e.vp + e.daEdit * e.vp;
-  if (e.daEdit !== 0)
-    return e.bipmCalc * e.vp * pool.vicScaleBase + e.daEdit * e.vp;
+  if (e.sm) return e.bipmCalc * e.vp;
   return e.bipmCalc * e.vp * pool.vicScale;
 }
 
-/**
- * NSW pool allocation of one employee, including any DA draw: a DA row is
- * priced at the base scale plus its np-weighted DA (24 August 2026 reform).
- */
+/** NSW pool allocation of one employee — pool money only, DA sits on top. */
 export function getNswAlloc(e: CalcEmployee, pool: PoolState): number {
   // `locked` first, for the same reason as getVicAlloc.
   if (e.locked) return e.finalBonus * e.np;
-  if (e.sm) return e.bipmCalc * e.np + e.daEdit * e.np;
-  if (e.daEdit !== 0)
-    return e.bipmCalc * e.np * pool.nswScaleBase + e.daEdit * e.np;
+  if (e.sm) return e.bipmCalc * e.np;
   return e.bipmCalc * e.np * pool.nswScale;
 }
 
@@ -516,10 +460,11 @@ export function parsePercentInput(val: string): number | null {
 }
 
 /**
- * Input parsing for DA: strip formatting. Negatives are allowed: a negative
- * discretionary adjustment deliberately reduces a final bonus and frees pool
- * money back to the other unlocked rows (the prototype floored at 0; the
- * 24 August 2026 reform kept negatives when it moved DA back into the pool).
+ * Input parsing for DA: strip formatting. Negatives are allowed — a
+ * discretionary adjustment is a manual amount on top of the pool calculation
+ * and may deliberately reduce a final bonus, which lowers that pool's total by
+ * the same amount rather than lifting anyone else's bonus (the prototype
+ * floored at 0; every owner decision since has kept negatives).
  */
 export function parseDaInput(val: string): number {
   return parseFloat(val.replace(/[^\d.-]/g, "")) || 0;

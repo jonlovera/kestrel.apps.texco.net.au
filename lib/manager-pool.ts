@@ -51,17 +51,14 @@
  * under-subscribed pool. It is normally thin, which is why poolBreach names
  * the unabsorbable amount rather than clamping quietly.
  *
- * Since the 24 August 2026 pool-funded DA reform (see lib/calc.ts), a DA is
- * inside the pool draw again, with two consequences for these figures:
- *  - An in-scope DA shrinks every other unlocked row's calcBonus state-wide,
- *    so `pool` itself moves with a DA edit. In-scope LOCKED rows' live
- *    calcBonus shrinks too while their frozen final does not, so a DA of X
- *    can reduce `remaining` by more than X when the scope holds locked rows.
- *  - A scoped DA is absorbed by the whole state, including out-of-scope
- *    rows. poolBreach deliberately polices only the manager's own pool; the
- *    state cap itself is protected by the engine (clampScale floors the
- *    remaining rows' scale at 0, so the cap cannot be overdrawn by scaled
- *    bonuses) and by the editor's getMaxDA clamp at type time.
+ * Since the 25 August 2026 reversal (see lib/calc.ts) a DA sits ON TOP of the
+ * pool draw, which is what makes these figures simple again: it moves no
+ * scale, so `pool` does not move with a DA edit and nobody outside the scope
+ * is touched. A DA of X inside the scope raises `allocated` by exactly X and
+ * lowers `remaining` by exactly X, so a lead's own pool is the binding
+ * constraint on their grants — poolBreach refuses the save that exceeds it.
+ * The state and group caps are policed separately, by the editor's getMaxDA
+ * clamp at type time and /api/state's headroom gate.
  *
  * Pure: one engine pass over the whole population (the scale is a
  * whole-population fact), then the scope filter — the same ruleMatches the

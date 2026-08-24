@@ -2,16 +2,17 @@
 
 import { useEffect } from "react";
 import { fmt } from "@/lib/fmt";
-import type { DaImpact } from "@/lib/da-impact";
+import type { DaImpact, DaPoolImpact } from "@/lib/da-impact";
 
 /**
  * The confirmation step for a discretionary grant (owner decision, 24 August
  * 2026).
  *
- * A grant is funded from the pool, which means it is funded by everyone else's
- * unlocked bonus. That is invisible on the row being edited — the recipient's
- * figure goes up and nothing on screen says whose went down — so it gets said
- * here, in the numbers the owner asked for, before anything is committed.
+ * A grant adds to a pool's total on top of the calculated bonuses (25 August
+ * 2026), so what it spends is the room left under the caps. That is easy to
+ * miss on the row being edited — the recipient's figure goes up and the cap the
+ * grant just consumed is a card away — so it gets said here, against each cap,
+ * before anything is committed.
  *
  * The figures come from the server (/api/state answers 428 with them rather
  * than saving), so what is confirmed is what will actually happen, and the
@@ -19,11 +20,14 @@ import type { DaImpact } from "@/lib/da-impact";
  */
 export default function DaConfirmModal({
   impact,
+  poolTitles,
   busy,
   onConfirm,
   onCancel,
 }: {
   impact: DaImpact;
+  /** the card labels, so this names each pool exactly as the dashboard does */
+  poolTitles: { vic: string; nsw: string; group: string };
   busy: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -38,7 +42,14 @@ export default function DaConfirmModal({
 
   const increases = impact.grants.filter((g) => g.amount > 0);
   const decreases = impact.grants.filter((g) => g.amount < 0);
-  const nobodyPays = impact.reducedCount === 0;
+  const title = (p: DaPoolImpact) =>
+    p.key === "VIC"
+      ? poolTitles.vic
+      : p.key === "NSW"
+        ? poolTitles.nsw
+        : p.key === "SHARED"
+          ? "Shared Services"
+          : poolTitles.group;
 
   return (
     <div
@@ -57,8 +68,9 @@ export default function DaConfirmModal({
             Confirm {impact.grants.length === 1 ? "this discretionary change" : "these discretionary changes"}
           </div>
           <p className="mt-1 text-[12px] text-brand-70">
-            A discretionary amount is funded from the pool, so it is paid for by
-            the bonuses that aren&apos;t locked. Here is what this does.
+            A discretionary amount adds to the pool total on top of the
+            calculated bonuses. It cannot take a pool past its cap. Here is
+            where this leaves them.
           </p>
         </div>
 
@@ -89,30 +101,30 @@ export default function DaConfirmModal({
           </ul>
 
           <div className="mb-1 text-[11px] font-bold tracking-wide text-brand-70">
-            WHO PAYS FOR IT
+            WHAT IT DOES TO THE POOLS
           </div>
-          {nobodyPays ? (
-            <p className="text-[13px]">
-              Nobody&apos;s bonus goes down. This change frees money back into
-              the pool rather than drawing from it.
-            </p>
-          ) : (
-            <dl className="divide-y divide-neutral-100 border-y border-neutral-100 text-[13px]">
-              <Row label="Bonuses reduced" value={String(impact.reducedCount)} />
+          <dl className="divide-y divide-neutral-100 border-y border-neutral-100 text-[13px]">
+            {impact.pools.map((p) => (
               <Row
-                label="Average reduction per person"
-                value={fmt(impact.averageReduction)}
+                key={p.key}
+                label={title(p)}
+                value={
+                  p.cap === null
+                    ? `${fmt(p.before)} → ${fmt(p.after)}`
+                    : `${fmt(p.before)} → ${fmt(p.after)} of ${fmt(p.cap)}`
+                }
+                note={
+                  p.cap === null
+                    ? "no cap"
+                    : `${fmt(Math.max(0, p.cap - p.after))} left`
+                }
               />
-              <Row
-                label="Largest single reduction"
-                value={fmt(impact.largestReduction)}
-              />
-              <Row
-                label="Locked bonuses, unaffected"
-                value={String(impact.lockedUnaffected)}
-              />
-            </dl>
-          )}
+            ))}
+          </dl>
+          <p className="mt-2 text-[11px] text-brand-70">
+            Nobody else&apos;s bonus changes — a discretionary amount is not
+            taken from the other allocations.
+          </p>
 
           <div className="mt-5 flex items-center gap-2">
             <button
@@ -142,11 +154,26 @@ export default function DaConfirmModal({
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({
+  label,
+  value,
+  note,
+}: {
+  label: string;
+  value: string;
+  note?: string;
+}) {
   return (
     <div className="flex items-baseline justify-between gap-4 py-1.5">
       <dt className="text-brand-70">{label}</dt>
-      <dd className="font-semibold tabular-nums">{value}</dd>
+      <dd className="text-right font-semibold tabular-nums">
+        {value}
+        {note && (
+          <span className="ml-2 text-[11px] font-normal text-brand-70">
+            ({note})
+          </span>
+        )}
+      </dd>
     </div>
   );
 }

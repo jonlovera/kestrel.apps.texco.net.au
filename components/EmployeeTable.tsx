@@ -312,13 +312,14 @@ export default function EmployeeTable({
             </span>
           );
         if (!c.editable || r.locked) return show(c, r.da!);
-        // The ceiling, shown while the cell has focus: a discretionary amount is
-        // funded by the other unlocked bonuses, and this is the most that can be
-        // taken from them before one reaches $0. Absolutely positioned so
-        // revealing it can't nudge the row heights.
+        // The ceiling, shown while the cell has focus: a discretionary amount
+        // adds to the pool total, and this is the room left under the cap.
+        // Absolutely positioned so revealing it can't nudge the row heights.
         const ceiling = daHeadroomFor?.(r.id) ?? null;
         const hint =
-          ceiling === null ? undefined : `Most that can be granted: ${fmtValue("currency", 0, ceiling)}`;
+          ceiling === null
+            ? undefined
+            : `Most that can be granted before the pool reaches its cap: ${fmtValue("currency", 0, ceiling)}`;
         return (
           <span className="relative inline-block">
             <input

@@ -2,24 +2,25 @@
  * Discretionary grants: the headroom that bounds one, and the impact of making
  * it.
  *
- * Under the 24 August 2026 pool-funded DA reform (see lib/calc.ts) a
- * discretionary amount is funded from the capped pool, so it is never the pool
- * cap that a grant breaches — the cap holds by construction and the money comes
- * out of the other unlocked bonuses instead. That makes "cap minus spend" the
- * wrong bound to police: it is structurally ~$0 on a fully subscribed pool, and
- * a grant barely moves it. The bound that means something is the one the
- * business owner named (24 August 2026):
+ * A discretionary amount sits ON TOP of the pool calculation (see lib/calc.ts,
+ * owner decision 25 August 2026): the recipient's final rises by exactly the
+ * amount, nobody else's bonus moves, and the pool total rises with it. So the
+ * bound that means something is the cap itself — the one the owner named:
  *
- *     HEADROOM is the total that can be taken from the unlocked bonuses before
- *     any of them reaches $0.
+ *     HEADROOM is the room left under the caps the pool cards measure against,
+ *     so a grant is refused automatically at the point its pool would pass its
+ *     cap.
  *
- * Locked bonuses cannot be reduced, so they are not part of it — nor are site
- * managers, whose bonus is fixed and never scaled. (A site manager can still
- * RECEIVE a grant, 24 Aug 2026: it rides on their fixed bonus off the top of
- * the pool. They just never pay for anyone else's.) That figure is exactly what
- * lib/calc.ts's getMaxDA computes (the DA at which the remaining unlocked rows'
- * scale floors at 0), per pool and per row: a row drawing on both pools is
- * bounded by whichever pool runs out first.
+ * That is exactly what lib/calc.ts's getMaxDA computes: the row's home-state
+ * cap and the group cap, whichever binds first, measured off Σ final the same
+ * way the cards are. A locked row has no headroom at all (its payout is
+ * frozen), and a row drawing from no pool has no cap to overrun.
+ *
+ * The impact figures below are still measured by running the engine twice, so
+ * they report what actually happens rather than what the model implies. Under
+ * this model that means nobody else's bonus is reduced — the reduction fields
+ * come back structurally 0 — and what the confirmation step has to show is the
+ * effect on the pools instead (see DaPoolImpact).
  *
  * Two policy knobs are deliberately NOT implemented here — decisions pending.
  * See DA_POLICY for where each one lands.
@@ -30,7 +31,7 @@
  * the audit record).
  */
 import { applyOverrides, computeScalesAndBonuses, getMaxDA } from "./calc";
-import type { CalcEmployee, Caps, PoolState } from "./calc";
+import type { CalcEmployee, Caps } from "./calc";
 import type { Employee, Overrides } from "./schema";
 
 /**
@@ -53,10 +54,12 @@ export const EPSILON = 0.01;
  *    belongs in the confirmation step: `daImpact` already reports the amount,
  *    so the gate is one comparison in /api/state (refuse rather than record)
  *    plus a second signature on the audit entry. Nothing else moves.
- *  - minBonusFloor — no unlocked bonus may be shaved below this. It belongs in
- *    `daHeadroom`: today's ceiling is the DA at which the remaining rows reach
- *    $0, and a floor simply moves that zero up. Set it and the ceiling tightens
- *    everywhere at once, because every caller reads the headroom from here.
+ *  - minBonusFloor — no unlocked bonus may be shaved below this. Moot while a
+ *    discretionary amount sits on top of the pool (25 August 2026): a grant
+ *    shaves nobody, so no floor can bind. It belongs in `daHeadroom` if the
+ *    funding model ever moves back inside the pools — set it there and the
+ *    ceiling tightens everywhere at once, because every caller reads the
+ *    headroom from here.
  */
 export interface DaPolicy {
   /** grants at or above this need a second approver; null = no threshold */
@@ -71,18 +74,26 @@ export const DA_POLICY: DaPolicy = {
 };
 
 /**
- * The ceiling on one row's discretionary amount: the most that can be taken
- * from the unlocked bonuses before any of them reaches $0.
+ * The ceiling on one row's discretionary amount: the most it may hold before
+ * the row's pool passes its cap.
  *
- * Infinity for a row that draws from no pool (nothing to take from, and
- * /api/state strips its DA anyway). Can be NEGATIVE when stored figures
- * already over-draw the pool, which honestly means "no room at all" — callers
- * clamp at the row's current amount rather than dragging it down.
+ * Takes the whole population because the bound is measured off the pool totals
+ * (see getMaxDA), not off one row — pass the rows the engine has just run over.
  *
- * HOOK: DA_POLICY.minBonusFloor would raise the zero this measures down to.
+ * Infinity for a row that draws from no pool (no cap to overrun, and /api/state
+ * strips its DA anyway). Can be NEGATIVE when stored figures already exceed a
+ * cap, which honestly means "no room at all" — callers hold at the row's
+ * current amount rather than dragging it down.
+ *
+ * HOOK: DA_POLICY.minBonusFloor would tighten this if grants ever became
+ * pool-funded again.
  */
-export function daHeadroom(e: CalcEmployee, pool: PoolState): number {
-  return getMaxDA(e, pool);
+export function daHeadroom(
+  e: CalcEmployee,
+  emps: readonly CalcEmployee[],
+  caps: Caps
+): number {
+  return getMaxDA(e, emps, caps);
 }
 
 /**
@@ -120,15 +131,41 @@ export interface DaGrant {
 }
 
 /**
- * What a set of discretionary changes does to everyone else. Every figure is
- * measured by running the engine twice and comparing, so it reports what will
- * actually happen rather than what the arithmetic implies.
+ * Where a set of grants leaves each pool the dashboard shows a card for — the
+ * figures the confirmation step is really about, now that a grant adds to a
+ * pool total instead of redistributing inside it.
+ *
+ * Measured exactly as the cards are (Σ final by home state, and Σ final over
+ * everyone for the group), so what is confirmed is what the person then sees.
+ */
+export interface DaPoolImpact {
+  /** which card: a home state, or the group total */
+  key: "VIC" | "NSW" | "SHARED" | "GROUP";
+  /** Σ final for that card before the grants */
+  before: number;
+  /** Σ final for that card after them */
+  after: number;
+  /** its cap — null for Shared Services, which has no cap of its own */
+  cap: number | null;
+}
+
+/**
+ * What a set of discretionary changes does. Every figure is measured by running
+ * the engine twice and comparing, so it reports what will actually happen
+ * rather than what the arithmetic implies.
  */
 export interface DaImpact {
   grants: DaGrant[];
   /** Σ amount over the grants */
   granted: number;
-  /** how many unlocked bonuses (other than the recipients') go down */
+  /** the pools these grants move, and where they leave them */
+  pools: DaPoolImpact[];
+  /**
+   * How many unlocked bonuses (other than the recipients') go down. Structurally
+   * 0 while a discretionary amount sits on top of the pool — kept, measured
+   * rather than assumed, so the audit record and the API stay stable and a
+   * future funding change shows up here instead of silently.
+   */
   reducedCount: number;
   /** average reduction across those bonuses */
   averageReduction: number;
@@ -140,15 +177,18 @@ export interface DaImpact {
   lockedUnaffected: number;
 }
 
-/** The engine's view of a document, and the pool state that goes with it. */
+/**
+ * The engine's view of a document: the rows with every final resolved, which is
+ * what both the headroom bound and the impact figures are measured off.
+ */
 function run(
   emps: Employee[],
   caps: Caps,
   doc: Overrides
-): { rows: CalcEmployee[]; pool: PoolState } {
+): { rows: CalcEmployee[] } {
   const rows = applyOverrides(emps, doc);
-  const pool = computeScalesAndBonuses(rows, caps);
-  return { rows, pool };
+  computeScalesAndBonuses(rows, caps);
+  return { rows };
 }
 
 /**
@@ -175,18 +215,21 @@ export function daGrants(
       from: was.daEdit,
       to: row.daEdit,
       amount: row.daEdit - was.daEdit,
-      headroom: daHeadroom(was, before.pool),
+      headroom: daHeadroom(was, before.rows, caps),
     });
   }
   return grants;
 }
 
 /**
- * The full picture for the confirmation step: what is being granted, and who
- * pays for it. Recipients are excluded from the reduction figures — a
- * recipient's own bonus is what the grant moves, not collateral — and so are
- * locked and site-manager rows, whose bonuses cannot move at all (they are
- * counted separately, which is the point of reporting them).
+ * The full picture for the confirmation step: what is being granted, and where
+ * it leaves each pool it touches.
+ *
+ * The reduction figures are still measured (recipients excluded — a recipient's
+ * own bonus is what the grant moves, not collateral — and so are locked and
+ * site-manager rows, whose bonuses cannot move at all). They come back 0 under
+ * the on-top model; measuring rather than assuming that is what would make a
+ * funding change visible here instead of silent.
  */
 export function daImpact(
   emps: Employee[],
@@ -217,10 +260,53 @@ export function daImpact(
   return {
     grants,
     granted: grants.reduce((s, g) => s + g.amount, 0),
+    pools: poolImpacts(before.rows, after.rows, caps, recipients),
     reducedCount,
     averageReduction: reducedCount > 0 ? totalReduction / reducedCount : 0,
     largestReduction,
     totalReduction,
     lockedUnaffected,
   };
+}
+
+/**
+ * The pool cards a set of grants actually moves: every recipient's home state,
+ * plus the group total (which every grant moves by construction). Shared
+ * Services is included when someone there is granted — it has no cap, but the
+ * total still moves and hiding it would misreport where the money went.
+ */
+function poolImpacts(
+  beforeRows: CalcEmployee[],
+  afterRows: CalcEmployee[],
+  caps: Caps,
+  recipients: Set<string>
+): DaPoolImpact[] {
+  if (recipients.size === 0) return [];
+  const states = new Set(
+    afterRows.filter((e) => recipients.has(e.id)).map((e) => e.st)
+  );
+  const sum = (rows: CalcEmployee[], of: (e: CalcEmployee) => boolean) =>
+    rows.reduce((s, e) => (of(e) ? s + e.finalBonus : s), 0);
+  const caveats: Record<string, number | null> = {
+    VIC: caps.vCap,
+    NSW: caps.nCap,
+    SHARED: null,
+  };
+  const pools: DaPoolImpact[] = [];
+  for (const st of ["VIC", "NSW", "SHARED"] as const) {
+    if (!states.has(st)) continue;
+    pools.push({
+      key: st,
+      before: sum(beforeRows, (e) => e.st === st),
+      after: sum(afterRows, (e) => e.st === st),
+      cap: caveats[st],
+    });
+  }
+  pools.push({
+    key: "GROUP",
+    before: sum(beforeRows, () => true),
+    after: sum(afterRows, () => true),
+    cap: caps.gCap,
+  });
+  return pools;
 }

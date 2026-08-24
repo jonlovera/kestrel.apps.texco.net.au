@@ -1087,13 +1087,13 @@ export default function DashboardClient({
   }
 
   function updateDA(id: string, val: string) {
-    // The hard limit (owner decision, 24 Aug 2026). A discretionary amount is
-    // funded from the pool, so what bounds it is not the cap — the cap holds by
-    // construction — but how much can be taken from the other UNLOCKED bonuses
-    // before one of them reaches $0 (lib/da-impact.ts's daHeadroom; locked
-    // bonuses and site managers can't be reduced, so they're not in it).
-    // Anything above that ceiling is held to it and said out loud. A reduction
-    // is never held back.
+    // The hard limit (owner decision, 25 Aug 2026: the field refuses the grant
+    // automatically). A discretionary amount adds to its pool's total instead
+    // of being funded from inside it, so what bounds it IS the cap: the room
+    // left under this row's home-state cap and the group cap, measured off the
+    // same totals the pool cards show (lib/da-impact.ts's daHeadroom). Anything
+    // above that ceiling is held to it and said out loud. A reduction is never
+    // held back.
     //
     // Read-only leads are deliberately never sent the dataset or the caps, so
     // there is no ceiling to apply here for them; /api/state's gate 4 refuses
@@ -1105,12 +1105,12 @@ export default function DashboardClient({
       if (!emp || emp.locked) return;
       // VIC site managers are deliberately not adjustable; NSW ones are.
       if (!isDaEditable(rowRule(emp))) return;
-      const ceiling = pool ? daHeadroom(emp, pool) : Infinity;
+      const ceiling = pool ? daHeadroom(emp, emps, params) : Infinity;
       const held = clampDa(num, emp.daEdit, ceiling);
       num = held.value;
       if (held.clamped) {
         setDaNotice(
-          `${emp.gn} ${emp.sn} was held to ${fmt(num)}. That is the most that can be taken from the unlocked bonuses before one of them reaches $0.`
+          `${emp.gn} ${emp.sn} was held to ${fmt(num)}. That is the most that can be granted before the pool reaches its cap.`
         );
         // The cell is uncontrolled and keyed on the stored figure, so a value
         // held at what is already there wouldn't re-render on its own — the
@@ -1130,7 +1130,7 @@ export default function DashboardClient({
    * The ceiling for one row, for the hint the table shows on a focused cell —
    * so the limit is visible before anyone types into it rather than only after
    * they have been held to it. Null when there is nothing to show (a lead, who
-   * has no engine here, or a row with no pool bound).
+   * has no engine here, or a row with no cap bound).
    */
   const daHeadroomFor = useCallback(
     (id: string): number | null => {
@@ -1139,10 +1139,10 @@ export default function DashboardClient({
       if (!emp || emp.locked) return null;
       // no ceiling badge on a cell that isn't adjustable in the first place
       if (!isDaEditable(rowRule(emp))) return null;
-      const ceiling = daHeadroom(emp, pool);
+      const ceiling = daHeadroom(emp, emps, params);
       return Number.isFinite(ceiling) ? Math.max(0, Math.floor(ceiling)) : null;
     },
-    [isEditor, pool, empById]
+    [isEditor, pool, empById, emps, params]
   );
 
   /**
@@ -1354,9 +1354,12 @@ export default function DashboardClient({
     const sharedTotal = emps.filter((e) => e.st === "SHARED").reduce((s, e) => s + e.finalBonus, 0);
     const groupTotal = emps.reduce((s, e) => s + e.finalBonus, 0);
 
-    // A figure goes red when it exceeds its cap. With DA pool-funded and
-    // clamped at type time (getMaxDA) a fresh edit cannot cause this; it
-    // surfaces stored pre-reform over-cap figures until they are corrected.
+    // A figure goes red when it exceeds its cap. A discretionary amount adds
+    // to these totals, but it is clamped at type time to the room left under
+    // the caps (getMaxDA, measured off exactly these figures), so a fresh edit
+    // cannot cause this — at most it takes a card to exactly its cap. What
+    // still surfaces here is a stored figure inherited from a lowered cap or an
+    // earlier funding model, until it is corrected.
     // Half-a-cent slack so float noise never paints a card red.
     const over = (value: number, cap: number) => value > cap + 0.005;
     const { vCap, nCap, gCap } = params;
@@ -2065,12 +2068,13 @@ export default function DashboardClient({
         />
       )}
 
-      {/* The last thing between a discretionary grant and everyone else's
-          bonuses. Cancelling closes it and leaves the work dirty; nothing is
+      {/* The last thing between a discretionary grant and the pool caps it
+          spends. Cancelling closes it and leaves the work dirty; nothing is
           recorded until the button is pressed. */}
       {daConfirmLive?.open && (
         <DaConfirmModal
           impact={daConfirmLive.impact}
+          poolTitles={copy.poolTitles}
           busy={saveStatus === "saving"}
           onConfirm={confirmDaGrants}
           onCancel={() =>

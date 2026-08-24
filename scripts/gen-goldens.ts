@@ -90,8 +90,9 @@ const s3: Overrides = {
 };
 
 // Scenario 4: every source DA neutralised. The all-zero-DA degenerate case,
-// generated as a checkpoint BEFORE the Aug 2026 pool-funded DA reform so the
-// reform could be proven bit-identical when no DA exists.
+// first generated as a checkpoint before the Aug 2026 pool-funded DA reform and
+// kept through its reversal: with no DA at all, every funding model the engine
+// has had produces bit-identical output, so these figures have never moved.
 const noDa: Overrides = Object.fromEntries(
   data.emp.filter((e) => e.da !== 0).map((e) => [e.id, { daEdit: 0 }])
 );
