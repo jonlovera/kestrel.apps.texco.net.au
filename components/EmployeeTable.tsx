@@ -471,8 +471,20 @@ export default function EmployeeTable({
               return (
                 <td
                   key={c.key}
-                  className={`whitespace-nowrap px-2 py-2 text-[13px] font-bold text-white ${
-                    c.key === "name" ? "sticky left-0 z-[1]" : ""
+                  // Pinned to the bottom the same way the heading row is pinned
+                  // to the top, and for the same reason: this table is the
+                  // page's single vertical scroller, so `bottom-0` here holds
+                  // against the viewport. The sticky lives on the CELLS, never
+                  // on <tfoot> itself — sticky on a table section is patchy
+                  // across browsers, whereas per-cell is the trick the heading
+                  // row already relies on. Every footer cell carries an opaque
+                  // background (orange, or lavender on Final), which is what
+                  // stops the rows scrolling underneath showing through.
+                  className={`sticky bottom-0 whitespace-nowrap px-2 py-2 text-[13px] font-bold text-white ${
+                    // Pinned corner: stuck to both edges, so it outranks the
+                    // rest of the footer row (z-10) and the name column's body
+                    // cells (z-[1]) — mirrors the heading row's own z-order.
+                    c.key === "name" ? "left-0 z-20" : "z-10"
                   } ${c.num ? "text-right tabular-nums" : ""} ${c.key === "final" ? "bg-brand-lavender" : "bg-brand-orange"}`}
                 >
                   {v}
