@@ -7,7 +7,13 @@ import { z } from "zod";
 import { diffOverrides } from "@/lib/history-diff";
 import { takeSnapshot } from "@/lib/snapshots";
 import { sanitiseOverrideWrite, scopeOverridesView } from "@/lib/write-scope";
-import { applyOverrides, computeScalesAndBonuses, isLockable } from "@/lib/calc";
+import {
+  applyOverrides,
+  computeScalesAndBonuses,
+  isDaEditable,
+  isLockable,
+  rowRule,
+} from "@/lib/calc";
 import { poolBreach } from "@/lib/manager-pool";
 import {
   EPSILON as DA_EPSILON,
@@ -27,8 +33,9 @@ export const dynamic = "force-dynamic";
  * Three gates, in order:
  *   1. lib/write-scope.ts — is this row theirs, and is this field theirs?
  *      Anything else is dropped and the stored value kept.
- *   2. the scheme's own rules below — site managers take no discretionary
- *      adjustment, and neither does anyone outside the pools.
+ *   2. the scheme's own rules below — nobody outside the pools takes a
+ *      discretionary adjustment or a lock, and nor does a VIC site manager.
+ *      NSW site managers take both (owner decision, 24 August 2026).
  *   3. the manager's pool — a save that would push a scoped lead further above
  *      their own pool is refused outright, naming the unabsorbable amount.
  *      Nothing is clamped and nothing moves silently: the figure the user
@@ -145,16 +152,17 @@ export async function POST(req: Request) {
     const clean: Overrides[string] = { ...ov };
     if (clean.ipmEdit !== undefined) clean.ipmEdit = Math.max(0, clean.ipmEdit);
     if (clean.bpEdit !== undefined) clean.bpEdit = Math.max(0, clean.bpEdit);
-    if (!isLockable(emp)) {
-      // a fixed bonus is already frozen, and a row drawing from no pool has
-      // nothing to lock
+    if (!isLockable(rowRule(emp))) {
+      // a row drawing from no pool has nothing to lock, and a VIC site
+      // manager's fixed bonus is deliberately left alone
       delete clean.locked;
       delete clean.lockedFinal;
     }
     // A row drawing from no pool has nothing to fund a discretionary amount.
-    // A site manager's IS fundable (24 Aug 2026): it rides on their fixed
-    // bonus, off the top of the pool, so it flows through like anyone else's.
-    if (emp.vp + emp.np === 0) delete clean.daEdit;
+    // An NSW site manager's IS fundable (24 Aug 2026) — it rides on their fixed
+    // bonus, off the top of the pool — but a VIC site manager's is not, so the
+    // VIC fixed bonuses stay untouchable. isDaEditable holds that rule.
+    if (!isDaEditable(rowRule(emp))) delete clean.daEdit;
     // daEdit is deliberately not floored: an adjustment may be negative
     // (owner decision, kept by the 24 Aug 2026 pool-funded reform — a
     // negative DA frees pool money back to the other unlocked rows)

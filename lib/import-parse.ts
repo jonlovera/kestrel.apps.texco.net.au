@@ -15,7 +15,7 @@ import {
   type Overrides,
   type Dataset,
 } from "./schema";
-import { applyOverrides, computeScalesAndBonuses, isLockable } from "./calc";
+import { applyOverrides, computeScalesAndBonuses, isLockable, rowRule } from "./calc";
 import { deriveFacets, isSplit } from "./dataset-edit";
 import { isModelWorkbook, readModelWorkbook } from "./import-model";
 import {
@@ -404,7 +404,9 @@ export function filterImportedLocks(
   emp: Employee[],
   lockedAmounts: Record<string, number>
 ): [string, number][] {
-  const lockable = new Set(emp.filter(isLockable).map((e) => e.id));
+  const lockable = new Set(
+    emp.filter((e) => isLockable(rowRule(e))).map((e) => e.id)
+  );
   return Object.entries(lockedAmounts).filter(([id]) => lockable.has(id));
 }
 

@@ -18,8 +18,10 @@ import {
 import {
   applyOverrides,
   computeScalesAndBonuses,
+  isDaEditable,
   isLockable,
   parsePercentInput,
+  rowRule,
   parseDaInput,
   sumAllocated,
   type CalcEmployee,
@@ -1101,6 +1103,8 @@ export default function DashboardClient({
     if (isEditor) {
       const emp = empById.get(id);
       if (!emp || emp.locked) return;
+      // VIC site managers are deliberately not adjustable; NSW ones are.
+      if (!isDaEditable(rowRule(emp))) return;
       const ceiling = pool ? daHeadroom(emp, pool) : Infinity;
       const held = clampDa(num, emp.daEdit, ceiling);
       num = held.value;
@@ -1117,7 +1121,7 @@ export default function DashboardClient({
       }
     } else {
       const row = rowById.get(id);
-      if (!row || row.locked || !row.inPool) return;
+      if (!row || row.locked || !isDaEditable(row)) return;
     }
     setOverride(id, { daEdit: num });
   }
@@ -1133,6 +1137,8 @@ export default function DashboardClient({
       if (!isEditor || !pool) return null;
       const emp = empById.get(id);
       if (!emp || emp.locked) return null;
+      // no ceiling badge on a cell that isn't adjustable in the first place
+      if (!isDaEditable(rowRule(emp))) return null;
       const ceiling = daHeadroom(emp, pool);
       return Number.isFinite(ceiling) ? Math.max(0, Math.floor(ceiling)) : null;
     },
@@ -1193,7 +1199,7 @@ export default function DashboardClient({
   function toggleLock(id: string) {
     if (isEditor) {
       const emp = empById.get(id);
-      if (!emp || !isLockable(emp)) return;
+      if (!emp || !isLockable(rowRule(emp))) return;
       if (emp.locked) {
         const hasChanges =
           emp.bpEdit !== emp.bp || emp.ipmEdit !== emp.ipm || emp.daEdit !== emp.da;

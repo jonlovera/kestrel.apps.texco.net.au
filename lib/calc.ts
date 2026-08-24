@@ -135,13 +135,62 @@ function clampScale(x: number): number {
 }
 
 /**
- * Whether a row can be locked (or take a discretionary adjustment): a site
- * manager's bonus is fixed with nothing to adjust, and a row drawing from no
- * pool has nothing to freeze. The single source of the rule enforced by
- * /api/state's Gate 2, the import, and the dashboard's lock button.
+ * The shape both editability rules read. Deliberately not `Employee`: the
+ * browser holds a DisplayRow and the server an Employee, and both satisfy
+ * this, so the rule has exactly one definition rather than one per caller.
  */
-export function isLockable(e: Pick<Employee, "sm" | "vp" | "np">): boolean {
-  return !e.sm && e.vp + e.np > 0;
+export interface RowRule {
+  sm: 0 | 1;
+  st: "VIC" | "NSW" | "SHARED";
+  /** true when the row draws from at least one pool */
+  inPool: boolean;
+}
+
+/**
+ * The rule underneath both predicates below: a row must draw from a pool at
+ * all, and a site manager must be on the NSW pool.
+ *
+ * The site-manager split is an owner decision (24 August 2026): NSW site
+ * managers are adjustable — a discretionary amount rides on their fixed bonus
+ * off the top of the pool, and their bonus can be frozen — while VIC site
+ * managers are left alone entirely, so those 16 fixed bonuses stay
+ * untouchable. A site manager outside both states (none today) is excluded,
+ * the conservative reading of "only NSW".
+ */
+function isAdjustable(e: RowRule): boolean {
+  if (!e.inPool) return false;
+  if (e.sm) return e.st === "NSW";
+  return true;
+}
+
+/**
+ * Whether a row can be locked — enforced by /api/state's Gate 2, the import,
+ * and the dashboard's lock button.
+ *
+ * Locking a site manager genuinely freezes them as of 24 August 2026: their
+ * frozen payout is what comes off the top of the pool instead of their live
+ * figure (see computeScalesAndBonuses). Before that the engine ignored the
+ * flag outright, which is why they were barred from carrying it.
+ */
+export function isLockable(e: RowRule): boolean {
+  return isAdjustable(e);
+}
+
+/**
+ * Whether a row's discretionary adjustment may be edited.
+ *
+ * The same rule as isLockable today. Kept as its own name because they answer
+ * different questions and have already diverged once: before 24 August 2026 a
+ * site manager could be neither, then briefly could be adjusted but not
+ * locked. Change one without checking the other at your peril.
+ */
+export function isDaEditable(e: RowRule): boolean {
+  return isAdjustable(e);
+}
+
+/** RowRule for an Employee-shaped row, whose pool exposure is vp/np. */
+export function rowRule(e: Pick<Employee, "sm" | "st" | "vp" | "np">): RowRule {
+  return { sm: e.sm, st: e.st, inPool: e.vp + e.np > 0 };
 }
 
 /**
@@ -248,8 +297,14 @@ export function computeScalesAndBonuses(
 
   emps.forEach((e) => {
     if (e.sm) {
-      empLockedVp += e.bipmCalc * e.vp + e.daEdit * e.vp;
-      empLockedNp += e.bipmCalc * e.np + e.daEdit * e.np;
+      // A site manager's whole draw comes off the top either way; locking only
+      // changes WHICH figure that is. Frozen when locked (24 Aug 2026, when
+      // NSW site managers became lockable), otherwise the live fixed bonus
+      // plus any discretionary amount. Split by raw vp/np — site managers
+      // always reconciled that way, unlike the blended locked rows below.
+      const draw = e.locked ? e.finalBonus : e.bipmCalc + e.daEdit;
+      empLockedVp += draw * e.vp;
+      empLockedNp += draw * e.np;
     } else if (e.locked) {
       // A locked row is never a DA row: its frozen finalBonus already holds
       // whatever DA it carried at lock time, deducted once right here.
@@ -334,7 +389,10 @@ export function computeScalesAndBonuses(
       // The fixed bonus never scales; a discretionary amount rides on top of
       // it, keeping the dashboard identity Calc bonus + Discretionary = Final.
       e.calcBonus = e.bipmCalc;
-      e.finalBonus = e.bipmCalc + e.daEdit;
+      // A locked site manager keeps the figure frozen at lock time, exactly as
+      // a locked pooled row does — this assignment is what used to make the
+      // lock flag a no-op for them.
+      if (!e.locked) e.finalBonus = e.bipmCalc + e.daEdit;
     } else if (!e.locked) {
       const v = e.daEdit !== 0 ? vicScaleBase : vicScale;
       const n = e.daEdit !== 0 ? nswScaleBase : nswScale;
@@ -413,8 +471,11 @@ export function getMaxDA(e: CalcEmployee, pool: PoolState): number {
  * priced at the base scale plus its vp-weighted DA (24 August 2026 reform).
  */
 export function getVicAlloc(e: CalcEmployee, pool: PoolState): number {
-  if (e.sm) return e.bipmCalc * e.vp + e.daEdit * e.vp;
+  // `locked` is tested FIRST, site manager or not: a frozen row draws its
+  // frozen payout from the pool, which is what makes the lock real for an NSW
+  // site manager (24 Aug 2026). Reversing these two silently unfreezes them.
   if (e.locked) return e.finalBonus * e.vp;
+  if (e.sm) return e.bipmCalc * e.vp + e.daEdit * e.vp;
   if (e.daEdit !== 0)
     return e.bipmCalc * e.vp * pool.vicScaleBase + e.daEdit * e.vp;
   return e.bipmCalc * e.vp * pool.vicScale;
@@ -425,8 +486,9 @@ export function getVicAlloc(e: CalcEmployee, pool: PoolState): number {
  * priced at the base scale plus its np-weighted DA (24 August 2026 reform).
  */
 export function getNswAlloc(e: CalcEmployee, pool: PoolState): number {
-  if (e.sm) return e.bipmCalc * e.np + e.daEdit * e.np;
+  // `locked` first, for the same reason as getVicAlloc.
   if (e.locked) return e.finalBonus * e.np;
+  if (e.sm) return e.bipmCalc * e.np + e.daEdit * e.np;
   if (e.daEdit !== 0)
     return e.bipmCalc * e.np * pool.nswScaleBase + e.daEdit * e.np;
   return e.bipmCalc * e.np * pool.nswScale;

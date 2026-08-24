@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { NUMERIC_FIELDS, type NumericField } from "@/lib/access-types";
+import { isDaEditable, isLockable } from "@/lib/calc";
 import type { DisplayRow } from "@/lib/payload-types";
 import type { ColumnFormat } from "@/lib/columns";
 import { fmtValue } from "@/lib/fmt";
@@ -181,7 +182,9 @@ export default function EmployeeTable({
     // editable cell and a click: reveal the row, then its permitted cells
     // are directly editable, with no separate mode to turn on first.
     if ((NUMERIC_FIELDS as readonly string[]).includes(c.key) && !isRevealed(r.id)) {
-      if (c.key === "da" && !r.inPool)
+      // Nothing to hide where there is no adjustable figure in the first
+      // place — a VIC site manager or a row drawing from no pool.
+      if (c.key === "da" && !isDaEditable(r))
         return <span className="text-neutral-300">—</span>;
       // Nothing to hide on a whole-pool row — there is no split to reveal.
       if ((c.key === "vp" || c.key === "np") && !hasSplit(r))
@@ -292,7 +295,22 @@ export default function EmployeeTable({
       case "f25":
         return <span className="text-neutral-400">{show(c, r.f25!)}</span>;
       case "da": {
-        if (!r.inPool) return <span className="text-neutral-300">—</span>;
+        // A VIC site manager's fixed bonus is deliberately not adjustable, an
+        // NSW one's is (isDaEditable) — so this dash is the rule showing, not
+        // a missing figure.
+        if (!isDaEditable(r))
+          return (
+            <span
+              title={
+                r.sm
+                  ? "Site Manager on the VIC pool — fixed bonus, not adjustable"
+                  : "Not in a bonus pool, so there is nothing to adjust"
+              }
+              className="cursor-help text-neutral-300"
+            >
+              —
+            </span>
+          );
         if (!c.editable || r.locked) return show(c, r.da!);
         // The ceiling, shown while the cell has focus: a discretionary amount is
         // funded by the other unlocked bonuses, and this is the most that can be
@@ -339,19 +357,16 @@ export default function EmployeeTable({
         return <span className="font-bold">{show(c, r.final!)}</span>;
 
       case "lock": {
-        if (r.sm)
+        // NSW site managers became lockable on 24 Aug 2026; VIC ones stay out,
+        // along with anyone drawing from no pool (isLockable holds both rules).
+        if (!isLockable(r))
           return (
             <span
-              title="Site Manager — fixed bonus, not subject to redistribution"
-              className="cursor-help text-sm"
-            >
-              —
-            </span>
-          );
-        if (!r.inPool)
-          return (
-            <span
-              title="Not in a bonus pool, so there is nothing to lock"
+              title={
+                r.sm
+                  ? "Site Manager on the VIC pool — fixed bonus, not subject to redistribution"
+                  : "Not in a bonus pool, so there is nothing to lock"
+              }
               className="cursor-help text-sm"
             >
               —

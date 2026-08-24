@@ -9,6 +9,8 @@ import {
   getNswAlloc,
   getMaxDA,
   deriveCpm,
+  isDaEditable,
+  rowRule,
   isLockable,
   parsePercentInput,
   parseDaInput,
@@ -734,17 +736,125 @@ describe("Potential Bonus reconciles with After IPM", () => {
   });
 });
 
-describe("isLockable", () => {
-  it("a pooled non-site-manager row is lockable", () => {
-    expect(isLockable({ sm: 0, vp: 0.6, np: 0.4 })).toBe(true);
-    expect(isLockable({ sm: 0, vp: 0, np: 1 })).toBe(true);
+/**
+ * Locking a site manager used to be a no-op: the bonus loop tested `sm` before
+ * `locked`, so the flag was set and the figure kept moving. C is the fixture's
+ * site manager (fixed at 200, VIC); these pin the lock actually biting.
+ */
+describe("a locked site manager really freezes (24 Aug 2026)", () => {
+  it("pays the frozen figure, not the live one", () => {
+    const { byId } = run({ C: { locked: true, lockedFinal: 50 } });
+    expect(byId.C.finalBonus).toBeCloseTo(50, 10);
+    // calcBonus still reports what they WOULD draw, as for any locked row
+    expect(byId.C.calcBonus).toBeCloseTo(200, 10);
   });
 
-  it("site managers are not, regardless of pool weighting", () => {
-    expect(isLockable({ sm: 1, vp: 1, np: 0 })).toBe(false);
+  it("a discretionary amount cannot move a frozen site manager", () => {
+    const { byId } = run({ C: { locked: true, lockedFinal: 50, daEdit: 500 } });
+    expect(byId.C.finalBonus).toBeCloseTo(50, 10);
+  });
+
+  it("only the frozen figure comes off the pool, so the others get the rest", () => {
+    const base = run();
+    // Freezing C at 150 instead of their live 200 releases 50 into VIC. Not
+    // lower: freeing much more would leave the pool under-subscribed, the
+    // scale would clamp at 1 (FY26 methodology) and the remainder would go
+    // unspent, which is a different behaviour from the redistribution here.
+    const frozen = run({ C: { locked: true, lockedFinal: 150 } });
+    expect(frozen.pool.vicScale).toBeGreaterThan(base.pool.vicScale);
+    expect(frozen.byId.A.finalBonus).toBeGreaterThan(base.byId.A.finalBonus);
+    expect(frozen.byId.B.finalBonus).toBeGreaterThan(base.byId.B.finalBonus);
+    // and the pool still fills exactly, with the frozen draw counted once
+    expect(totalVicAlloc(frozen.emps, frozen.pool)).toBeCloseTo(1000, 8);
+  });
+
+  it("freezing one far below their live figure under-subscribes the pool", () => {
+    // the companion to the above: C frozen at 50 releases 150, more than the
+    // others can absorb at scale 1, so 30 is deliberately left unspent
+    const { emps, pool } = run({ C: { locked: true, lockedFinal: 50 } });
+    expect(pool.vicScale).toBe(1);
+    expect(totalVicAlloc(emps, pool)).toBeCloseTo(970, 8);
+  });
+
+  it("getVicAlloc/getNswAlloc price the frozen draw, not the fixed bonus", () => {
+    const { byId, pool } = run({ C: { locked: true, lockedFinal: 50 } });
+    expect(getVicAlloc(byId.C, pool)).toBeCloseTo(50, 10);
+    expect(getNswAlloc(byId.C, pool)).toBeCloseTo(0, 10);
+  });
+
+  it("a frozen site manager has no discretionary headroom", () => {
+    const { byId, pool } = run({ C: { locked: true, lockedFinal: 50 } });
+    expect(getMaxDA(byId.C, pool)).toBe(0);
+  });
+
+  it("an unlocked site manager is untouched by any of this", () => {
+    const base = run();
+    expect(base.byId.C.finalBonus).toBeCloseTo(200, 10);
+    expect(getVicAlloc(base.byId.C, base.pool)).toBeCloseTo(200, 10);
+  });
+});
+
+describe("isLockable", () => {
+  it("a pooled non-site-manager row is lockable", () => {
+    expect(isLockable({ sm: 0, st: "SHARED", inPool: true })).toBe(true);
+    expect(isLockable({ sm: 0, st: "NSW", inPool: true })).toBe(true);
+  });
+
+  it("an NSW site manager is lockable (24 Aug 2026), a VIC one is not", () => {
+    expect(isLockable({ sm: 1, st: "NSW", inPool: true })).toBe(true);
+    expect(isLockable({ sm: 1, st: "VIC", inPool: true })).toBe(false);
   });
 
   it("a row drawing from no pool is not", () => {
-    expect(isLockable({ sm: 0, vp: 0, np: 0 })).toBe(false);
+    expect(isLockable({ sm: 0, st: "VIC", inPool: false })).toBe(false);
+  });
+
+  it("rowRule reads pool exposure off an Employee's vp/np", () => {
+    expect(rowRule({ sm: 0, st: "VIC", vp: 1, np: 0 }).inPool).toBe(true);
+    expect(rowRule({ sm: 0, st: "VIC", vp: 0, np: 0 }).inPool).toBe(false);
+  });
+});
+
+/**
+ * The site-manager split (owner decision, 24 August 2026): NSW site managers'
+ * discretionary amounts are editable, VIC ones' are not. On the real dataset
+ * that is 8 rows adjustable and 16 not.
+ */
+describe("isDaEditable", () => {
+  it("an NSW site manager's discretionary IS editable", () => {
+    expect(isDaEditable({ sm: 1, st: "NSW", inPool: true })).toBe(true);
+  });
+
+  it("a VIC site manager's is NOT — the fixed bonus stays untouchable", () => {
+    expect(isDaEditable({ sm: 1, st: "VIC", inPool: true })).toBe(false);
+  });
+
+  it("a Shared Services site manager's is not either — 'only NSW' read strictly", () => {
+    expect(isDaEditable({ sm: 1, st: "SHARED", inPool: true })).toBe(false);
+  });
+
+  it("everyone who is not a site manager is unaffected by the split", () => {
+    for (const st of ["VIC", "NSW", "SHARED"] as const) {
+      expect(isDaEditable({ sm: 0, st, inPool: true })).toBe(true);
+    }
+  });
+
+  it("a row drawing from no pool has nothing to fund one, site manager or not", () => {
+    expect(isDaEditable({ sm: 0, st: "VIC", inPool: false })).toBe(false);
+    expect(isDaEditable({ sm: 1, st: "NSW", inPool: false })).toBe(false);
+  });
+
+  it("agrees with isLockable today — both admit NSW site managers only", () => {
+    // They are separate names because they answer different questions and have
+    // diverged before; if you change one, check the other.
+    for (const st of ["VIC", "NSW", "SHARED"] as const) {
+      for (const sm of [0, 1] as const) {
+        for (const inPool of [true, false]) {
+          expect(isDaEditable({ sm, st, inPool })).toBe(
+            isLockable({ sm, st, inPool })
+          );
+        }
+      }
+    }
   });
 });
