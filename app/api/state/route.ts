@@ -15,7 +15,7 @@ import {
   rowRule,
 } from "@/lib/calc";
 import { poolBreach } from "@/lib/manager-pool";
-import { freezeNewLocks } from "@/lib/lock-freeze";
+import { normalizeLockTransitions } from "@/lib/lock-freeze";
 import {
   EPSILON as DA_EPSILON,
   daHeadroom,
@@ -182,11 +182,13 @@ export async function POST(req: Request) {
     if (Object.keys(clean).length > 0) sanitised[id] = clean;
   }
 
-  // The frozen figure is computed here, never taken from the client — the same
-  // rule as every other figure this route handles. See lib/lock-freeze.ts for
-  // what went wrong when it was trusted, and why rows locked in an earlier save
-  // keep the figure they already have.
-  freezeNewLocks(data, sanitised, previous);
+  // Lock/unlock transition normalization, server-authoritative and ordered:
+  //  1) NEW locks freeze from the row's current displayed payout.
+  //  2) Unlocks preserve their frozen payout as the unlocked baseline before
+  //     the freeze flag is removed from persisted state.
+  // This is the number-neutral lock contract: lock/unlock are protection-state
+  // transitions, not allocation moves.
+  normalizeLockTransitions(data, sanitised, previous);
 
   // Gate 3: the manager's pool. Runs here rather than earlier because it reads
   // the frozen finals the fallback loop above may just have resolved, and
@@ -294,25 +296,25 @@ export async function POST(req: Request) {
     await appendHistory(
       redistributed
         ? [
-            {
-              ts,
-              actor: email,
-              kind: "grant" as const,
-              summary: `Redistributed ${fmt(impact.granted)} across ${impact.grants.length} ${impact.grants.length === 1 ? "person" : "people"}`,
-              ...(viewingAs ? { viewingAs } : {}),
-            },
-          ]
-        : impact.grants.map((g) => ({
+          {
             ts,
             actor: email,
             kind: "grant" as const,
-            summary: grantSummary(g),
-            empId: g.empId,
-            field: "daEdit",
-            from: Math.round(g.from),
-            to: Math.round(g.to),
+            summary: `Redistributed ${fmt(impact.granted)} across ${impact.grants.length} ${impact.grants.length === 1 ? "person" : "people"}`,
             ...(viewingAs ? { viewingAs } : {}),
-          }))
+          },
+        ]
+        : impact.grants.map((g) => ({
+          ts,
+          actor: email,
+          kind: "grant" as const,
+          summary: grantSummary(g),
+          empId: g.empId,
+          field: "daEdit",
+          from: Math.round(g.from),
+          to: Math.round(g.to),
+          ...(viewingAs ? { viewingAs } : {}),
+        }))
     );
   }
   console.log(

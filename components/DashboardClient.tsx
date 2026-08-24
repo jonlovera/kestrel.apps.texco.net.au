@@ -1238,14 +1238,6 @@ export default function DashboardClient({
       const emp = empById.get(id);
       if (!emp || !isLockable(rowRule(emp))) return;
       if (emp.locked) {
-        const hasChanges =
-          emp.bpEdit !== emp.bp || emp.ipmEdit !== emp.ipm || emp.daEdit !== emp.da;
-        if (hasChanges) {
-          const msg = `Unlock ${emp.gn} ${emp.sn}?\n\nTheir bonus of ${fmt(
-            emp.finalBonus
-          )} will be released back into the pool and all unlocked bonuses will be redistributed.\n\nChanges made while locked will be kept.`;
-          if (!confirm(msg)) return;
-        }
         setOverride(id, { locked: false, lockedFinal: undefined });
       } else {
         // finalBonus is the actual payout to freeze — identical to calcBonus
@@ -1273,14 +1265,6 @@ export default function DashboardClient({
       return;
     }
     if (row.locked) {
-      const hasPendingChanges =
-        overrides[id]?.daEdit !== undefined || overrides[id]?.ipmEdit !== undefined;
-      if (hasPendingChanges) {
-        const msg = `Unlock ${row.name}?\n\nTheir bonus of ${fmt(
-          row.final
-        )} will be released back into the pool and all unlocked bonuses will be redistributed.\n\nChanges made while locked will be kept.`;
-        if (!confirm(msg)) return;
-      }
       setOverride(id, { locked: false, lockedFinal: undefined });
     } else {
       setOverride(id, { locked: true, lockedFinal: row.final });
@@ -1373,7 +1357,7 @@ export default function DashboardClient({
       return {
         kind: "manager",
         items: [
-          { key: "pool", title: "Your pool", value: fmt(mgrPool.pool) },
+          { key: "pool", title: "Your pool CAP", value: fmt(mgrPool.pool) },
           { key: "alloc", title: "Allocated", value: fmt(mgrPool.allocated) },
           { key: "remaining", title: "Remaining", value: fmt(mgrPool.remaining), alert: short },
           { key: "people", title: "People in scope", value: String(mgrPool.people) },

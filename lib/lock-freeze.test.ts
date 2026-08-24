@@ -13,7 +13,7 @@
 import { describe, it, expect } from "vitest";
 import type { Dataset, Employee, Overrides } from "./schema";
 import { applyOverrides, computeScalesAndBonuses } from "./calc";
-import { freezeNewLocks } from "./lock-freeze";
+import { freezeNewLocks, normalizeLockTransitions } from "./lock-freeze";
 
 function emp(over: Partial<Employee> & { id: string }): Employee {
   return {
@@ -121,5 +121,44 @@ describe("freezeNewLocks", () => {
     const next: Overrides = { GHOST: { locked: true } };
     expect(freezeNewLocks(data, next, {})).toEqual([]);
     expect(next.GHOST.lockedFinal).toBeUndefined();
+  });
+});
+
+describe("normalizeLockTransitions", () => {
+  it("unlock preserves the frozen payout and persists that as the unlocked baseline", () => {
+    const previous: Overrides = { A: { locked: true, lockedFinal: 900 } };
+    const next: Overrides = { A: { locked: false } };
+
+    const before = paid(previous);
+    normalizeLockTransitions(data, next, previous);
+    const after = paid(next);
+
+    expect(next.A.locked).toBe(false);
+    expect(next.A.lockedFinal).toBeUndefined();
+    expect(after).toBeCloseTo(before, 8);
+  });
+
+  it("unlock then save/reload keeps the same payout on a no-op save", () => {
+    const previous: Overrides = { A: { locked: true, lockedFinal: 900 } };
+    const next: Overrides = { A: { locked: false } };
+    normalizeLockTransitions(data, next, previous);
+
+    const reloaded: Overrides = JSON.parse(JSON.stringify(next)) as Overrides;
+    normalizeLockTransitions(data, reloaded, next);
+
+    expect(paid(reloaded)).toBeCloseTo(paid(next), 8);
+  });
+
+  it("unlock then unrelated-row edit does not snap the unlocked row", () => {
+    const previous: Overrides = { A: { locked: true, lockedFinal: 900 } };
+    const next: Overrides = { A: { locked: false } };
+    normalizeLockTransitions(data, next, previous);
+
+    const withUnrelated: Overrides = {
+      ...next,
+      B: { ...(next.B ?? {}), daEdit: 250 },
+    };
+
+    expect(paid(withUnrelated, "A")).toBeCloseTo(paid(next, "A"), 8);
   });
 });

@@ -299,40 +299,19 @@ export function computeScalesAndBonuses(
     e.bipmCalc = e.preIpm * e.ipmEdit;
   });
 
-  // Pass 0: a preliminary "no locks" scale — site managers excluded (they're
-  // never in the pool at all), but genuinely locked rows flow through as if
-  // unlocked. Used purely as a weighting below, never returned: a locked
-  // employee's frozen amount still has to come out of *somewhere* in each
-  // state's pool, and the fair split for a blended (VIC/NSW) locked row is
-  // proportional to what they'd have drawn from each state before any
-  // locking happened — not their raw vp/np weight, which was confirmed to
-  // disagree with the FY26 model workbook for every blended locked employee
-  // (raw-weight split reproduced 74/146 rows; this reproduced 146/146).
+  // Site managers come off the top of each pool at their fixed draw. Locking
+  // freezes what gets PAID to that row, but does not move pool scale or
+  // reallocate anyone else's calculated bonus.
   let smVp = 0,
     smNp = 0;
-  let bipmVpNoLocks = 0,
-    bipmNpNoLocks = 0;
   emps.forEach((e) => {
     if (e.sm) {
       // A site manager's fixed bonus comes off the top. Their discretionary
       // amount does not: like everyone else's, it sits on top of the pool.
       smVp += e.bipmCalc * e.vp;
       smNp += e.bipmCalc * e.np;
-    } else {
-      bipmVpNoLocks += e.bipmCalc * e.vp;
-      bipmNpNoLocks += e.bipmCalc * e.np;
     }
   });
-  const vicNoLocksDenom = bipmVpNoLocks + shared.sharedBipmVp;
-  const nswNoLocksDenom = bipmNpNoLocks + shared.sharedBipmNp;
-  const vicScaleNoLocks =
-    vicNoLocksDenom !== 0
-      ? clampScale((caps.vCap - smVp - shared.sharedDaVp) / vicNoLocksDenom)
-      : 1;
-  const nswScaleNoLocks =
-    nswNoLocksDenom !== 0
-      ? clampScale((caps.nCap - smNp - shared.sharedDaNp) / nswNoLocksDenom)
-      : 1;
 
   let empLockedVp = 0,
     empLockedNp = 0;
@@ -341,26 +320,10 @@ export function computeScalesAndBonuses(
 
   emps.forEach((e) => {
     if (e.sm) {
-      // A site manager's draw comes off the top either way; locking only
-      // changes WHICH figure that is. Frozen when locked (24 Aug 2026, when
-      // NSW site managers became lockable) — and a frozen figure includes
-      // whatever DA it carried at lock time — otherwise the live fixed bonus
-      // alone, their DA sitting outside the pool. Split by raw vp/np: site
-      // managers always reconciled that way, unlike the blended locked rows
-      // below.
-      const draw = e.locked ? e.finalBonus : e.bipmCalc;
-      empLockedVp += draw * e.vp;
-      empLockedNp += draw * e.np;
-    } else if (e.locked) {
-      // A frozen finalBonus already holds whatever DA the row carried at lock
-      // time, and the whole figure is deducted once right here.
-      const wVic = e.vp * vicScaleNoLocks;
-      const wNsw = e.np * nswScaleNoLocks;
-      const wSum = wVic + wNsw;
-      const vpSum = e.vp + e.np;
-      const fracVic = wSum > 0 ? wVic / wSum : vpSum > 0 ? e.vp / vpSum : 0;
-      empLockedVp += e.finalBonus * fracVic;
-      empLockedNp += e.finalBonus * (1 - fracVic);
+      // Lock state is deliberately ignored for pool math: it is a payout
+      // freeze only, not a redistribution trigger.
+      empLockedVp += e.bipmCalc * e.vp;
+      empLockedNp += e.bipmCalc * e.np;
     } else {
       empBipmVpUnlocked += e.bipmCalc * e.vp;
       empBipmNpUnlocked += e.bipmCalc * e.np;
@@ -526,18 +489,14 @@ function capRoom(
  * here would double it against the cap.
  */
 export function getVicAlloc(e: CalcEmployee, pool: PoolState): number {
-  // `locked` is tested FIRST, site manager or not: a frozen row draws its
-  // frozen payout from the pool, which is what makes the lock real for an NSW
-  // site manager (24 Aug 2026). Reversing these two silently unfreezes them.
-  if (e.locked) return e.finalBonus * e.vp;
+  // Lock state is payout-only. Allocation stays on the live pool draw so a
+  // lock toggle cannot reallocate anyone else.
   if (e.sm) return e.bipmCalc * e.vp;
   return e.bipmCalc * e.vp * pool.vicScale;
 }
 
 /** NSW pool allocation of one employee — see getVicAlloc. */
 export function getNswAlloc(e: CalcEmployee, pool: PoolState): number {
-  // `locked` first, for the same reason as getVicAlloc.
-  if (e.locked) return e.finalBonus * e.np;
   if (e.sm) return e.bipmCalc * e.np;
   return e.bipmCalc * e.np * pool.nswScale;
 }

@@ -326,7 +326,7 @@ describe("the stated discretionary case: 24,571 + 5,429 = 30,000", () => {
   });
 });
 
-describe("locked positions are excluded from re-proration", () => {
+describe("lock is protection-only, not an allocation input", () => {
   // Lock B at its baseline final (521.739…) as the prototype's lock button does.
   // B is pure-VIC (vp=1, np=0), so its raw-vp/np split and the FY26
   // no-locks-scale-weighted split agree exactly here — the two only diverge
@@ -334,20 +334,17 @@ describe("locked positions are excluded from re-proration", () => {
   // further down).
   const bFinal = 600 * (800 / 920);
 
-  it("a locked employee's final is frozen while others re-prorate", () => {
-    const adj = run({
+  it("a lock freezes the row but leaves scale and others unchanged", () => {
+    const locked = run({
       B: { locked: true, lockedFinal: bFinal },
       A: { daEdit: 100 },
     });
-    expect(adj.byId.B.finalBonus).toBeCloseTo(bFinal, 10);
-    // locked B moves into the locked aggregate: the scale spans the remaining
-    // 320 bipm (A + E's VIC share). A's DA is not in it.
-    const scale = (1000 - 200 - bFinal) / 320;
-    expect(adj.pool.vicScale).toBeCloseTo(scale, 10);
-    expect(adj.byId.A.finalBonus).toBeCloseTo(200 * scale + 100, 10);
-    // pool money still fills the cap; the DA is the overshoot on top of it
-    expect(totalVicAlloc(adj.emps, adj.pool)).toBeCloseTo(1000, 8);
-    expect(cardTotal(adj.emps, "VIC")).toBeGreaterThan(895.65);
+    const unlocked = run({ A: { daEdit: 100 } });
+    expect(locked.byId.B.finalBonus).toBeCloseTo(bFinal, 10);
+    expect(locked.pool.vicScale).toBeCloseTo(unlocked.pool.vicScale, 10);
+    expect(locked.pool.nswScale).toBeCloseTo(unlocked.pool.nswScale, 10);
+    expect(locked.byId.A.finalBonus).toBeCloseTo(unlocked.byId.A.finalBonus, 10);
+    expect(locked.byId.E.finalBonus).toBeCloseTo(unlocked.byId.E.finalBonus, 10);
   });
 
   it("locked row still shows a live calcBonus but keeps frozen finalBonus", () => {
@@ -360,9 +357,12 @@ describe("locked positions are excluded from re-proration", () => {
     expect(adj.byId.B.calcBonus).not.toBeCloseTo(400, 4);
   });
 
-  it("unlocking releases the bonus back into the pool", () => {
-    const relocked = run({ A: { daEdit: 100 } }); // as if B was unlocked again
-    expect(relocked.pool.vicScale).toBeCloseTo(800 / 920, 10);
+  it("unlocking itself is also number-neutral", () => {
+    const locked = run({ B: { locked: true, lockedFinal: bFinal }, A: { daEdit: 100 } });
+    const unlocked = run({ A: { daEdit: 100 } });
+    expect(unlocked.pool.vicScale).toBeCloseTo(locked.pool.vicScale, 10);
+    expect(unlocked.byId.A.finalBonus).toBeCloseTo(locked.byId.A.finalBonus, 10);
+    expect(unlocked.byId.E.finalBonus).toBeCloseTo(locked.byId.E.finalBonus, 10);
   });
 
   it("a DA left on a row that is then locked is inert: the frozen final already holds it", () => {
@@ -371,11 +371,10 @@ describe("locked positions are excluded from re-proration", () => {
     // counts — it is deducted once, and the stale amount is not paid again.
     const adj = run({ B: { locked: true, lockedFinal: 500, daEdit: 100 } });
     expect(adj.byId.B.finalBonus).toBe(500);
-    // scale derives from the frozen 500 alone, over A + E's VIC share
-    expect(adj.pool.vicScale).toBeCloseTo((1000 - 200 - 500) / 320, 10);
-    // and locking is what puts a DA inside the pool: the frozen 500 comes off
-    // the top whether or not part of it was once discretionary
-    expect(adj.pool.poolAgg.empLockedVp).toBeCloseTo(200 + 500, 10);
+    // Locking no longer feeds pool deductions: scale and pool aggregation stay
+    // on live entitlement draw.
+    expect(adj.pool.vicScale).toBeCloseTo(800 / 920, 10);
+    expect(adj.pool.poolAgg.empLockedVp).toBeCloseTo(200, 10);
   });
 });
 
@@ -389,73 +388,27 @@ describe("all-but-one locked", () => {
 
   it("the sole unlocked employee's DA rides on top of their scaled share", () => {
     const adj = run({ ...locks, A: { daEdit: 100 } });
-    // E is blended (vp 0.6/np 0.4) and locked: its contribution to VIC's pool
-    // deduction is split via the no-locks-weighted method (FY26 fix), not raw
-    // vp — so this isn't simply `eFinal * 0.6` any more. Assert against the
-    // actual pool-math split via poolAgg.empLockedVp instead of re-deriving
-    // it by hand, since that's exactly the quantity under test.
-    expect(adj.pool.vicScale).toBeCloseTo(
-      (1000 - adj.pool.poolAgg.empLockedVp) / 200,
-      8
-    );
+    const unlocked = run({ A: { daEdit: 100 } });
+    expect(adj.pool.vicScale).toBeCloseTo(unlocked.pool.vicScale, 8);
     expect(adj.byId.A.finalBonus).toBeCloseTo(
       200 * adj.pool.vicScale + 100,
       8
     );
-    // Note: totalVicAlloc (getVicAlloc's raw-vp/np reporting split) no longer
-    // exactly equals the cap here — E's *reported* VIC allocation and its
-    // *pool-consumption* VIC attribution are legitimately different figures
-    // once E is a blended, locked employee (this mirrors the real FY26
-    // workbook, whose own "VIC Allocation" and "Locked → VIC" columns
-    // disagree for exactly this kind of row). See the dedicated
-    // "blended locked employee" tests below for that distinction.
+    expect(adj.byId.E.finalBonus).toBeCloseTo(eFinal, 8);
   });
 });
 
-describe("a blended (split-state) locked employee splits by the no-locks scale, not raw vp/np", () => {
-  // FY26 methodology fix: confirmed against the real workbook (146/146
-  // employees reconciled exactly) that a locked employee's contribution to
-  // each state's pool deduction is weighted by a preliminary "no locks"
-  // scale (site managers excluded, nobody else), not their raw vp/np split.
-  // E is blended (0.6/0.4) — with VIC oversubscribed (scale < 1) and NSW
-  // comfortably funded (scale = 1 once big enough), the two methods produce
-  // visibly different splits for the same locked amount.
-  it("differs from the raw vp/np split when the two states' pressure differs", () => {
+describe("a blended locked employee does not enter pool deductions", () => {
+  it("contributes no locked draw in either state", () => {
     const bigNCap: Caps = { vCap: 1000, nCap: 100_000, gCap: 101_000 };
     const eFinal = 500; // an arbitrary frozen figure for this scenario
     const pool = computeScalesAndBonuses(
       applyOverrides(FIXTURE, { E: { locked: true, lockedFinal: eFinal } }),
       bigNCap
     );
-    // FIXTURE's site manager (C, pure VIC) also feeds empLockedVp at its raw
-    // 200 — isolate E's own contribution before comparing.
-    const eVicShare = pool.poolAgg.empLockedVp - 200;
-    // no-locks scale: VIC is oversubscribed (< 1), NSW is not (clamps to 1) —
-    // so E's frozen amount should be weighted less toward VIC than a raw
-    // 60/40 split would give it.
-    const rawVicShare = eFinal * 0.6;
-    expect(eVicShare).not.toBeCloseTo(rawVicShare, 0);
-    expect(eVicShare).toBeLessThan(rawVicShare);
-  });
-
-  it("still splits by raw vp/np when both states put equal pressure on it", () => {
-    // With vicScaleNoLocks == nswScaleNoLocks, the weighted split degenerates
-    // back to raw vp/np. VIC's no-locks scale is (1000-200)/920 (C, the site
-    // manager, is VIC-only); to give NSW the identical ratio with no
-    // site-manager deduction of its own, its demand needs to be
-    // 1000 * 920/800 = 1150 (D=1070 + E's NSW share of 80).
-    const equalCaps: Caps = { vCap: 1000, nCap: 1000, gCap: 2000 };
-    const symmetricFixture = FIXTURE.map((e) =>
-      e.id === "D" ? { ...e, bipm: 1070 } : e
-    );
-    const eFinal = 500;
-    const pool = computeScalesAndBonuses(
-      applyOverrides(symmetricFixture, { E: { locked: true, lockedFinal: eFinal } }),
-      equalCaps
-    );
-    const eVicShare = pool.poolAgg.empLockedVp - 200; // minus C, the site manager
-    expect(eVicShare).toBeCloseTo(eFinal * 0.6, 6);
-    expect(pool.poolAgg.empLockedNp).toBeCloseTo(eFinal * 0.4, 6); // C has np=0
+    // Only C (the site manager) contributes to empLockedVp in this fixture.
+    expect(pool.poolAgg.empLockedVp).toBeCloseTo(200, 8);
+    expect(pool.poolAgg.empLockedNp).toBeCloseTo(0, 8);
   });
 });
 
@@ -903,7 +856,7 @@ describe("Potential Bonus reconciles with After IPM", () => {
  * `locked`, so the flag was set and the figure kept moving. C is the fixture's
  * site manager (fixed at 200, VIC); these pin the lock actually biting.
  */
-describe("a locked NSW site manager really freezes (24 Aug 2026)", () => {
+describe("a locked NSW site manager freezes payout without reallocating others", () => {
   it("pays the frozen figure, not the live one", () => {
     const { byId } = runSm({ C: { locked: true, lockedFinal: 50 } });
     expect(byId.C.finalBonus).toBeCloseTo(50, 10);
@@ -916,31 +869,23 @@ describe("a locked NSW site manager really freezes (24 Aug 2026)", () => {
     expect(byId.C.finalBonus).toBeCloseTo(50, 10);
   });
 
-  it("only the frozen figure comes off the pool, so the others get the rest", () => {
+  it("freezing the manager does not move scale or other rows", () => {
     const base = runSm();
-    // Freezing C at 150 instead of their live 200 releases 50 into VIC. Not
-    // lower: freeing much more would leave the pool under-subscribed, the
-    // scale would clamp at 1 (FY26 methodology) and the remainder would go
-    // unspent, which is a different behaviour from the redistribution here.
     const frozen = runSm({ C: { locked: true, lockedFinal: 150 } });
-    expect(frozen.pool.vicScale).toBeGreaterThan(base.pool.vicScale);
-    expect(frozen.byId.A.finalBonus).toBeGreaterThan(base.byId.A.finalBonus);
-    expect(frozen.byId.B.finalBonus).toBeGreaterThan(base.byId.B.finalBonus);
-    // and the pool still fills exactly, with the frozen draw counted once
-    expect(totalVicAlloc(frozen.emps, frozen.pool)).toBeCloseTo(1000, 8);
+    expect(frozen.pool.vicScale).toBeCloseTo(base.pool.vicScale, 10);
+    expect(frozen.byId.A.finalBonus).toBeCloseTo(base.byId.A.finalBonus, 10);
+    expect(frozen.byId.B.finalBonus).toBeCloseTo(base.byId.B.finalBonus, 10);
   });
 
-  it("freezing one far below their live figure under-subscribes the pool", () => {
-    // the companion to the above: C frozen at 50 releases 150, more than the
-    // others can absorb at scale 1, so 30 is deliberately left unspent
+  it("freezing far below live leaves allocation math unchanged", () => {
     const { emps, pool } = runSm({ C: { locked: true, lockedFinal: 50 } });
-    expect(pool.vicScale).toBe(1);
-    expect(totalVicAlloc(emps, pool)).toBeCloseTo(970, 8);
+    expect(pool.vicScale).toBeCloseTo(800 / 920, 10);
+    expect(totalVicAlloc(emps, pool)).toBeCloseTo(1000, 8);
   });
 
-  it("getVicAlloc/getNswAlloc price the frozen draw, not the fixed bonus", () => {
+  it("getVicAlloc/getNswAlloc stay on live allocation draw", () => {
     const { byId, pool } = runSm({ C: { locked: true, lockedFinal: 50 } });
-    expect(getVicAlloc(byId.C, pool)).toBeCloseTo(50, 10);
+    expect(getVicAlloc(byId.C, pool)).toBeCloseTo(200, 10);
     expect(getNswAlloc(byId.C, pool)).toBeCloseTo(0, 10);
   });
 
