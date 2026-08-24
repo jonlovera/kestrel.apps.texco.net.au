@@ -34,10 +34,10 @@ function assertMatches(
   expect(pool.vicScale).toBe(expected.vicScale);
   expect(pool.nswScale).toBe(expected.nswScale);
   expect(emps.reduce((s, e) => s + e.finalBonus, 0)).toBe(expected.totalFinal);
-  expect(emps.reduce((s, e) => s + getVicAlloc(e, pool.vicScale), 0)).toBe(
+  expect(emps.reduce((s, e) => s + getVicAlloc(e, pool), 0)).toBe(
     expected.totalVicAlloc
   );
-  expect(emps.reduce((s, e) => s + getNswAlloc(e, pool.nswScale), 0)).toBe(
+  expect(emps.reduce((s, e) => s + getNswAlloc(e, pool), 0)).toBe(
     expected.totalNswAlloc
   );
   const byId = new Map(emps.map((e) => [e.id, e]));
@@ -56,24 +56,26 @@ function assertMatches(
 describe("golden: baseline", () => {
   it("has the anchored known values", () => {
     // Independent anchors, hardcoded — not read from the golden file.
-    // Re-anchored (deliberately) for the Aug 2026 DA-on-top methodology
-    // change: the goldens were regenerated because DA left the pool maths —
-    // see lib/calc.ts's module header and the re-anchoring note in
-    // lib/calc.test.ts's real-data regression block.
-    expect(golden.baseline.vicScale).toBe(0.6717823483284814);
+    // Re-anchored (deliberately) for the 24 August 2026 pool-funded DA
+    // reform, which reversed the earlier DA-on-top decision: DA is deducted
+    // from the pools again, so the one source DA of 3000 is absorbed by the
+    // VIC pool (vicScale drops below the pre-reform 0.6717823483284814,
+    // which lives on as vicScaleBase) and the group total lands exactly on
+    // gCap. See lib/calc.ts's module header. The frozen "no-da" scenario
+    // below still carries the pre-reform figures, proving the reform is
+    // bit-identical when no DA exists.
+    expect(golden.baseline.vicScale).toBe(0.6701269613529727);
     expect(golden.baseline.nswScale).toBe(0.7820525079336984);
-    // The bit-exact double sum; 2621822.75 is its value rounded to cents
-    // (the old reconciliation figure + the one source DA of 3000, now paid
-    // on top of the capped pools). Both anchored strictly.
-    expect(golden.baseline.totalFinal).toBe(2621822.7499999995);
-    expect(Math.round(golden.baseline.totalFinal * 100) / 100).toBe(2621822.75);
+    expect(golden.baseline.totalFinal).toBe(2618822.75);
     expect(golden.baseline.rows.length).toBe(155);
   });
 
   it("every derived figure matches bit-for-bit", () => {
     const { pool } = run({});
-    expect(pool.vicScale).toBe(0.6717823483284814);
+    expect(pool.vicScale).toBe(0.6701269613529727);
+    expect(pool.vicScaleBase).toBe(0.6717823483284814);
     expect(pool.nswScale).toBe(0.7820525079336984);
+    expect(pool.nswScaleBase).toBe(0.7820525079336984);
     assertMatches({}, golden.baseline);
   });
 });
@@ -81,7 +83,7 @@ describe("golden: baseline", () => {
 describe("golden: scenarios", () => {
   for (const scenario of golden.scenarios) {
     it(`${scenario.name} matches bit-for-bit`, () => {
-      assertMatches(scenario.overrides as Overrides, scenario);
+      assertMatches(scenario.overrides as unknown as Overrides, scenario);
     });
   }
 });

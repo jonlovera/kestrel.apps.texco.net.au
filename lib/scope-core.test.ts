@@ -196,6 +196,41 @@ describe("a lead sees their own pool and nothing wider", () => {
     expect(JSON.stringify(payload)).not.toContain('"gCap"');
   });
 
+  // vp/np are the split, and a split is a property of the fractions rather
+  // than of the state label: a VIC employee doing a portion of NSW work
+  // carries one, and a scoped lead granted the fields should see it.
+  it("sends the split for any fractional row, whatever its state, and never for a whole-pool row", () => {
+    const first = data.emp[0];
+    const withSplit: Dataset = {
+      ...data,
+      emp: data.emp.map((e) =>
+        e.id === first.id ? { ...e, st: "VIC" as const, vp: 0.92, np: 0.08 } : e
+      ),
+    };
+    const fields = [...vicScopeNoPkg.visibleFields, "vp", "np"] as const;
+    const scope: Scope = {
+      ...vicScopeNoPkg,
+      rule: {
+        type: "state",
+        states: ["VIC"],
+        visibleFields: [...fields],
+        editableFields: ["da"],
+        canLock: false,
+        canActAs: [],
+      },
+      visibleFields: [...fields],
+    };
+    const payload = buildPayloadCore(withSplit, {}, scope, user);
+    if (payload.mode !== "readonly") throw new Error();
+
+    const split = payload.rows.find((r) => r.id === first.id);
+    expect(split).toMatchObject({ st: "VIC", vp: 0.92, np: 0.08 });
+    // everyone else in this fixture is a clean 1/0, so they carry no split
+    for (const r of payload.rows) {
+      if (r.id !== first.id) expect(r.vp).toBeUndefined();
+    }
+  });
+
   it("a subset lead gets a header too — an arbitrary list of people still draws from a pool", () => {
     const subset: Scope = {
       ...vicScopeNoPkg,

@@ -52,8 +52,8 @@ function run(overrides: Overrides) {
     vicScale: pool.vicScale,
     nswScale: pool.nswScale,
     totalFinal: emps.reduce((s, e) => s + e.finalBonus, 0),
-    totalVicAlloc: emps.reduce((s, e) => s + getVicAlloc(e, pool.vicScale), 0),
-    totalNswAlloc: emps.reduce((s, e) => s + getNswAlloc(e, pool.nswScale), 0),
+    totalVicAlloc: emps.reduce((s, e) => s + getVicAlloc(e, pool), 0),
+    totalNswAlloc: emps.reduce((s, e) => s + getNswAlloc(e, pool), 0),
     rows,
   };
 }
@@ -89,6 +89,13 @@ const s3: Overrides = {
   [sharedA.id]: { ipmEdit: 1.1 },
 };
 
+// Scenario 4: every source DA neutralised. The all-zero-DA degenerate case,
+// generated as a checkpoint BEFORE the Aug 2026 pool-funded DA reform so the
+// reform could be proven bit-identical when no DA exists.
+const noDa: Overrides = Object.fromEntries(
+  data.emp.filter((e) => e.da !== 0).map((e) => [e.id, { daEdit: 0 }])
+);
+
 const golden = {
   generatedFrom: "data/bonus.json",
   employeeCount: data.emp.length,
@@ -98,6 +105,7 @@ const golden = {
     { name: "lock-plus-da", overrides: s1, ...run(s1) },
     { name: "da-exceeds-pool", overrides: s2, ...run(s2) },
     { name: "mixed-edits-and-lock", overrides: s3, ...run(s3) },
+    { name: "no-da", overrides: noDa, ...run(noDa) },
   ],
 };
 

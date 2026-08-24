@@ -3,7 +3,10 @@
 Next.js port of the single-file EBS dashboard prototype. Row- and field-level
 access control is enforced **server-side**: the browser never receives rows or
 fields the signed-in user isn't entitled to. Sign-in is delegated to Texco
-Identity, the company's single sign-on provider — no passwords in this app.
+Identity, the company's single sign-on provider — no passwords in production.
+Previews and local dev can offer a shared-password form instead, because a
+preview URL can never complete the OAuth hop (see `DEV_LOGIN` /
+`PREVIEW_LOGIN_PASSWORD` below).
 
 - **Full access** users get the whole dataset with the prototype's instant
   recalculation, and drop the spreadsheet onto the dashboard to refresh it.
@@ -37,7 +40,9 @@ Copy `.env.example` to `.env.local` and fill it in:
 | `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` / `AZURE_TENANT_ID` | **Not login any more.** App-only Graph credentials behind the directory type-ahead on `/admin/access` |
 | `DATABASE_URL` | Neon Postgres (auto-injected when you add the Vercel integration) |
 | `BONUS_USERS` | *(optional)* JSON access rules merged over `lib/access.ts` |
-| `DEV_LOGIN` | *(local only)* `1` shows an email-only dev login during `next dev`. Never set on Vercel |
+| `PREVIEW_LOGIN_PASSWORD` | *(non-production only)* Shared password for the email+password form on `/login`. Set for the Vercel **preview** and **development** targets, never production |
+| `ADMIN_PASSWORD` | Shared password for the full-access admin gate. Unset, it fails closed and locks full admins out |
+| `DEV_LOGIN` | *(local only)* `1` also enables the passwordless `GET /dev/login/{email}` shortcuts during `next dev`; needs `PREVIEW_LOGIN_PASSWORD` too. Never set on Vercel |
 
 ### Entra app registration (one-off)
 
@@ -84,10 +89,19 @@ talks to Microsoft for login: a session established in any other Texco app is
 honoured here, signing out of one signs out of all, and deactivating someone in
 identity ends their access here too.
 
-There is no login screen. A signed-out visitor is forwarded straight into the
-OAuth flow, and when they already have an identity session they see nothing but
-the page they asked for. `/login` renders only to report an error or a
-deliberate logout.
+In production there is no login screen. A signed-out visitor is forwarded
+straight into the OAuth flow, and when they already have an identity session
+they see nothing but the page they asked for. `/login` renders only to report
+an error or a deliberate logout.
+
+Outside production it is a real login screen. With `PREVIEW_LOGIN_PASSWORD`
+set, `/login` offers an email + shared-password form and stops auto-forwarding,
+so a preview deployment is testable as any email — authorisation is unchanged,
+so `lib/access.ts` still decides what that email sees and an unknown one lands
+on `/no-access`. Preview password sessions skip the identity bookkeeping
+(no records written to the shared database) and log out to `/login`, not to
+identity. On a preview the SSO button is hidden, since a preview URL is not a
+registered redirect_uri.
 
 ### Registering this app
 

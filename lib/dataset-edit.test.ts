@@ -197,6 +197,55 @@ describe("moving someone between pools ({op:'state'})", () => {
     expect(res.history).toEqual([]);
   });
 
+  // The real case this op was reopened for: the VIC staff who do a portion of
+  // NSW work were flagged Shared Services, which put them on the Shared tab
+  // and in the Shared Services pool card. They belong to VIC; only their
+  // funding divides.
+  it("Shared → VIC can KEEP the split, and the history says so", () => {
+    const split = dataset([emp({ id: "P1", st: "SHARED", vp: 0.92, np: 0.08 })]);
+    const res = apply(split, { op: "state", id: "P1", st: "VIC", vp: 0.92 });
+    if (!res.ok) throw new Error(res.errors.join());
+    expect(res.dataset.emp[0]).toMatchObject({ st: "VIC", vp: 0.92, np: 0.08 });
+    expect(res.history[0].summary).toBe(
+      "Moved Jane Smith from Shared Services to VIC (92.0% VIC / 8.0% NSW)"
+    );
+  });
+
+  it("→ VIC without a share still collapses onto the whole pool", () => {
+    const res = apply(shared, { op: "state", id: "S1", st: "VIC" });
+    if (!res.ok) throw new Error(res.errors.join());
+    expect(res.dataset.emp[0]).toMatchObject({ st: "VIC", vp: 1, np: 0 });
+    // no split to name, so the summary stays the plain move sentence
+    expect(res.history[0].summary).toBe("Moved Jane Smith from Shared Services to VIC");
+  });
+
+  it("→ NSW takes a split too, deriving the VIC remainder", () => {
+    const res = apply(vicOnly, { op: "state", id: "V1", st: "NSW", vp: 0.2 });
+    if (!res.ok) throw new Error(res.errors.join());
+    expect(res.dataset.emp[0]).toMatchObject({ st: "NSW", vp: 0.2, np: 0.8 });
+    expect(res.history[0].summary).toBe(
+      "Moved Jane Smith from VIC to NSW (20.0% VIC / 80.0% NSW)"
+    );
+  });
+
+  it("changing only a VIC person's split reads as a split change", () => {
+    const split = dataset([emp({ id: "P1", st: "VIC", vp: 0.92, np: 0.08 })]);
+    const res = apply(split, { op: "state", id: "P1", st: "VIC", vp: 0.85 });
+    if (!res.ok) throw new Error(res.errors.join());
+    expect(res.dataset.emp[0]).toMatchObject({ st: "VIC", vp: 0.85, np: 0.15 });
+    expect(res.history[0].summary).toBe(
+      "Set VIC % for Jane Smith: 92.0% → 85.0% (NSW % follows automatically)"
+    );
+  });
+
+  it("re-sending a VIC person's existing split is a no-op", () => {
+    const split = dataset([emp({ id: "P1", st: "VIC", vp: 0.92, np: 0.08 })]);
+    const res = apply(split, { op: "state", id: "P1", st: "VIC", vp: 0.92 });
+    if (!res.ok) throw new Error(res.errors.join());
+    expect(res.dataset).toBe(split);
+    expect(res.history).toEqual([]);
+  });
+
   it("avoids float residue in the derived share", () => {
     const res = apply(vicOnly, { op: "state", id: "V1", st: "SHARED", vp: 0.3 });
     if (!res.ok) throw new Error(res.errors.join());
@@ -221,7 +270,7 @@ describe("moving someone between pools ({op:'state'})", () => {
   });
 });
 
-describe("the Shared Services split", () => {
+describe("the VIC/NSW funding split", () => {
   const shared = dataset([
     emp({ id: "S1", st: "SHARED", vp: 0.6, np: 0.4 }),
   ]);
@@ -248,11 +297,18 @@ describe("the Shared Services split", () => {
     expect(res.dataset.emp[0].np).toBe(0.7);
   });
 
-  it("refuses a split on a VIC or NSW employee — there is nothing to reallocate", () => {
-    const res = apply(vicOnly, { op: "field", id: "V1", field: "vp", value: 0.5 });
-    expect(res.ok).toBe(false);
-    if (res.ok) throw new Error();
-    expect(res.errors[0]).toContain("Shared Services");
+  it("sets a split on a VIC employee — they can fund a slice of NSW work", () => {
+    const res = apply(vicOnly, { op: "field", id: "V1", field: "vp", value: 0.92 });
+    if (!res.ok) throw new Error(res.errors.join("; "));
+    // stays VIC: the split says which caps fund them, not who they are
+    expect(res.dataset.emp[0]).toMatchObject({ st: "VIC", vp: 0.92, np: 0.08 });
+  });
+
+  it("sets a split on an NSW employee too, deriving the VIC side", () => {
+    const nswOnly = dataset([emp({ id: "N1", st: "NSW", vp: 0, np: 1 })]);
+    const res = apply(nswOnly, { op: "field", id: "N1", field: "np", value: 0.85 });
+    if (!res.ok) throw new Error(res.errors.join("; "));
+    expect(res.dataset.emp[0]).toMatchObject({ st: "NSW", vp: 0.15, np: 0.85 });
   });
 
   it("rejects a value outside 0–1", () => {
@@ -467,22 +523,28 @@ describe("adding a person ({op:'add'})", () => {
     expect(res.errors[0]).toContain("Un-exclude");
   });
 
-  it("derives the split from the state — a lying vp/np cannot land", () => {
-    const vic = add(emp({ ...newbie, st: "VIC", vp: 0.3, np: 0.7 }));
-    if (!vic.ok) throw new Error();
-    expect(vic.dataset.emp[1]).toMatchObject({ vp: 1, np: 0 });
+  it("derives np from the sent vp for every state — a lying np cannot land", () => {
+    // the sent vp IS the VIC share, whatever the state; np always follows it,
+    // so the two account for the whole of the new starter's exposure
+    for (const st of ["VIC", "NSW", "SHARED"] as const) {
+      const res = add(emp({ ...newbie, st, vp: 0.3, np: 0 }));
+      if (!res.ok) throw new Error(res.errors.join("; "));
+      expect(res.dataset.emp[1]).toMatchObject({ st, vp: 0.3, np: 0.7 });
+      expect(res.dataset.emp[1].vp + res.dataset.emp[1].np).toBe(1);
+    }
+  });
 
-    const nsw = add(emp({ ...newbie, st: "NSW", vp: 0.9, np: 0.1 }));
-    if (!nsw.ok) throw new Error();
-    expect(nsw.dataset.emp[1]).toMatchObject({ vp: 0, np: 1 });
+  it("a whole-pool new starter keeps a clean 1/0, with no split in the history", () => {
+    const res = add(emp({ ...newbie, st: "VIC", vp: 1, np: 0 }));
+    if (!res.ok) throw new Error(res.errors.join("; "));
+    expect(res.dataset.emp[1]).toMatchObject({ st: "VIC", vp: 1, np: 0 });
+    expect(res.history[0].summary).not.toContain("VIC / ");
+  });
 
-    // for Shared Services the sent vp IS the VIC share; np follows, rounded
-    const shared = add(emp({ ...newbie, st: "SHARED", vp: 0.3, np: 0 }));
-    if (!shared.ok) throw new Error();
-    expect(shared.dataset.emp[1]).toMatchObject({ vp: 0.3, np: 0.7 });
-    expect(
-      shared.dataset.emp[1].vp + shared.dataset.emp[1].np
-    ).toBe(1);
+  it("names the split in the history when a new starter has one", () => {
+    const res = add(emp({ ...newbie, st: "VIC", vp: 0.9, np: 0.1 }));
+    if (!res.ok) throw new Error(res.errors.join("; "));
+    expect(res.history[0].summary).toContain("90.0% VIC / 10.0% NSW");
   });
 
   it("surfaces a labelled validation error for a bad figure", () => {

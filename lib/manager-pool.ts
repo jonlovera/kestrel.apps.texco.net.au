@@ -24,15 +24,18 @@
  *              lands near half the figure ($555,733 against Clint Cassar's
  *              57 rows, 27 of them locked).
  *
- *              SHARED SERVICES ARE NOT FILTERED OUT HERE. The scope rule is
- *              the exclusion: 24 of the 25 SHARED rows fall outside a lead
- *              like Clint's grant and never reach this sum. The 25th is Peter
- *              Clements (National EHSQ Manager, st SHARED, vp 0.7/np 0.3), in
- *              scope by position and counted — his SHARED flag is a data
- *              error pending reassignment to VIC 100%, not a reason to drop
- *              his $51,392 draw from the pool his manager is accountable for.
- *              A literal `st !== "SHARED"` test breaks the reconciliation by
- *              exactly that amount.
+ *              SHARED SERVICES ARE NOT FILTERED OUT HERE, and neither is
+ *              anyone else whose cost splits across the two pools. The scope
+ *              rule is the exclusion: 24 of the 25 SHARED rows in the
+ *              21 Aug 2026 capture fall outside a lead like Clint's grant and
+ *              never reach this sum. The 25th is Peter Clements (National
+ *              EHSQ Manager, vp 0.7/np 0.3), in scope by position and
+ *              counted — a split is a statement about which caps fund him,
+ *              not a reason to drop his $51,392 draw from the pool his
+ *              manager is accountable for. A literal `st !== "SHARED"` test
+ *              breaks the reconciliation by exactly that amount, and testing
+ *              the split instead breaks it for every VIC employee who does a
+ *              portion of NSW work.
  *
  *   allocated  Σ finalBonus over ALL in-scope rows, through the shared
  *              sumAllocated — the same function the table's "Total bonuses"
@@ -47,6 +50,18 @@
  * from locked rows frozen BELOW their live entitlement, plus any
  * under-subscribed pool. It is normally thin, which is why poolBreach names
  * the unabsorbable amount rather than clamping quietly.
+ *
+ * Since the 24 August 2026 pool-funded DA reform (see lib/calc.ts), a DA is
+ * inside the pool draw again, with two consequences for these figures:
+ *  - An in-scope DA shrinks every other unlocked row's calcBonus state-wide,
+ *    so `pool` itself moves with a DA edit. In-scope LOCKED rows' live
+ *    calcBonus shrinks too while their frozen final does not, so a DA of X
+ *    can reduce `remaining` by more than X when the scope holds locked rows.
+ *  - A scoped DA is absorbed by the whole state, including out-of-scope
+ *    rows. poolBreach deliberately polices only the manager's own pool; the
+ *    state cap itself is protected by the engine (clampScale floors the
+ *    remaining rows' scale at 0, so the cap cannot be overdrawn by scaled
+ *    bonuses) and by the editor's getMaxDA clamp at type time.
  *
  * Pure: one engine pass over the whole population (the scale is a
  * whole-population fact), then the scope filter — the same ruleMatches the

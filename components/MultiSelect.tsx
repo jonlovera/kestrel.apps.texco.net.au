@@ -1,31 +1,36 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { useDismissable } from "@/lib/use-dismissable";
 
-/** Multi-select dropdown, matching the prototype's .ms-wrap behaviour. */
+/**
+ * Multi-select dropdown, matching the prototype's .ms-wrap behaviour.
+ *
+ * Two renderings of the open list: `popover` floats it over whatever is
+ * underneath (the original toolbar behaviour), `inline` opens it in normal
+ * flow, accordion-style — for use inside the Filters & options panel, where
+ * the page no longer scrolls and a popover poking past the bottom of the
+ * viewport would be unreachable rather than merely awkward.
+ */
 export function MultiSelect({
   label,
   items,
   selected,
   onChange,
+  variant = "popover",
 }: {
   label: string; // e.g. "Roles"
   items: string[];
   selected: string[];
   onChange: (sel: string[]) => void;
+  variant?: "popover" | "inline";
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function onDocClick(ev: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(ev.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("click", onDocClick);
-    return () => document.removeEventListener("click", onDocClick);
-  }, []);
+  // Inline lists are accordions: they close from their own trigger or with
+  // the whole panel, never on an outside mousedown — dismissing there would
+  // shift the panel's layout mid-click and the click would miss its target.
+  useDismissable(wrapRef, open && variant === "popover", () => setOpen(false));
 
   const allSelected = selected.length === items.length;
   const btnLabel =
@@ -43,7 +48,10 @@ export function MultiSelect({
     );
 
   return (
-    <div ref={wrapRef} className="relative inline-block min-w-[160px]">
+    <div
+      ref={wrapRef}
+      className={variant === "inline" ? "block" : "relative inline-block min-w-[160px]"}
+    >
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -52,10 +60,16 @@ export function MultiSelect({
         }`}
       >
         <span>{btnLabel}</span>
-        <span className="text-[10px] text-neutral-400">▾</span>
+        <span className="text-[10px] text-neutral-400">{open && variant === "inline" ? "▴" : "▾"}</span>
       </button>
       {open && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-0.5 max-h-[260px] overflow-y-auto border-2 border-neutral-200 bg-white shadow-lg">
+        <div
+          className={
+            variant === "inline"
+              ? "mt-0.5 max-h-[200px] overflow-y-auto border-2 border-neutral-200 bg-white"
+              : "absolute left-0 right-0 top-full z-50 mt-0.5 max-h-[260px] overflow-y-auto border-2 border-neutral-200 bg-white shadow-lg"
+          }
+        >
           <label className="flex cursor-pointer items-center gap-2 border-b border-neutral-100 px-3 py-1.5 text-[13px] font-semibold hover:bg-neutral-100">
             <input
               type="checkbox"

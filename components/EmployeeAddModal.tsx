@@ -6,12 +6,12 @@ import type { Employee } from "@/lib/schema";
 type State = "VIC" | "NSW" | "SHARED";
 
 const STATE_OPTIONS: { value: State; label: string; note: string }[] = [
-  { value: "VIC", label: "VIC pool", note: "paid entirely from the VIC pool" },
-  { value: "NSW", label: "NSW pool", note: "paid entirely from the NSW pool" },
+  { value: "VIC", label: "VIC pool", note: "a VIC employee" },
+  { value: "NSW", label: "NSW pool", note: "an NSW employee" },
   {
     value: "SHARED",
     label: "Shared Services",
-    note: "split between the two pools at the percentages below",
+    note: "belongs to neither state — always split",
   },
 ];
 
@@ -70,6 +70,7 @@ export default function EmployeeAddModal({
   const [cat, setCat] = useState(cats[0] ?? "Employee");
   const [st, setSt] = useState<State>("VIC");
   const [vicPct, setVicPct] = useState(50);
+  const [splitEnabled, setSplitEnabled] = useState(false);
   const [pkg, setPkg] = useState("");
   const [bpPct, setBpPct] = useState("10");
   const [ipmPct, setIpmPct] = useState("100");
@@ -106,8 +107,12 @@ export default function EmployeeAddModal({
     [gn, sn, effectiveId, duplicate, pos, dept, mgr, cat, pkg]
   );
 
+  // Shared Services is always split; VIC and NSW take their whole pool unless
+  // the new starter's cost is meant to divide across both states.
+  const showSplit = st === "SHARED" || splitEnabled;
+
   function submit() {
-    const vp = st === "VIC" ? 1 : st === "NSW" ? 0 : vicPct / 100;
+    const vp = showSplit ? vicPct / 100 : st === "VIC" ? 1 : 0;
     onAdd({
       id: effectiveId.toUpperCase(),
       gn: gn.trim(),
@@ -266,7 +271,22 @@ export default function EmployeeAddModal({
               </label>
             ))}
           </div>
-          {st === "SHARED" && (
+          {st !== "SHARED" && (
+            <label className="mt-3 flex cursor-pointer items-baseline gap-2 text-[13px]">
+              <input
+                type="checkbox"
+                checked={splitEnabled}
+                disabled={busy}
+                onChange={(e) => setSplitEnabled(e.target.checked)}
+                className="translate-y-[1px] accent-brand-orange"
+              />
+              <span className="font-semibold">Cost splits across both states</span>
+              <span className="text-[11px] text-brand-70">
+                stays {st}, drawing part of their bonus from the other pool
+              </span>
+            </label>
+          )}
+          {showSplit && (
             <div className="mt-3 flex items-center gap-2 text-[13px]">
               <span>VIC</span>
               <input

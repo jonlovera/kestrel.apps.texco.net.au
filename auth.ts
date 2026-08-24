@@ -2,6 +2,11 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import type { Provider } from "next-auth/providers";
 import { texcoIdentity, IDENTITY_PROVIDER_ID } from "@/lib/identity";
+import {
+  PREVIEW_LOGIN_ID,
+  previewLoginEnabled,
+  checkPreviewPassword,
+} from "@/lib/preview-login";
 
 /**
  * Sign-in is delegated to Texco Identity, the company's single sign-on
@@ -16,18 +21,24 @@ import { texcoIdentity, IDENTITY_PROVIDER_ID } from "@/lib/identity";
 const providers: Provider[] = [texcoIdentity()];
 
 
-// Local-only dev backdoor, so the app can be worked on without an identity
-// server running. Never registered outside `next dev`.
-if (process.env.NODE_ENV === "development" && process.env.DEV_LOGIN === "1") {
+// Email + shared-password sign-in for non-production only: Vercel previews
+// (whose per-deployment URLs can never complete an identity OAuth hop) and
+// local dev without an identity server running. Gated on VERCEL_ENV rather
+// than NODE_ENV, because a preview builds as production — see
+// lib/preview-login.ts for both gates and why the password alone is not one.
+if (previewLoginEnabled()) {
   providers.push(
     Credentials({
-      id: "dev-login",
-      name: "Dev login (local only)",
-      credentials: { email: { label: "Email" } },
+      id: PREVIEW_LOGIN_ID,
+      name: "Email and shared password",
+      credentials: { email: { label: "Email" }, password: { label: "Password" } },
       authorize: (creds) => {
-        const email = typeof creds?.email === "string" ? creds.email : "";
+        const email =
+          typeof creds?.email === "string" ? creds.email.trim().toLowerCase() : "";
+        const password = typeof creds?.password === "string" ? creds.password : "";
         if (!email.includes("@")) return null;
-        return { email, name: `Dev: ${email}` };
+        if (!checkPreviewPassword(password)) return null;
+        return { email, name: email.split("@")[0] };
       },
     })
   );
@@ -61,17 +72,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
      * which is what lets a webhook end sessions it cannot enumerate.
      */
     async jwt({ token, user, account }) {
-      // The dev backdoor takes the same path as identity, with a synthetic id,
-      // so local development exercises the real revocation gate rather than a
-      // shortcut around it. It is already NODE_ENV-gated.
+      // A LOCAL password login takes the same path as identity, with a
+      // synthetic id, so development exercises the real revocation gate
+      // rather than a shortcut around it. A PREVIEW password login
+      // deliberately does not: previews share the production database, and
+      // throwaway test sign-ins have no business writing identity records
+      // there. The session callback below already treats an unstamped token
+      // as current, so skipping this costs a preview nothing.
+      const localPasswordLogin =
+        account?.provider === PREVIEW_LOGIN_ID &&
+        process.env.NODE_ENV === "development";
       const viaIdentity =
-        account?.provider === IDENTITY_PROVIDER_ID ||
-        account?.provider === "dev-login";
+        account?.provider === IDENTITY_PROVIDER_ID || localPasswordLogin;
 
       if (user && viaIdentity) {
         const m365Id =
           (user as { m365Id?: string }).m365Id ??
-          (account?.provider === "dev-login" ? `dev:${user.email}` : undefined);
+          (localPasswordLogin ? `dev:${user.email}` : undefined);
         if (m365Id) {
           const { rememberIdentityUser } = await import("@/lib/identity-users");
           const { adoptNewEmail } = await import("@/lib/access");
@@ -89,6 +106,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           token.epoch = previous?.epoch ?? 0;
         }
       }
+      // Which provider established this session, so /logout knows whether
+      // handing the browser to identity is the right ending for it.
+      if (account?.provider) token.provider = account.provider;
       return token;
     },
 
@@ -107,11 +127,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
       if (session.user) {
         (session.user as { m365Id?: string }).m365Id = m365Id;
+        (session.user as { provider?: string }).provider = token.provider as
+          | string
+          | undefined;
       }
 
-      // Sessions predating this — and the password provider — carry no stamp.
-      // Treat them as current rather than logging everyone out on deploy; the
-      // epoch only ever moves on a real revocation.
+      // Sessions predating this — and every password login on a preview —
+      // carry no stamp. Treat them as current rather than logging everyone
+      // out on deploy; the epoch only ever moves on a real revocation.
       if (!m365Id || typeof stamped !== "number") return session;
 
       try {

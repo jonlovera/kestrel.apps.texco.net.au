@@ -41,7 +41,8 @@ export interface ScopedRow {
   da?: number;
   yoy?: number;
   final?: number;
-  /** Shared Services split, admin-editable, informational elsewhere */
+  /** the VIC/NSW funding split where there is one, admin-editable,
+   *  informational elsewhere; absent on a whole-pool row */
   vp?: number;
   np?: number;
 }

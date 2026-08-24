@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { NUMERIC_FIELDS, type NumericField } from "@/lib/access-types";
 import type { DisplayRow } from "@/lib/payload-types";
 import type { ColumnFormat } from "@/lib/columns";
@@ -54,7 +55,22 @@ interface Props {
   sortCol: string | null;
   sortDir: number;
   onSort: (key: string) => void;
-    handlers: TableHandlers;
+  handlers: TableHandlers;
+  /**
+   * Per-row counter bumped when a discretionary entry was held at the figure
+   * the cell already showed. Folded into the input's key so the uncontrolled
+   * cell remounts and drops the typed text — without it, a value held at the
+   * stored figure would sit on screen looking accepted.
+   */
+  daNonce?: Record<string, number>;
+  /**
+   * The most this row may be granted, for the ceiling shown on a focused cell.
+   * Null when there is nothing to show (a read-only lead, who has no engine
+   * locally, or a row with no pool bound).
+   */
+  daHeadroomFor?: (id: string) => number | null;
+  /** The scroll box, exposed so the shell can watch scrollTop (pool collapse). */
+  scrollRef?: React.Ref<HTMLDivElement>;
 }
 
 const cellInput =
@@ -81,6 +97,16 @@ const SCROLL_SHADOW: React.CSSProperties = {
   backgroundSize: "40px 100%, 40px 100%, 14px 100%, 14px 100%",
   backgroundAttachment: "local, local, scroll, scroll",
 };
+
+/**
+ * Does this row's cost divide across both pools? Not the same question as
+ * "is it Shared Services": a VIC employee who does a portion of NSW work is
+ * flagged VIC and still carries a split. Read off the fractions, which is
+ * also where the server-side rule in lib/dataset-edit.ts reads it.
+ */
+function hasSplit(r: DisplayRow): boolean {
+  return r.vp !== undefined && r.vp > 0 && r.vp < 1;
+}
 
 /**
  * Enter moves down a column, Shift+Enter up, Escape abandons the edit. Tab is
@@ -121,7 +147,13 @@ export default function EmployeeTable({
   sortDir,
   onSort,
   handlers,
+  daNonce,
+  daHeadroomFor,
+  scrollRef,
 }: Props) {
+  // Which discretionary cell has focus, so its ceiling can be shown. Local
+  // because it is presentation only — nothing outside the table cares.
+  const [daFocus, setDaFocus] = useState<string | null>(null);
   const show = (c: TableColumn, v: number) =>
     fmtValue(c.format ?? "currency", c.decimals ?? 0, v);
 
@@ -149,10 +181,10 @@ export default function EmployeeTable({
     // editable cell and a click: reveal the row, then its permitted cells
     // are directly editable, with no separate mode to turn on first.
     if ((NUMERIC_FIELDS as readonly string[]).includes(c.key) && !isRevealed(r.id)) {
-      if (c.key === "da" && (r.sm || !r.inPool))
+      if (c.key === "da" && !r.inPool)
         return <span className="text-neutral-300">—</span>;
-      // Nothing to hide on a VIC/NSW row — there is no split to reveal.
-      if ((c.key === "vp" || c.key === "np") && r.st !== "SHARED")
+      // Nothing to hide on a whole-pool row — there is no split to reveal.
+      if ((c.key === "vp" || c.key === "np") && !hasSplit(r))
         return <span className="text-neutral-300">—</span>;
       return <span className="select-none text-neutral-300">••••</span>;
     }
@@ -232,9 +264,11 @@ export default function EmployeeTable({
         return moneyCell(r, rowIdx, c, r.bipm!, 85);
       case "vp":
       case "np": {
-        // Only ever meaningful for a Shared Services row — a VIC or NSW
-        // employee is 100% one pool already.
-        if (r.st !== "SHARED") return <span className="text-neutral-300">—</span>;
+        // Only meaningful where the cost actually divides across the pools,
+        // which is not the same thing as being flagged Shared Services: VIC
+        // staff doing a portion of NSW work carry a split too. Adding a split
+        // to a whole-pool row is an edit-modal action, not an inline one.
+        if (!hasSplit(r)) return <span className="text-neutral-300">—</span>;
         const field: "vp" | "np" = c.key === "vp" ? "vp" : "np";
         const v = field === "vp" ? r.vp! : r.np!;
         if (!c.dsEditable || r.locked) return show(c, v);
@@ -258,21 +292,42 @@ export default function EmployeeTable({
       case "f25":
         return <span className="text-neutral-400">{show(c, r.f25!)}</span>;
       case "da": {
-        if (r.sm || !r.inPool) return <span className="text-neutral-300">—</span>;
+        if (!r.inPool) return <span className="text-neutral-300">—</span>;
         if (!c.editable || r.locked) return show(c, r.da!);
+        // The ceiling, shown while the cell has focus: a discretionary amount is
+        // funded by the other unlocked bonuses, and this is the most that can be
+        // taken from them before one reaches $0. Absolutely positioned so
+        // revealing it can't nudge the row heights.
+        const ceiling = daHeadroomFor?.(r.id) ?? null;
+        const hint =
+          ceiling === null ? undefined : `Most that can be granted: ${fmtValue("currency", 0, ceiling)}`;
         return (
-          <input
-            key={`${r.id}-da-${r.da}`}
-            type="text"
-            data-row={rowIdx}
-            data-col={c.key}
-            defaultValue={Math.round(r.da!)}
-            disabled={busy}
-            onFocus={(e) => e.target.select()}
-            onBlur={(e) => handlers.updateDA(r.id, e.target.value)}
-            onKeyDown={(e) => gridKeys(e, rowIdx, c.key)}
-            className={`${cellInput} w-[80px] text-right tabular-nums`}
-          />
+          <span className="relative inline-block">
+            <input
+              key={`${r.id}-da-${r.da}-${daNonce?.[r.id] ?? 0}`}
+              type="text"
+              data-row={rowIdx}
+              data-col={c.key}
+              defaultValue={Math.round(r.da!)}
+              disabled={busy}
+              title={hint}
+              onFocus={(e) => {
+                e.target.select();
+                setDaFocus(r.id);
+              }}
+              onBlur={(e) => {
+                setDaFocus((cur) => (cur === r.id ? null : cur));
+                handlers.updateDA(r.id, e.target.value);
+              }}
+              onKeyDown={(e) => gridKeys(e, rowIdx, c.key)}
+              className={`${cellInput} w-[80px] text-right tabular-nums`}
+            />
+            {daFocus === r.id && ceiling !== null && (
+              <span className="pointer-events-none absolute right-0 top-full z-20 mt-0.5 whitespace-nowrap bg-brand-95 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                max {fmtValue("currency", 0, ceiling)}
+              </span>
+            )}
+          </span>
         );
       }
       case "yoy": {
@@ -334,7 +389,8 @@ export default function EmployeeTable({
 
   return (
     <div
-      className="mb-5 max-h-[calc(100vh-260px)] overflow-auto shadow-sm"
+      ref={scrollRef}
+      className="min-h-0 flex-1 overflow-auto shadow-sm"
       style={SCROLL_SHADOW}
     >
       <table className="w-full border-collapse bg-white text-xs">

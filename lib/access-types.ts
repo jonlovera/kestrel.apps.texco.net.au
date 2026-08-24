@@ -27,9 +27,10 @@ export const NUMERIC_FIELDS = [
   "da",
   "yoy",
   "final",
-  // Shared Services split. Admin-editable only (lib/dataset-edit.ts), but
+  // The VIC/NSW funding split. Admin-editable only (lib/dataset-edit.ts), but
   // visibility for everyone else still follows this list like any other
-  // figure — and even then only ever populated for a Shared row.
+  // figure — and even then only populated where the cost actually divides
+  // across the two pools, whatever the row's state.
   "vp",
   "np",
 ] as const;

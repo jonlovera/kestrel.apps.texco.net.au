@@ -9,6 +9,12 @@ import { takeSnapshot } from "@/lib/snapshots";
 import { sanitiseOverrideWrite, scopeOverridesView } from "@/lib/write-scope";
 import { applyOverrides, computeScalesAndBonuses, isLockable } from "@/lib/calc";
 import { poolBreach } from "@/lib/manager-pool";
+import {
+  EPSILON as DA_EPSILON,
+  daHeadroom,
+  daImpact,
+  type DaGrant,
+} from "@/lib/da-impact";
 import { fmt } from "@/lib/fmt";
 
 export const dynamic = "force-dynamic";
@@ -27,8 +33,27 @@ export const dynamic = "force-dynamic";
  *      their own pool is refused outright, naming the unabsorbable amount.
  *      Nothing is clamped and nothing moves silently: the figure the user
  *      typed is the figure they keep, or the figure they are told they cannot
- *      have. (This replaces the old getMaxDA/clampDaToPool clamp, which
- *      trimmed a discretionary amount to fit without saying so.)
+ *      have.
+ *   4. discretionary headroom — the hard limit (owner decision, 24 August
+ *      2026). Under the pool-funded DA reform a grant never breaches the pool
+ *      cap; it comes out of the other unlocked bonuses instead. So the bound
+ *      that means anything is how much can be taken from those bonuses before
+ *      any of them reaches $0 (lib/da-impact.ts's daHeadroom). The editor
+ *      holds every entry to it at type time and shows it on the field; this
+ *      gate is the guarantee, judging only the amounts THIS save changes, so
+ *      an inherited over-draw stays correctable. Refused, never trimmed —
+ *      same principle as gate 3.
+ *   5. confirmation — a grant spends other people's bonuses, so it is never
+ *      committed silently. A save carrying changed discretionary amounts is
+ *      refused with 428 and the impact figures (how many bonuses go down, the
+ *      average, the worst single hit, how many are locked and so untouched)
+ *      until the client sends `confirmDa` with the person's explicit consent.
+ *      The confirmation is enforced here rather than in the browser so an
+ *      autosave, a tab-close flush or a direct API call cannot bypass it.
+ *
+ * Every grant that gets through is written to the history as its own `grant`
+ * entry — who, what, when, the headroom that bounded it and how many bonuses
+ * it reduced — recomputed server-side rather than taken from the client.
  *
  * The client is never trusted for a figure. It sends what it wants; the server
  * decides what is true and hands the result back, which is why the dashboard
@@ -46,6 +71,7 @@ export async function POST(req: Request) {
   let clientVersion: number;
   let source: "manual" | "auto";
   let viewFor: string | undefined;
+  let confirmDa: boolean;
   try {
     const body = z
       .object({
@@ -58,12 +84,17 @@ export async function POST(req: Request) {
         // Sent while an act-as view is active: the target the client believes
         // it is saving for. Checked below.
         viewFor: z.string().optional(),
+        // The person's explicit consent to the discretionary grants in this
+        // document, after being shown who pays for them (gate 5). Absent by
+        // default, so nothing is ever committed by omission.
+        confirmDa: z.boolean().optional().default(false),
       })
       .parse(await req.json());
     incoming = body.overrides;
     clientVersion = body.version;
     source = body.source;
     viewFor = body.viewFor;
+    confirmDa = body.confirmDa;
   } catch {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
@@ -115,14 +146,18 @@ export async function POST(req: Request) {
     if (clean.ipmEdit !== undefined) clean.ipmEdit = Math.max(0, clean.ipmEdit);
     if (clean.bpEdit !== undefined) clean.bpEdit = Math.max(0, clean.bpEdit);
     if (!isLockable(emp)) {
-      // a fixed bonus has nothing to adjust, and neither does a row that
-      // draws from no pool
-      delete clean.daEdit;
+      // a fixed bonus is already frozen, and a row drawing from no pool has
+      // nothing to lock
       delete clean.locked;
       delete clean.lockedFinal;
     }
+    // A row drawing from no pool has nothing to fund a discretionary amount.
+    // A site manager's IS fundable (24 Aug 2026): it rides on their fixed
+    // bonus, off the top of the pool, so it flows through like anyone else's.
+    if (emp.vp + emp.np === 0) delete clean.daEdit;
     // daEdit is deliberately not floored: an adjustment may be negative
-    // (owner decision — DA is a manual +/- amount on top of the pool calc)
+    // (owner decision, kept by the 24 Aug 2026 pool-funded reform — a
+    // negative DA frees pool money back to the other unlocked rows)
     if (!clean.locked) delete clean.lockedFinal;
     if (Object.keys(clean).length > 0) sanitised[id] = clean;
   }
@@ -161,6 +196,46 @@ export async function POST(req: Request) {
     );
   }
 
+  // Gates 4 and 5 both need the same measurement: what this save does to the
+  // discretionary amounts, and to everyone whose bonus pays for them. One pass,
+  // computed here rather than trusted from the client.
+  const impact = daImpact(data.emp, data, previous, sanitised);
+
+  // Gate 4: the hard limit. Only the amounts this save CHANGES are judged, so a
+  // figure inherited from a lowered cap or a pre-reform document stays
+  // correctable — the same reasoning as poolBreach's comparison against stored.
+  // The ceiling is re-derived from the document being saved, so several grants
+  // in one save are judged against each other rather than each in isolation.
+  const nextRows = applyOverrides(data.emp, sanitised);
+  const nextPool = computeScalesAndBonuses(nextRows, data);
+  for (const grant of impact.grants) {
+    const row = nextRows.find((e) => e.id === grant.empId);
+    if (!row) continue;
+    const ceiling = daHeadroom(row, nextPool);
+    if (!Number.isFinite(ceiling)) continue;
+    if (row.daEdit <= ceiling + DA_EPSILON) continue;
+    console.log(
+      `[audit] state-write OVER-HEADROOM email=${email} emp=${grant.empId} asked=${row.daEdit.toFixed(2)} ceiling=${ceiling.toFixed(2)} ts=${new Date().toISOString()}`
+    );
+    return noStore(
+      NextResponse.json(
+        { error: overHeadroomMessage(grant, ceiling), ceiling, empId: grant.empId },
+        { status: 422 }
+      )
+    );
+  }
+
+  // Gate 5: explicit confirmation. A grant reduces other people's bonuses, so
+  // the person making it has to see who pays and say yes. Refused rather than
+  // recorded, which is what stops an autosave or a tab-close flush committing
+  // one on their behalf.
+  if (impact.grants.length > 0 && !confirmDa) {
+    console.log(
+      `[audit] state-write NEEDS-CONFIRM email=${email} grants=${impact.grants.length} granted=${impact.granted.toFixed(2)} reduced=${impact.reducedCount} ts=${new Date().toISOString()}`
+    );
+    return noStore(NextResponse.json({ error: "Confirmation required", impact }, { status: 428 }));
+  }
+
   // Snapshot, then save with optimistic concurrency: a stale version means
   // someone else saved since this client loaded — 409, never silently clobber.
   await takeSnapshot(email, source === "auto" ? "autosave" : "edit");
@@ -184,16 +259,28 @@ export async function POST(req: Request) {
       )
     );
   }
+  const ts = new Date().toISOString();
   await appendHistory(
-    diffOverrides(
-      data.emp,
-      previous,
-      sanitised,
-      email,
-      new Date().toISOString(),
-      viewingAs ?? undefined
-    )
+    diffOverrides(data.emp, previous, sanitised, email, ts, viewingAs ?? undefined)
   );
+  // The grant log. Separate from the figure-by-figure diff above because a
+  // grant is a decision about other people's money, and the record has to hold
+  // what bounded it and what it cost them — not just "da 0 → 50,000".
+  if (impact.grants.length > 0) {
+    await appendHistory(
+      impact.grants.map((g) => ({
+        ts,
+        actor: email,
+        kind: "grant" as const,
+        summary: grantSummary(g, impact.reducedCount, impact.grants.length),
+        empId: g.empId,
+        field: "daEdit",
+        from: Math.round(g.from),
+        to: Math.round(g.to),
+        ...(viewingAs ? { viewingAs } : {}),
+      }))
+    );
+  }
   console.log(
     `[audit] state-write email=${email}${viewingAs ? ` viewing-as=${viewingAs}` : ""} scope=${scope.rule.type} entries=${Object.keys(sanitised).length} version=${cas.version} ts=${new Date().toISOString()}`
   );
@@ -220,6 +307,36 @@ function overPoolMessage(over: number, wasOver: number): string {
     return `Not saved: ${excess} of this allocation can't be absorbed by your pool. Reduce discretionary amounts by ${excess} and save again.`;
   }
   return `Not saved: this takes you ${fmt(over - wasOver)} further above your pool, which was already over by ${fmt(wasOver)}. Reduce discretionary amounts by ${fmt(over - wasOver)} and save again.`;
+}
+
+/**
+ * The hard limit's refusal. Names the ceiling, because that is the one figure
+ * that lets someone fix it without guessing.
+ */
+function overHeadroomMessage(grant: DaGrant, ceiling: number): string {
+  const room = fmt(Math.max(0, Math.floor(ceiling)));
+  return `Not saved: ${fmt(grant.to)} for ${grant.name} is above the discretionary headroom. At most ${room} can be taken from the unlocked bonuses before one of them reaches $0. Reduce it to ${room} or less and save again.`;
+}
+
+/**
+ * One line for the audit trail: what was granted, what bounded it, and how many
+ * bonuses paid for it. `grantCount` is here so a multi-grant save says plainly
+ * that the reduction count covers the whole save rather than this one grant.
+ */
+function grantSummary(grant: DaGrant, reducedCount: number, grantCount: number): string {
+  const who = grant.name;
+  const headroom = Number.isFinite(grant.headroom)
+    ? `headroom at the time ${fmt(Math.max(0, Math.floor(grant.headroom)))}`
+    : "no pool bound";
+  const scope = grantCount > 1 ? " by this save" : "";
+  const paid =
+    reducedCount === 1
+      ? `1 bonus reduced${scope}`
+      : `${reducedCount} bonuses reduced${scope}`;
+  if (grant.amount < 0) {
+    return `Discretionary for ${who} reduced from ${fmt(grant.from)} to ${fmt(grant.to)} (${headroom})`;
+  }
+  return `Discretionary grant of ${fmt(grant.amount)} to ${who}, now ${fmt(grant.to)} (${paid}; ${headroom})`;
 }
 
 function noStore(res: NextResponse): NextResponse {

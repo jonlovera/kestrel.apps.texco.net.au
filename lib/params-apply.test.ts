@@ -17,11 +17,13 @@ describe("applyParams", () => {
     expect(eff.vCap).toBe(data.vCap);
     const emps = applyOverrides(eff.emp, {});
     const pool = computeScalesAndBonuses(emps, eff);
-    // Anchors match lib/calc-golden.test.ts (re-anchored for the Aug 2026
-    // DA-on-top methodology change).
-    expect(pool.vicScale).toBe(0.6717823483284814);
+    // Anchors match lib/calc-golden.test.ts (re-anchored for the 24 August
+    // 2026 pool-funded DA reform: the one source DA of 3000 is absorbed by
+    // the VIC pool again, so the total lands exactly on gCap).
+    expect(pool.vicScale).toBe(0.6701269613529727);
+    expect(pool.vicScaleBase).toBe(0.6717823483284814);
     expect(pool.nswScale).toBe(0.7820525079336984);
-    expect(emps.reduce((s, e) => s + e.finalBonus, 0)).toBe(2621822.7499999995);
+    expect(emps.reduce((s, e) => s + e.finalBonus, 0)).toBe(2618822.75);
   });
 
   it("a 0.5 modifier exactly halves every derived after-IPM figure", () => {

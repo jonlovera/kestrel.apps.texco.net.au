@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { DashboardPayload, DisplayRow } from "@/lib/payload-types";
 import { NUMERIC_FIELDS, type NumericField } from "@/lib/access-types";
@@ -25,17 +25,21 @@ import {
   type CalcEmployee,
   type PoolState,
 } from "@/lib/calc";
+import { clampDa, daHeadroom, type DaImpact } from "@/lib/da-impact";
 import { fmt } from "@/lib/fmt";
+import DaConfirmModal from "./DaConfirmModal";
 import { TexcoX, TexcoWordmark } from "./TexcoBrand";
 import { PoolCard } from "./PoolCard";
-import { MultiSelect } from "./MultiSelect";
+import { PoolStrip, type PoolSummary } from "./PoolStrip";
 import EmployeeTable, { type TableColumn } from "./EmployeeTable";
 import EmployeeEditModal from "./EmployeeEditModal";
 import EmployeeAddModal from "./EmployeeAddModal";
-import ColumnMenu from "./ColumnMenu";
+import FiltersMenu from "./FiltersMenu";
+import AccountMenu from "./AccountMenu";
 import EditableText from "./EditableText";
 import Dropzone from "./Dropzone";
-import { ViewAsPicker, type ViewAsState } from "./ViewAsBar";
+import { ViewAsExitButton, type ViewAsState } from "./ViewAsBar";
+import { useScrollCollapse } from "@/lib/use-scroll-collapse";
 import {
   useImportFlow,
   ImportErrors,
@@ -59,6 +63,18 @@ const OVERRIDE_EDITABLE = ["da", "ipm"];
 const DATASET_EDITABLE = ["bipm", "vp", "np"];
 /** localStorage key for the build-up group's collapse state (per browser). */
 const BUILDUP_KEY = "kestrel:buildup-open";
+/**
+ * A facet filters only when a real subset is ticked. An EMPTY selection
+ * means "no filter", not "match nothing": the picker's button reads
+ * "All {label}" for both the full and the empty set, and unticking its
+ * Select all used to blank the whole table underneath a button still
+ * claiming "All Roles". This also keeps a one-option facet usable (a
+ * lead whose team is all one category would otherwise only ever have
+ * "everything" or "nothing"). Shared with the Filters button's badge so
+ * the count can never disagree with what actually narrows the table.
+ */
+const filterApplies = (sel: string[], all: readonly string[]) =>
+  sel.length > 0 && sel.length !== all.length;
 
 export default function DashboardClient({
   payload,
@@ -245,6 +261,27 @@ export default function DashboardClient({
   } | null>(null);
   /** A dismissible one-liner ("a colleague saved, changes combined"). */
   const [notice, setNotice] = useState<string | null>(null);
+  /** A discretionary amount was held to the headroom ceiling. */
+  const [daNotice, setDaNotice] = useState<string | null>(null);
+  /**
+   * Bumped per row when an entry is held at a figure the cell is already
+   * showing, purely to force the uncontrolled input to remount and drop the
+   * typed text. Keyed by employee id; the count itself means nothing.
+   */
+  const [daNonce, setDaNonce] = useState<Record<string, number>>({});
+  /**
+   * The pending discretionary confirmation (/api/state gate 5). The impact
+   * figures come from the server, which refused to save until they are
+   * acknowledged; `doc` is what it judged, so confirming re-sends exactly that.
+   * `open` is false when an autosave triggered it — a modal appearing on its
+   * own mid-typing helps nobody, so that surfaces as a banner instead and the
+   * person opens it when they're ready.
+   */
+  const [daConfirm, setDaConfirm] = useState<{
+    impact: DaImpact;
+    doc: Overrides;
+    open: boolean;
+  } | null>(null);
   /**
    * The server's refusal when a save would put this manager further above
    * their pool (/api/state gate 3). Held rather than thrown: the work stays on
@@ -261,6 +298,14 @@ export default function DashboardClient({
     null
   );
   const blockedMsg = blocked && blocked.doc === overrides ? blocked.msg : null;
+  /**
+   * The confirmation only speaks for the document it was measured on, so any
+   * further edit retires it — the same derivation `blockedMsg` uses, and for the
+   * same reason. Saving again fetches fresh figures rather than confirming
+   * yesterday's ones.
+   */
+  const daConfirmLive =
+    daConfirm && daConfirm.doc === overrides ? daConfirm : null;
 
   // Refs kept current so the long-lived timers and unload handlers below
   // always see fresh state without re-registering. conflictRef and
@@ -335,7 +380,8 @@ export default function DashboardClient({
    */
   async function save(
     source: "manual" | "auto" = "manual",
-    docOverride?: Overrides
+    docOverride?: Overrides,
+    opts?: { confirmDa?: boolean }
   ): Promise<boolean> {
     // Belt-and-braces: the Save button is not rendered in a read-only view,
     // and requireScopedWriter would refuse anyway. Neither is a reason to
@@ -363,6 +409,8 @@ export default function DashboardClient({
           // if the view has meanwhile ended, so a lapsed cookie can never
           // turn this document into a write against the actor's own scope
           ...(viewingAs ? { viewFor: viewingAs } : {}),
+          // only ever true straight off the confirmation modal's button
+          ...(opts?.confirmDa ? { confirmDa: true } : {}),
         }),
       });
       if (res.status === 409) {
@@ -394,6 +442,19 @@ export default function DashboardClient({
           setConflict(conflictRef.current);
           setSaveStatus("idle");
         }
+        return false;
+      }
+      if (res.status === 428) {
+        // Discretionary grants need saying yes to first. Not an error and not a
+        // block: the work stays on screen and stays dirty, and the person is
+        // shown who pays before it goes anywhere. A manual save opens the
+        // dialogue straight away; an autosave leaves a banner instead.
+        const body = await res.json().catch(() => ({}) as Record<string, unknown>);
+        const impact = body.impact as DaImpact | undefined;
+        if (impact) {
+          setDaConfirm({ impact, doc: sent, open: source === "manual" });
+        }
+        setSaveStatus("idle");
         return false;
       }
       if (res.status === 422) {
@@ -479,6 +540,18 @@ export default function DashboardClient({
     } finally {
       setExporting(false);
     }
+  }
+
+  /**
+   * "Confirm and save": re-send the very document the server measured, this
+   * time carrying the consent. The server re-derives the impact and writes the
+   * grant log, so what gets recorded is what was actually agreed to.
+   */
+  function confirmDaGrants() {
+    const pending = daConfirmLive;
+    if (!pending) return;
+    setDaConfirm(null);
+    void save("manual", pending.doc, { confirmDa: true });
   }
 
   /** The conflict banner's buttons: settle every contested figure one way. */
@@ -743,6 +816,13 @@ export default function DashboardClient({
    * real and worth stating: this does not follow someone to a second device.
    */
   const [buildupOpen, setBuildupOpen] = useState(false);
+  /**
+   * The table's scroll box, held as state via a callback ref (it unmounts on
+   * the History tab), so the pool cards can collapse to a strip while the
+   * list is scrolled and give the rows the room back.
+   */
+  const [tableScrollEl, setTableScrollEl] = useState<HTMLDivElement | null>(null);
+  const poolCollapsed = useScrollCollapse(tableScrollEl);
   useEffect(() => {
     if (typeof window === "undefined") return;
     // Syncing React state from an external store (localStorage) on mount is
@@ -826,6 +906,9 @@ export default function DashboardClient({
 
   function openTab(t: Tab) {
     setActiveTab(t);
+    // Back to the top of the new tab's list, which also re-expands the pool
+    // cards — a tab change is a fresh look, not a continuation of a scroll.
+    tableScrollEl?.scrollTo({ top: 0 });
     if (t === "HISTORY" && history === null) fetchHistory();
   }
 
@@ -940,22 +1023,13 @@ export default function DashboardClient({
           r.st.toLowerCase().includes(q)
       );
     }
-    // A facet filters only when a real subset is ticked. An EMPTY selection
-    // means "no filter", not "match nothing": the picker's button reads
-    // "All {label}" for both the full and the empty set, and unticking its
-    // Select all used to blank the whole table underneath a button still
-    // claiming "All Roles". This also keeps a one-option facet usable (a
-    // lead whose team is all one category would otherwise only ever have
-    // "everything" or "nothing").
-    const applies = (sel: string[], all: readonly string[]) =>
-      sel.length > 0 && sel.length !== all.length;
-    if (applies(selRoles, facets.roles))
+    if (filterApplies(selRoles, facets.roles))
       list = list.filter((r) => selRoles.includes(r.pos));
-    if (applies(selCats, facets.cats))
+    if (filterApplies(selCats, facets.cats))
       list = list.filter((r) => selCats.includes(r.cat));
-    if (applies(selDepts, facets.depts))
+    if (filterApplies(selDepts, facets.depts))
       list = list.filter((r) => selDepts.includes(r.dept));
-    if (applies(selMgrs, facets.mgrs))
+    if (filterApplies(selMgrs, facets.mgrs))
       list = list.filter((r) => selMgrs.includes(r.mgr));
 
     if (sortCol !== null) {
@@ -1011,19 +1085,59 @@ export default function DashboardClient({
   }
 
   function updateDA(id: string, val: string) {
-    // No pool cap here any more: a discretionary adjustment is a manual
-    // +/- amount on top of the pool calculation (owner decision), so it has
-    // no pool-derived maximum and may be negative.
-    const num = parseDaInput(val);
+    // The hard limit (owner decision, 24 Aug 2026). A discretionary amount is
+    // funded from the pool, so what bounds it is not the cap — the cap holds by
+    // construction — but how much can be taken from the other UNLOCKED bonuses
+    // before one of them reaches $0 (lib/da-impact.ts's daHeadroom; locked
+    // bonuses and site managers can't be reduced, so they're not in it).
+    // Anything above that ceiling is held to it and said out loud. A reduction
+    // is never held back.
+    //
+    // Read-only leads are deliberately never sent the dataset or the caps, so
+    // there is no ceiling to apply here for them; /api/state's gate 4 refuses
+    // an over-headroom figure on their behalf, and gate 5 makes both kinds of
+    // user confirm before anything is recorded.
+    let num = parseDaInput(val);
     if (isEditor) {
       const emp = empById.get(id);
-      if (!emp || emp.locked || emp.sm) return;
+      if (!emp || emp.locked) return;
+      const ceiling = pool ? daHeadroom(emp, pool) : Infinity;
+      const held = clampDa(num, emp.daEdit, ceiling);
+      num = held.value;
+      if (held.clamped) {
+        setDaNotice(
+          `${emp.gn} ${emp.sn} was held to ${fmt(num)}. That is the most that can be taken from the unlocked bonuses before one of them reaches $0.`
+        );
+        // The cell is uncontrolled and keyed on the stored figure, so a value
+        // held at what is already there wouldn't re-render on its own — the
+        // typed text would sit there looking accepted. Force the remount.
+        setDaNonce((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }));
+      } else if (daNotice) {
+        setDaNotice(null);
+      }
     } else {
       const row = rowById.get(id);
-      if (!row || row.locked || row.sm || !row.inPool) return;
+      if (!row || row.locked || !row.inPool) return;
     }
     setOverride(id, { daEdit: num });
   }
+
+  /**
+   * The ceiling for one row, for the hint the table shows on a focused cell —
+   * so the limit is visible before anyone types into it rather than only after
+   * they have been held to it. Null when there is nothing to show (a lead, who
+   * has no engine here, or a row with no pool bound).
+   */
+  const daHeadroomFor = useCallback(
+    (id: string): number | null => {
+      if (!isEditor || !pool) return null;
+      const emp = empById.get(id);
+      if (!emp || emp.locked) return null;
+      const ceiling = daHeadroom(emp, pool);
+      return Number.isFinite(ceiling) ? Math.max(0, Math.floor(ceiling)) : null;
+    },
+    [isEditor, pool, empById]
+  );
 
   /**
    * IPM is the one figure a site manager's own bonus does still move with
@@ -1136,17 +1250,19 @@ export default function DashboardClient({
     if (await patchDataset({ op: "exclude", id })) setEditingId(null);
   }
 
-  /** Move someone between the pools, from the edit modal. */
+  /**
+   * Move someone between the pools, from the edit modal. `vicShare` carries a
+   * funding split for any state, not just Shared Services — omitted, VIC and
+   * NSW take the whole of their own pool. Undefined serialises away, so the
+   * server sees no vp at all and applies that default itself.
+   */
   async function changeState(
     id: string,
     st: Employee["st"],
     vicShare?: number
   ) {
-    const patch: DatasetPatch =
-      st === "SHARED"
-        ? { op: "state", id, st, vp: vicShare }
-        : { op: "state", id, st };
-    if (await patchDataset(patch)) setEditingId(null);
+    if (await patchDataset({ op: "state", id, st, vp: vicShare }))
+      setEditingId(null);
   }
 
   /** "+ Add person": one op through the same funnel; closes on success. */
@@ -1176,8 +1292,19 @@ export default function DashboardClient({
     return t;
   }, [visibleRows, payload.columns]);
 
-  // ── pool cards ──
-  const poolCardEls = useMemo(() => {
+  /** How many facets are actually narrowing the table — the Filters badge. */
+  const activeFilterCount =
+    (filterApplies(selRoles, facets.roles) ? 1 : 0) +
+    (filterApplies(selCats, facets.cats) ? 1 : 0) +
+    (filterApplies(selDepts, facets.depts) ? 1 : 0) +
+    (filterApplies(selMgrs, facets.mgrs) ? 1 : 0);
+
+  // ── pool summary ──
+  // The figures as data first, then two renderings of the same object: the
+  // full cards below, and the thin strip they collapse into once the table
+  // is scrolled (PoolStrip). Neither computes anything of its own, so the
+  // two can never disagree.
+  const poolSummary = useMemo<PoolSummary | null>(() => {
     if (!isEditor) {
       // A manager sees their OWN pool and nothing wider: no group total, no
       // other state, no whole-of-VIC figure. What replaced the old "VIC pool"
@@ -1188,21 +1315,15 @@ export default function DashboardClient({
       // header and the footer cannot disagree.
       if (!mgrPool) return null;
       const short = mgrPool.remaining <= 0;
-      return [
-        <PoolCard key="pool" title="Your pool" value={fmt(mgrPool.pool)} />,
-        <PoolCard key="alloc" title="Allocated" value={fmt(mgrPool.allocated)} />,
-        <PoolCard
-          key="remaining"
-          title="Remaining"
-          value={fmt(mgrPool.remaining)}
-          tone={short ? "alert" : "normal"}
-        />,
-        <PoolCard
-          key="people"
-          title="People in scope"
-          value={String(mgrPool.people)}
-        />,
-      ];
+      return {
+        kind: "manager",
+        items: [
+          { key: "pool", title: "Your pool", value: fmt(mgrPool.pool) },
+          { key: "alloc", title: "Allocated", value: fmt(mgrPool.allocated) },
+          { key: "remaining", title: "Remaining", value: fmt(mgrPool.remaining), alert: short },
+          { key: "people", title: "People in scope", value: String(mgrPool.people) },
+        ],
+      };
     }
     if (!pool) return null;
 
@@ -1211,20 +1332,57 @@ export default function DashboardClient({
     // matching tab (ALL for group, VIC/NSW for each state card), so the two
     // agree whenever no search/filter narrows the footer's count. Computed
     // the same way lib/scope-core.ts computes a lead's own stateBonuses:
-    // finalBonus summed per state. Shared Services gets its own card (it
-    // draws from both pools without appearing on either state's tab) so
-    // VIC + NSW + Shared Services sums to Group exactly, instead of the two
-    // state cards silently falling short of it.
+    // finalBonus summed per state. Shared Services gets its own card (nobody
+    // there appears on either state's tab) so VIC + NSW + Shared Services
+    // sums to Group exactly, instead of the state cards silently falling
+    // short of it.
+    //
+    // These are whole finals grouped by HOME STATE, not each pool's draw on
+    // its cap. Someone whose cost splits — a VIC employee doing a portion of
+    // NSW work, or anyone in Shared Services — has their whole bonus counted
+    // under the state they belong to, while the engine funds the fractions
+    // from each cap (lib/calc.ts's getVicAlloc/getNswAlloc are the per-pool
+    // figures). So the cap footers read as a guide, not a reconciliation.
     const vicTotal = emps.filter((e) => e.st === "VIC").reduce((s, e) => s + e.finalBonus, 0);
     const nswTotal = emps.filter((e) => e.st === "NSW").reduce((s, e) => s + e.finalBonus, 0);
     const sharedTotal = emps.filter((e) => e.st === "SHARED").reduce((s, e) => s + e.finalBonus, 0);
     const groupTotal = emps.reduce((s, e) => s + e.finalBonus, 0);
 
+    // A figure goes red when it exceeds its cap. With DA pool-funded and
+    // clamped at type time (getMaxDA) a fresh edit cannot cause this; it
+    // surfaces stored pre-reform over-cap figures until they are corrected.
+    // Half-a-cent slack so float noise never paints a card red.
+    const over = (value: number, cap: number) => value > cap + 0.005;
+    const { vCap, nCap, gCap } = params;
+    const t = copy.poolTitles;
+    return {
+      kind: "editor",
+      items: [
+        { key: "vic", title: t.vic, value: vicTotal, cap: vCap, over: over(vicTotal, vCap) },
+        { key: "nsw", title: t.nsw, value: nswTotal, cap: nCap, over: over(nswTotal, nCap) },
+        { key: "shared", title: "Shared Services", value: sharedTotal, over: false },
+        { key: "group", title: t.group, value: groupTotal, cap: gCap, over: over(groupTotal, gCap) },
+      ],
+    };
+  }, [isEditor, mgrPool, pool, emps, copy, params]);
+
+  const poolCardEls = useMemo(() => {
+    if (!poolSummary) return null;
+    if (poolSummary.kind === "manager") {
+      return poolSummary.items.map((it) => (
+        <PoolCard
+          key={it.key}
+          title={it.title}
+          value={it.value}
+          tone={it.alert ? "alert" : "normal"}
+        />
+      ));
+    }
+
     // The cap itself, underneath the total — visible to every admin, but
     // only ever an input for the ones holding canEditCapsNow (its own grant,
     // separate from isEditor). The server decides again on every write
     // (lib/params-apply.ts's canChangeCaps), this only renders the affordance.
-    const { vCap, nCap, gCap } = params;
     const capFooter = (label: string, cap: number, onCommit: (next: string) => void) => (
       <div className="mt-1.5 flex items-center gap-1 text-[11px] text-brand-70">
         Cap:
@@ -1238,36 +1396,29 @@ export default function DashboardClient({
         />
       </div>
     );
-    const card = (which: string, title: string, value: number, footer?: React.ReactNode) => (
-      <PoolCard key={which} title={title} value={fmt(value)} footer={footer} />
-    );
+    const capCommits: Record<string, { label: string; commit: (next: string) => void }> = {
+      vic: { label: "VIC pool cap", commit: (next) => updateParams({ vCap: parseDaInput(next) }) },
+      nsw: { label: "NSW pool cap", commit: (next) => updateParams({ nCap: parseDaInput(next) }) },
+      group: { label: "Group pool cap", commit: (next) => updateParams({ gCap: parseDaInput(next) }) },
+    };
 
-    const t = copy.poolTitles;
-    return [
-      card(
-        "vic",
-        t.vic,
-        vicTotal,
-        capFooter("VIC pool cap", vCap, (next) => updateParams({ vCap: parseDaInput(next) }))
-      ),
-      card(
-        "nsw",
-        t.nsw,
-        nswTotal,
-        capFooter("NSW pool cap", nCap, (next) => updateParams({ nCap: parseDaInput(next) }))
-      ),
-      card("shared", "Shared Services", sharedTotal),
-      card(
-        "group",
-        t.group,
-        groupTotal,
-        capFooter("Group pool cap", gCap, (next) => updateParams({ gCap: parseDaInput(next) }))
-      ),
-    ];
+    return poolSummary.items.map((it) => (
+      <PoolCard
+        key={it.key}
+        title={it.title}
+        value={fmt(it.value)}
+        footer={
+          it.cap !== undefined && capCommits[it.key]
+            ? capFooter(capCommits[it.key].label, it.cap, capCommits[it.key].commit)
+            : undefined
+        }
+        tone={it.over ? "alert" : "normal"}
+      />
+    ));
     // updateParams is recreated every render and would defeat the memo; it
-    // only ever reads the same `params` already listed here.
+    // only ever reads the same `params` poolSummary already derives from.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEditor, mgrPool, pool, emps, copy, params, canEditCapsNow, dsBusy]);
+  }, [poolSummary, canEditCapsNow, dsBusy]);
 
   /** One human-readable line per contested figure in the conflict banner. */
   function conflictLine(c: OverrideConflict): string {
@@ -1321,9 +1472,12 @@ export default function DashboardClient({
       : null);
 
   return (
-    <div className="flex min-h-screen flex-col">
+    // The shell is exactly one viewport tall and never scrolls itself — the
+    // employee table is the page's single vertical scroller, so its heading
+    // row can't leave the screen and there's only ever one scrollbar.
+    <div className="flex h-dvh flex-col overflow-hidden">
       {/* Top bar */}
-      <div className="sticky top-0 z-40 flex items-center justify-between bg-brand-95 px-6 py-3">
+      <div className="relative z-40 flex items-center justify-between bg-brand-95 px-6 py-2">
         <div className="flex items-center">
           <TexcoX className="mr-2.5 h-[22px] w-[22px] shrink-0 text-brand-orange" />
           <TexcoWordmark className="mr-4 h-[18px] w-auto shrink-0 text-white" />
@@ -1385,11 +1539,6 @@ export default function DashboardClient({
                     : "Saved"}
             </button>
           )}
-          <span className="text-right text-xs leading-tight text-brand-orange-soft">
-            {payload.user.name}
-            <br />
-            <span className="text-[10px] opacity-80">{payload.user.scopeLabel}</span>
-          </span>
           <button
             type="button"
             onClick={toggleShowAll}
@@ -1398,38 +1547,18 @@ export default function DashboardClient({
           >
             {showAll ? "Hide everything" : "Show everything"}
           </button>
-          {viewAs && (
-            <ViewAsPicker
-              candidates={viewAs.candidates}
-              viewingAs={viewingAs}
-              canAct={canAct}
-            />
-          )}
-          {isEditor && !viewingAs && (
-            <button
-              type="button"
-              onClick={() => void exportNow()}
-              disabled={exporting}
-              title="Download the current figures as an Excel workbook, for the HR folder. Unsaved changes are saved first."
-              className="border border-brand-orange/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white disabled:opacity-40"
-            >
-              {exporting ? "Exporting…" : "Export"}
-            </button>
-          )}
-          {isEditor && !viewingAs && (
-            <Link
-              href="/admin"
-              className="border border-brand-orange/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white"
-            >
-              Admin
-            </Link>
-          )}
-          <a
-            href="/logout"
-            className="border border-brand-orange/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white"
-          >
-            Logout
-          </a>
+          {/* An active view stays out in the bar — it's state to see and
+              leave at a glance, not a command to bury in the menu. */}
+          {viewingAs && <ViewAsExitButton viewingAs={viewingAs} canAct={canAct} />}
+          <AccountMenu
+            userName={payload.user.name}
+            scopeLabel={payload.user.scopeLabel}
+            viewAs={viewAs}
+            viewingAs={viewingAs}
+            isEditor={isEditor}
+            exporting={exporting}
+            onExport={() => void exportNow()}
+          />
         </div>
       </div>
 
@@ -1466,29 +1595,89 @@ export default function DashboardClient({
       {/* Widened from 1600px so the build-up columns have real room once
           expanded — the table's own horizontal scroll (EmployeeTable.tsx)
           remains the fallback on a narrower screen. */}
-      <div className="mx-auto w-full max-w-[2400px] flex-1 px-5 py-4">
-        {/* Tabs (editors only, like the prototype master view) */}
-        {isEditor && (
-          <div className="mb-4 flex gap-1">
-            {(["ALL", "VIC", "NSW", "SHARED", "HISTORY"] as Tab[]).map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => openTab(t)}
-                className={`px-5 py-2 text-xs font-bold tracking-wide transition-colors ${activeTab === t
-                    ? "bg-brand-orange text-white"
-                    : "bg-neutral-200 text-brand-70 hover:bg-neutral-300"
-                  }`}
-              >
-                {t === "ALL" ? "All" : t === "SHARED" ? "Shared" : t === "HISTORY" ? "History" : t}
-              </button>
-            ))}
-          </div>
-        )}
+      <div className="mx-auto flex min-h-0 w-full max-w-[2400px] flex-1 flex-col px-5 pt-4">
+        {/* Tabs (editors only, like the prototype master view), sharing one
+            row with the search box, the Filters button and the counts —
+            everything else the toolbar used to hold lives inside the
+            Filters & options panel now. */}
+        <div className="mb-3 flex shrink-0 flex-wrap items-center gap-3">
+          {isEditor && (
+            <div className="flex gap-1">
+              {(["ALL", "VIC", "NSW", "SHARED", "HISTORY"] as Tab[]).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => openTab(t)}
+                  className={`px-4 py-1.5 text-xs font-bold tracking-wide transition-colors ${activeTab === t
+                      ? "bg-brand-orange text-white"
+                      : "bg-neutral-200 text-brand-70 hover:bg-neutral-300"
+                    }`}
+                >
+                  {t === "ALL" ? "All" : t === "SHARED" ? "Shared" : t === "HISTORY" ? "History" : t}
+                </button>
+              ))}
+            </div>
+          )}
+          {activeTab !== "HISTORY" && (
+            <>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search employees..."
+                className="w-full border-2 border-neutral-200 px-3.5 py-1.5 text-[13px] outline-none focus:border-brand-orange sm:w-[220px]"
+              />
+              <FiltersMenu
+                facets={facets}
+                selRoles={selRoles}
+                setSelRoles={setSelRoles}
+                selCats={selCats}
+                setSelCats={setSelCats}
+                selDepts={selDepts}
+                setSelDepts={setSelDepts}
+                selMgrs={selMgrs}
+                setSelMgrs={setSelMgrs}
+                activeFilterCount={activeFilterCount}
+                configuring={configuring}
+                dsBusy={dsBusy}
+                onAddPerson={() => {
+                  setDsError(null);
+                  setAdding(true);
+                }}
+                columnConfig={columnConfig}
+                onColumnConfigChange={applyColumnConfig}
+                companyModifier={params.companyModifier}
+                buildupColumnCount={buildupColumnCount}
+                buildupOpen={buildupOpen}
+                onToggleBuildup={toggleBuildup}
+              />
+              <div className="ml-auto flex items-center gap-3 text-xs text-brand-70">
+                <span className="bg-neutral-100 px-2.5 py-1">
+                  Showing: {visibleRows.length} / {allRows.length}
+                </span>
+                {typeof totFinal === "number" && (
+                  <span className="bg-neutral-100 px-2.5 py-1">
+                    Total bonuses: {fmt(totFinal)}
+                    {(activeTab === "VIC" ||
+                      activeTab === "NSW" ||
+                      (!isEditor && visibleRows.length < allRows.length)) && (
+                      // Matches the card above exactly when nothing is
+                      // filtered — this figure narrows with any search or
+                      // category filter, the card doesn't.
+                      <span className="font-normal text-neutral-400">
+                        {" "}(filtered rows — see the card above for the true total)
+                      </span>
+                    )}
+                  </span>
+                )}
+              </div>
+            </>
+          )}
+        </div>
 
         {activeTab === "HISTORY" ? (
-          <div className="mb-5 bg-white shadow-sm">
-            <div className="flex items-center justify-between border-b border-neutral-100 px-4 py-3">
+          <div className="flex min-h-0 flex-1 flex-col bg-white shadow-sm">
+            <div className="flex shrink-0 items-center justify-between border-b border-neutral-100 px-4 py-3">
               <h2 className="text-[13px] font-bold">
                 Change history
               </h2>
@@ -1501,7 +1690,7 @@ export default function DashboardClient({
                 {historyLoading ? "Loading…" : "Refresh"}
               </button>
             </div>
-            <div className="max-h-[calc(100vh-240px)] overflow-auto">
+            <div className="min-h-0 flex-1 overflow-auto">
               {history === null || historyLoading ? (
                 <div className="px-4 py-8 text-center text-[13px] text-brand-70">
                   Loading…
@@ -1584,12 +1773,50 @@ export default function DashboardClient({
               </div>
             )}
 
+            {/* An autosave found discretionary grants waiting on a yes. The
+                dialogue is not thrown up mid-typing; this is the way back to
+                it. */}
+            {daConfirmLive && !daConfirmLive.open && (
+              <div className="mb-4 flex items-start justify-between gap-4 border-2 border-brand-orange/60 bg-white px-4 py-2 text-[13px] font-semibold">
+                <span>
+                  {daConfirmLive.impact.grants.length === 1
+                    ? "A discretionary change is waiting on your confirmation before it can be saved."
+                    : `${daConfirmLive.impact.grants.length} discretionary changes are waiting on your confirmation before they can be saved.`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDaConfirm((c) => (c ? { ...c, open: true } : c))
+                  }
+                  className="shrink-0 text-[11px] tracking-wide underline"
+                >
+                  Review and confirm
+                </button>
+              </div>
+            )}
+
             {notice && !conflict && (
               <div className="mb-4 flex items-start justify-between gap-4 border-2 border-brand-orange/60 bg-white px-4 py-2 text-[13px] font-semibold">
                 <span>{notice}</span>
                 <button
                   type="button"
                   onClick={() => setNotice(null)}
+                  className="shrink-0 text-[11px] tracking-wide underline"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {/* An entry was held to the headroom ceiling — informational, not
+                an error: the held figure has been kept, and it is the most the
+                unlocked bonuses can fund. */}
+            {isEditor && daNotice && (
+              <div className="mb-4 flex items-start justify-between gap-4 border-2 border-brand-orange/60 bg-white px-4 py-2 text-[13px] font-semibold">
+                <span>{daNotice}</span>
+                <button
+                  type="button"
+                  onClick={() => setDaNotice(null)}
                   className="shrink-0 text-[11px] tracking-wide underline"
                 >
                   Dismiss
@@ -1632,103 +1859,37 @@ export default function DashboardClient({
               </div>
             )}
 
-            {/* Pool summary — frozen, so "remaining to allocate" stays on
-                screen while the employee list scrolls underneath it. The
-                offset clears the sticky top bar, plus the banner when shown. */}
-            <div
-              className="sticky z-30 -mx-5 mb-4 flex flex-wrap gap-4 bg-surface-sunken px-5 pb-4 pt-1"
-              style={{ top: copy.bannerVisible ? 78 : 52 }}
-            >
-              {poolCardEls}
-            </div>
-
-            {/* Controls */}
-            <div className="mb-3 flex flex-wrap items-center gap-3">
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search employees..."
-                className="w-full border-2 border-neutral-200 px-3.5 py-2 text-[13px] outline-none focus:border-brand-orange sm:w-[220px]"
-              />
-              {/* "Roles" = positions, matching what the word means on the
-                  access screen. The cat facet ("Employee" / "Texco
-                  Management") keeps its own picker under the name the rest
-                  of the app uses for that field: Category. */}
-              <MultiSelect label="Roles" items={facets.roles} selected={selRoles} onChange={setSelRoles} />
-              <MultiSelect label="Categories" items={facets.cats} selected={selCats} onChange={setSelCats} />
-              <MultiSelect label="Departments" items={facets.depts} selected={selDepts} onChange={setSelDepts} />
-              <MultiSelect label="Managers" items={facets.mgrs} selected={selMgrs} onChange={setSelMgrs} />
-              {configuring && (
-                <>
-                  {/* Restored: new starters shouldn't wait for the next
-                      workbook. Admin-only by the same gate as every other
-                      roster control (requireWriter server-side). */}
-                  <button
-                    type="button"
-                    disabled={dsBusy}
-                    onClick={() => {
-                      setDsError(null);
-                      setAdding(true);
-                    }}
-                    className="border-2 border-brand-orange px-3.5 py-1.5 text-[11px] font-bold tracking-wide text-brand-orange transition-colors hover:bg-brand-orange hover:text-white disabled:opacity-40"
-                  >
-                    + Add person
-                  </button>
-                  <ColumnMenu
-                    config={columnConfig}
-                    onChange={applyColumnConfig}
-                    busy={dsBusy}
-                  />
-                  {/* Informational only, per the walkthrough: it scales every
-                      After-IPM figure, so it is not something to nudge from
-                      here. It changes with the scheme, not with an allocation. */}
-                  <span
-                    className="flex items-center gap-1.5 border-2 border-neutral-200 px-2.5 py-1 text-[11px] font-semibold text-brand-70"
-                    title="Scales every After-IPM figure. 1 = no change."
-                  >
-                    Company modifier
-                    <span className="tabular-nums text-brand-95">
-                      {params.companyModifier}
-                    </span>
-                  </span>
-                </>
-              )}
-              <div className="ml-auto flex items-center gap-3 text-xs text-brand-70">
-                <span className="bg-neutral-100 px-2.5 py-1">
-                  Showing: {visibleRows.length} / {allRows.length}
-                </span>
-                {typeof totFinal === "number" && (
-                  <span className="bg-neutral-100 px-2.5 py-1">
-                    Total bonuses: {fmt(totFinal)}
-                    {(activeTab === "VIC" ||
-                      activeTab === "NSW" ||
-                      (!isEditor && visibleRows.length < allRows.length)) && (
-                      // Matches the card above exactly when nothing is
-                      // filtered — this figure narrows with any search or
-                      // category filter, the card doesn't.
-                      <span className="font-normal text-neutral-400">
-                        {" "}(filtered rows — see the card above for the true total)
-                      </span>
-                    )}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Sits right above its own columns rather than up in the top
-                toolbar — easier to find exactly where it takes effect, and
-                just as easy to collapse again once you're done. */}
-            {buildupColumnCount > 0 && (
-              <button
-                type="button"
-                onClick={toggleBuildup}
-                className="mb-2 flex items-center gap-1.5 border border-brand-orange/50 px-3 py-1 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white"
-                title="Eligibility %, Package, Bonus %, Potential Bonus and After IPM, side by side"
-              >
-                <span className="text-[9px]">{buildupOpen ? "▾" : "▸"}</span>
-                {buildupOpen ? "Hide build-up" : `Show build-up (${buildupColumnCount})`}
-              </button>
+            {/* Pool summary — full cards while the list sits at the top,
+                collapsing into a thin strip of the same figures once it's
+                scrolled, so "remaining to allocate" stays on screen while
+                the rows get the room back. Both regions animate their grid
+                track between 0fr and 1fr: real content height, no measured
+                magic numbers, wrapping cards included. */}
+            {poolSummary && (
+              <>
+                <div
+                  inert={poolCollapsed}
+                  className={`grid shrink-0 transition-[grid-template-rows] duration-300 ease-out ${
+                    poolCollapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]"
+                  }`}
+                >
+                  <div className="min-h-0 overflow-hidden">
+                    <div className="mb-4 flex flex-wrap gap-4">{poolCardEls}</div>
+                  </div>
+                </div>
+                <div
+                  aria-hidden={!poolCollapsed}
+                  className={`grid shrink-0 transition-[grid-template-rows] duration-300 ease-out ${
+                    poolCollapsed ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+                  }`}
+                >
+                  <div className="min-h-0 overflow-hidden">
+                    <div className="mb-2">
+                      <PoolStrip summary={poolSummary} />
+                    </div>
+                  </div>
+                </div>
+              </>
             )}
 
             <EmployeeTable
@@ -1743,6 +1904,8 @@ export default function DashboardClient({
               sortCol={sortCol}
               sortDir={sortDir}
               onSort={doSort}
+              daNonce={daNonce}
+              daHeadroomFor={daHeadroomFor}
               handlers={{
                 updateDA,
                 updateIPM,
@@ -1752,12 +1915,13 @@ export default function DashboardClient({
                 renameColumn,
                 editEmployee: setEditingId,
               }}
+              scrollRef={setTableScrollEl}
             />
           </>
         )}
       </div>
 
-      <footer className="border-t-2 border-brand-orange bg-white px-6 py-3.5 text-center text-[11px] tracking-wide text-brand-70">
+      <footer className="shrink-0 border-t-2 border-brand-orange bg-white px-6 py-2 text-center text-[11px] tracking-wide text-brand-70">
         <EditableText
           value={copy.footerText}
           editing={configuring}
@@ -1892,6 +2056,20 @@ export default function DashboardClient({
             setAdding(false);
             setDsError(null);
           }}
+        />
+      )}
+
+      {/* The last thing between a discretionary grant and everyone else's
+          bonuses. Cancelling closes it and leaves the work dirty; nothing is
+          recorded until the button is pressed. */}
+      {daConfirmLive?.open && (
+        <DaConfirmModal
+          impact={daConfirmLive.impact}
+          busy={saveStatus === "saving"}
+          onConfirm={confirmDaGrants}
+          onCancel={() =>
+            setDaConfirm((c) => (c ? { ...c, open: false } : c))
+          }
         />
       )}
     </div>

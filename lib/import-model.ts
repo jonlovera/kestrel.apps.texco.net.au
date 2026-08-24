@@ -377,6 +377,11 @@ export function readModelWorkbook(wb: ExcelJS.Workbook): ModelReadResult {
     // rather than a formula that resolves to 0.999999999999 — and a false
     // SHARED there would misroute part of a real person's bonus to a pool
     // they aren't actually in.
+    //
+    // Note this is an INFERENCE, not a fact the sheet carries: a fractional
+    // split reads as SHARED here even for the VIC staff who merely do a
+    // portion of NSW work. lib/import-parse.ts's preserveSplitHomeState
+    // overrides it for anyone an admin has already flagged VIC or NSW.
     const vp = typeof rec.vp === "number" ? rec.vp : 0;
     const np = typeof rec.np === "number" ? rec.np : 0;
     rec.st = vp >= 0.999 ? "VIC" : np >= 0.999 ? "NSW" : "SHARED";

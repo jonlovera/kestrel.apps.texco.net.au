@@ -265,6 +265,73 @@ describe("candidateDataset", () => {
     const parsed = DatasetSchema.parse(legacy);
     expect(parsed.excludedIds).toEqual([]);
   });
+
+  // The model workbook has no state column — it INFERS state from the split,
+  // so every split person comes back as SHARED. That guess must not undo an
+  // admin's decision that someone is VIC staff doing a portion of NSW work.
+  describe("home state on a split person", () => {
+    const split = (over: Partial<Employee>): Employee => ({ ...mk("P"), ...over });
+    const withCurrent = (cur: Employee, incoming: Employee) =>
+      candidateDataset(
+        { emp: [cur], vCap: 1, nCap: 1, gCap: 1, excludedIds: [], ...deriveFacets([cur]) },
+        [incoming]
+      ).emp[0];
+
+    it("keeps a VIC flag when the sheet still splits them", () => {
+      const row = withCurrent(
+        split({ st: "VIC", vp: 0.92, np: 0.08 }),
+        split({ st: "SHARED", vp: 0.92, np: 0.08 })
+      );
+      expect(row).toMatchObject({ st: "VIC", vp: 0.92, np: 0.08 });
+    });
+
+    it("keeps the flag but takes the sheet's new percentages", () => {
+      // the workbook stays authoritative for the figures, the flag is ours
+      const row = withCurrent(
+        split({ st: "VIC", vp: 0.92, np: 0.08 }),
+        split({ st: "SHARED", vp: 0.85, np: 0.15 })
+      );
+      expect(row).toMatchObject({ st: "VIC", vp: 0.85, np: 0.15 });
+    });
+
+    it("keeps an NSW flag the same way", () => {
+      const row = withCurrent(
+        split({ st: "NSW", vp: 0.3, np: 0.7 }),
+        split({ st: "SHARED", vp: 0.3, np: 0.7 })
+      );
+      expect(row.st).toBe("NSW");
+    });
+
+    it("lets the sheet win when the split collapses — that is a real move", () => {
+      const row = withCurrent(
+        split({ st: "VIC", vp: 0.92, np: 0.08 }),
+        split({ st: "NSW", vp: 0, np: 1 })
+      );
+      expect(row).toMatchObject({ st: "NSW", vp: 0, np: 1 });
+    });
+
+    it("leaves someone deliberately flagged Shared Services alone", () => {
+      const row = withCurrent(
+        split({ st: "SHARED", vp: 0.61, np: 0.39 }),
+        split({ st: "SHARED", vp: 0.61, np: 0.39 })
+      );
+      expect(row.st).toBe("SHARED");
+    });
+
+    it("takes the inferred state for a new person — no decision to keep", () => {
+      const cur = mk("A");
+      const candidate = candidateDataset(
+        { emp: [cur], vCap: 1, nCap: 1, gCap: 1, excludedIds: [], ...deriveFacets([cur]) },
+        [cur, split({ id: "NEW", st: "SHARED", vp: 0.5, np: 0.5 })]
+      );
+      expect(candidate.emp[1]).toMatchObject({ st: "SHARED", vp: 0.5 });
+    });
+
+    it("does not touch a whole-pool person whose state is unchanged", () => {
+      const row = withCurrent(mk("P"), mk("P"));
+      expect(row).toMatchObject({ st: "VIC", vp: 1, np: 0 });
+    });
+  });
 });
 
 describe("filterImportedLocks", () => {

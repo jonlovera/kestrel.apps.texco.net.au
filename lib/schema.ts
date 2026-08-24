@@ -75,7 +75,7 @@ export const EmployeeOverrideSchema = z.object({
   bpEdit: z.number().min(0).optional(),
   ipmEdit: z.number().min(0).optional(),
   // no floor: a discretionary adjustment may be negative (a deliberate
-  // manual reduction on top of the pool-calculated bonus)
+  // manual reduction that frees pool money back to the other unlocked rows)
   daEdit: z.number().optional(),
   locked: z.boolean().optional(),
   /** finalBonus frozen at the moment the row was locked */
@@ -94,6 +94,11 @@ export const HistoryEntrySchema = z.object({
   kind: z.enum([
     "edit",
     "lock",
+    // A discretionary grant, recorded separately from a plain "edit" because
+    // it spends other people's bonuses: the entry carries the amount, the
+    // headroom that bounded it and how many bonuses it reduced (see
+    // lib/da-impact.ts and /api/state's grant log).
+    "grant",
     "access",
     "restore",
     "params",

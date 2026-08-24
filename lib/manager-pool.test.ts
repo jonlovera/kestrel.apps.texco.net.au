@@ -101,8 +101,9 @@ describe.skipIf(!existsSync(FIXTURE))(
     it("shared services are excluded by the SCOPE, not by a state filter", () => {
       // 24 of the 25 SHARED rows never reach this sum because the access rule
       // doesn't admit them. The 25th (Peter Clements) does, and is counted —
-      // his SHARED flag is a data error pending reassignment to VIC 100%, not
-      // a reason to drop his draw from the pool his manager answers for.
+      // a split is a statement about which caps fund someone, not a reason to
+      // drop their draw from the pool their manager answers for. The fixture
+      // is a 21 Aug 2026 capture, taken while he was still flagged SHARED.
       const sharedInScope = mine.filter((e) => e.st === "SHARED");
       const sharedAtLarge = population().filter((e) => e.st === "SHARED");
       expect(sharedInScope).toHaveLength(1);
@@ -123,15 +124,18 @@ describe.skipIf(!existsSync(FIXTURE))(
       expect(result.pool).toBeLessThan(everyone);
     });
 
-    it("a discretionary amount moves Allocated but never the pool", () => {
+    it("a discretionary amount draws from the pool: remaining falls by at least the DA", () => {
+      // 24 Aug 2026 pool-funded DA reform: the DA is absorbed state-wide, so
+      // the other unlocked rows' calcBonus shrinks (moving `pool` itself) and
+      // the in-scope locked rows' live calc shrinks while their frozen finals
+      // do not — so remaining falls by the DA plus that locked shrinkage.
       const target = mine.find((e) => !e.locked && !e.sm && e.vp + e.np > 0)!;
       const withDa = managerPool(scope, data, {
         ...overrides,
         [target.id]: { ...overrides[target.id], daEdit: 1_000 },
       });
-      expect(withDa.pool).toBeCloseTo(result.pool, 6);
-      expect(withDa.allocated).toBeCloseTo(result.allocated + 1_000, 6);
-      expect(withDa.remaining).toBeCloseTo(result.remaining - 1_000, 6);
+      expect(withDa.pool).toBeLessThan(result.pool);
+      expect(withDa.remaining).toBeLessThanOrEqual(result.remaining - 1_000 + 0.01);
       expect(withDa.people).toBe(result.people);
     });
 
@@ -162,21 +166,35 @@ describe.skipIf(!existsSync(FIXTURE))(
       );
       expect(breach).not.toBeNull();
       expect(breach!.wasOver).toBe(0);
-      expect(breach!.over).toBeCloseTo(over - result.remaining, 4);
+      // Under the pool-funded DA model the breach is AT LEAST the naive
+      // overspend — the in-scope locked rows' live calc shrinks with the
+      // scale, widening it further (see lib/manager-pool.ts's header note).
+      expect(breach!.over).toBeGreaterThanOrEqual(over - result.remaining - 0.01);
     });
 
     it("lets a save through while it still fits inside the pool", () => {
       const target = mine.find((e) => !e.locked && !e.sm && e.vp + e.np > 0)!;
-      const fits = Math.floor(result.remaining) - 1;
+      // The effective DA headroom is less than `remaining` now: each DA
+      // dollar also shrinks the in-scope locked rows' live calc (pool side)
+      // while their frozen finals stay. remaining(X) is affine in X while
+      // the scale stays unclamped, so two probes solve the true headroom.
+      const probe = (daEdit: number) =>
+        managerPool(scope, data, {
+          ...overrides,
+          [target.id]: { ...overrides[target.id], daEdit },
+        }).remaining;
+      const r1 = probe(1_000);
+      const r2 = probe(2_000);
+      const perDollar = (r1 - r2) / 1_000; // total remaining cost of one DA dollar
+      const headroom = 1_000 + r1 / perDollar; // where remaining crosses 0
+      const fits = Math.floor(headroom * 0.95);
       expect(fits).toBeGreaterThan(0); // there is genuinely headroom here
-      expect(
-        poolBreach(
-          scope,
-          data,
-          { ...overrides, [target.id]: { ...overrides[target.id], daEdit: fits } },
-          overrides
-        )
-      ).toBeNull();
+      const next = {
+        ...overrides,
+        [target.id]: { ...overrides[target.id], daEdit: fits },
+      };
+      expect(managerPool(scope, data, next).remaining).toBeGreaterThan(0);
+      expect(poolBreach(scope, data, next, overrides)).toBeNull();
     });
 
     it("re-saving the stored document unchanged is never refused", () => {

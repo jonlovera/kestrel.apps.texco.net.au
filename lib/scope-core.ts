@@ -32,6 +32,7 @@ import type {
   UserInfo,
 } from "./payload-types";
 import { managerPoolFrom } from "./manager-pool";
+import { isSplit } from "./dataset-edit";
 
 export interface PayloadOptions {
   overridesVersion?: number;
@@ -126,9 +127,10 @@ export function buildPayloadCore(
     if (fields.has("yoy")) row.yoy = e.finalBonus - e.f25;
     if (fields.has("final")) row.final = e.finalBonus;
     // Gated by visibleFields like every other numeric field, and additionally
-    // only ever populated for a Shared Services row — a VIC or NSW employee
-    // is 100% one pool already, so there is nothing to show or edit.
-    if (e.st === "SHARED") {
+    // only populated where the cost actually divides across the two pools —
+    // whatever the state label, since a VIC person can fund a slice of NSW
+    // work. A clean 1/0 row has nothing to show.
+    if (isSplit(e.vp)) {
       if (fields.has("vp")) row.vp = e.vp;
       if (fields.has("np")) row.np = e.np;
     }

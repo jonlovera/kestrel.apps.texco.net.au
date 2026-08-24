@@ -4,7 +4,11 @@ import { useState } from "react";
 import { beginViewAs, endViewAs } from "@/app/actions/view-as";
 
 /**
- * The View as control.
+ * The View as control, in two parts since the account menu absorbed the
+ * trigger: `ViewAsCandidateList` (the filter + candidate list) renders inline
+ * inside that menu, while `ViewAsExitButton` stays out in the top bar — an
+ * active view is state the person must be able to see and leave at a glance,
+ * not a command to bury one click deep.
  *
  * A view is faithful, not flattened: the target's own cells are live, so an
  * admin can see what that person can change and try a figure to see what they
@@ -16,7 +20,7 @@ import { beginViewAs, endViewAs } from "@/app/actions/view-as";
  * views the Save path works, within the target's own window, recorded
  * against the actor, and the button reads "Editing as" instead.
  *
- * While a view is active the button itself carries that state — styled
+ * While a view is active the exit button carries that state — styled
  * lavender rather than brand orange, since orange already means "Draft" on
  * this screen and two different meanings in the same colour is how someone
  * misreads a figure. Clicking it exits the view immediately.
@@ -33,37 +37,38 @@ export interface ViewAsState {
   canAct: boolean;
 }
 
-export function ViewAsPicker({
-  candidates,
+export function ViewAsExitButton({
   viewingAs,
   canAct,
 }: {
-  candidates: ViewAsState["candidates"];
-  viewingAs: string | null;
+  viewingAs: string;
   canAct: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  return (
+    <form action={endViewAs}>
+      <button
+        type="submit"
+        title={
+          canAct
+            ? "You can make changes in this view. Click to exit."
+            : "Exit this view"
+        }
+        className="bg-brand-lavender px-3.5 py-1.5 text-[11px] font-bold tracking-wide text-brand-95 transition-colors hover:bg-brand-lavender/80"
+      >
+        {canAct ? "Editing as" : "Viewing as"} {viewingAs}
+      </button>
+    </form>
+  );
+}
+
+/** The candidate list, rendered inline inside the account menu. Submitting a
+ *  candidate is a server action that navigates, tearing the menu down with it. */
+export function ViewAsCandidateList({
+  candidates,
+}: {
+  candidates: ViewAsState["candidates"];
+}) {
   const [filter, setFilter] = useState("");
-
-  if (viewingAs) {
-    return (
-      <form action={endViewAs}>
-        <button
-          type="submit"
-          title={
-            canAct
-              ? "You can make changes in this view. Click to exit."
-              : "Exit this view"
-          }
-          className="bg-brand-lavender px-3.5 py-1.5 text-[11px] font-bold tracking-wide text-brand-95 transition-colors hover:bg-brand-lavender/80"
-        >
-          {canAct ? "Editing as" : "Viewing as"} {viewingAs}
-        </button>
-      </form>
-    );
-  }
-
-  if (candidates.length === 0) return null;
 
   const q = filter.trim().toLowerCase();
   const shown = q
@@ -74,46 +79,33 @@ export function ViewAsPicker({
     : candidates;
 
   return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        title="See the dashboard exactly as someone else sees it"
-        className="border border-brand-orange/50 px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white"
-      >
-        View as
-      </button>
-
-      {open && (
-        <div className="absolute right-0 z-50 mt-1 max-h-[60vh] w-[340px] overflow-auto border border-neutral-200 bg-white p-2 shadow-2xl">
-          <input
-            autoFocus
-            type="text"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter by email or access…"
-            className="mb-2 w-full border-2 border-neutral-200 px-2.5 py-1.5 text-[13px] outline-none focus:border-brand-orange"
-          />
-          {shown.length === 0 && (
-            <p className="px-2 py-3 text-center text-[12px] text-brand-70">
-              Nobody matches.
-            </p>
-          )}
-          {shown.map((c) => (
-            <form key={c.email} action={beginViewAs}>
-              <input type="hidden" name="email" value={c.email} />
-              <button
-                type="submit"
-                className="block w-full px-2 py-2 text-left text-[13px] hover:bg-neutral-50"
-              >
-                <span className="font-semibold text-brand-95">{c.email}</span>
-                <br />
-                <span className="text-[12px] text-brand-70">{c.summary}</span>
-              </button>
-            </form>
-          ))}
-        </div>
+    <div className="px-2 pb-1">
+      <input
+        autoFocus
+        type="text"
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+        placeholder="Filter by email or access…"
+        className="mb-1 w-full border-2 border-neutral-200 px-2.5 py-1.5 text-[13px] outline-none focus:border-brand-orange"
+      />
+      {shown.length === 0 && (
+        <p className="px-2 py-3 text-center text-[12px] text-brand-70">
+          Nobody matches.
+        </p>
       )}
+      {shown.map((c) => (
+        <form key={c.email} action={beginViewAs}>
+          <input type="hidden" name="email" value={c.email} />
+          <button
+            type="submit"
+            className="block w-full px-2 py-2 text-left text-[13px] hover:bg-neutral-50"
+          >
+            <span className="font-semibold text-brand-95">{c.email}</span>
+            <br />
+            <span className="text-[12px] text-brand-70">{c.summary}</span>
+          </button>
+        </form>
+      ))}
     </div>
   );
 }

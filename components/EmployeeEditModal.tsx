@@ -9,25 +9,34 @@ export interface EditableEmployee {
   name: string;
   pos: string;
   st: State;
-  /** current VIC share (0..1), meaningful when st is SHARED */
+  /** current VIC share (0..1); fractional means the cost splits across pools */
   vp: number;
 }
 
 const STATE_OPTIONS: { value: State; label: string; note: string }[] = [
-  { value: "VIC", label: "VIC pool", note: "paid entirely from the VIC pool" },
-  { value: "NSW", label: "NSW pool", note: "paid entirely from the NSW pool" },
+  { value: "VIC", label: "VIC pool", note: "a VIC employee" },
+  { value: "NSW", label: "NSW pool", note: "an NSW employee" },
   {
     value: "SHARED",
     label: "Shared Services",
-    note: "split between the two pools at the percentages below",
+    note: "belongs to neither state — always split",
   },
 ];
 
+/** Does this VIC share divide across both pools? */
+const isSplit = (vp: number) => vp > 0 && vp < 1;
+
 /**
- * The per-person admin actions that aren't inline figures: moving someone
- * between pools, and removing them from the model entirely (which used to be
- * the ✕ button on the row). All writes go through the caller's patchDataset,
- * which snapshots first and records history.
+ * The per-person admin actions that aren't inline figures: which pool someone
+ * belongs to, how their cost divides between the two, and removing them from
+ * the model entirely (which used to be the ✕ button on the row). All writes go
+ * through the caller's patchDataset, which snapshots first and records history.
+ *
+ * Pool and split are separate questions. Shared Services is for people who
+ * belong to neither state and is always split; VIC and NSW default to their
+ * whole pool but can carry a split too, which is how a VIC employee who does a
+ * portion of NSW work is modelled — VIC on the tab and the VIC card, cost
+ * divided across both pools.
  */
 export default function EmployeeEditModal({
   employee,
@@ -46,9 +55,12 @@ export default function EmployeeEditModal({
   onClose: () => void;
 }) {
   const [st, setSt] = useState<State>(employee.st);
+  // Pre-filled from whatever split they already have, whatever their state, so
+  // re-flagging a split person keeps their percentages without retyping them.
   const [vicPct, setVicPct] = useState<number>(
-    Math.round((employee.st === "SHARED" ? employee.vp : 0.5) * 100)
+    Math.round((isSplit(employee.vp) ? employee.vp : 0.5) * 100)
   );
+  const [splitEnabled, setSplitEnabled] = useState<boolean>(isSplit(employee.vp));
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -58,9 +70,11 @@ export default function EmployeeEditModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const currentPct = Math.round(employee.vp * 100);
-  const dirty =
-    st !== employee.st || (st === "SHARED" && vicPct !== currentPct);
+  // Shared Services is always split; VIC and NSW are split only on request,
+  // and otherwise take the whole of their own pool.
+  const showSplit = st === "SHARED" || splitEnabled;
+  const vicShare = showSplit ? vicPct / 100 : st === "VIC" ? 1 : 0;
+  const dirty = st !== employee.st || vicShare !== employee.vp;
 
   return (
     <div
@@ -119,7 +133,23 @@ export default function EmployeeEditModal({
             ))}
           </div>
 
-          {st === "SHARED" && (
+          {st !== "SHARED" && (
+            <label className="mt-3 flex cursor-pointer items-baseline gap-2 text-[13px]">
+              <input
+                type="checkbox"
+                checked={splitEnabled}
+                disabled={busy}
+                onChange={(e) => setSplitEnabled(e.target.checked)}
+                className="translate-y-[1px] accent-brand-orange"
+              />
+              <span className="font-semibold">Cost splits across both states</span>
+              <span className="text-[11px] text-brand-70">
+                stays {st}, drawing part of their bonus from the other pool
+              </span>
+            </label>
+          )}
+
+          {showSplit && (
             <div className="mt-3 flex items-center gap-2 text-[13px]">
               <span>VIC</span>
               <input
@@ -140,15 +170,16 @@ export default function EmployeeEditModal({
           )}
 
           <p className="mt-3 text-[11px] text-brand-70">
-            The spreadsheet import stays the source of truth: the next import
-            that still lists {employee.name} under their old pool will move
-            them back.
+            The spreadsheet import stays the source of truth for the figures,
+            including any split percentages above. The pool is yours to set: the
+            workbook only guesses at it from the split, so an import that still
+            splits {employee.name} keeps the pool you choose here.
           </p>
 
           <button
             type="button"
             disabled={busy || !dirty}
-            onClick={() => onApplyState(st, st === "SHARED" ? vicPct / 100 : undefined)}
+            onClick={() => onApplyState(st, showSplit ? vicShare : undefined)}
             className="mt-3 bg-brand-orange px-4 py-1.5 text-[12px] font-bold text-white transition-colors hover:bg-brand-orange-hover disabled:opacity-50"
           >
             {busy ? "Saving…" : "Apply pool change"}

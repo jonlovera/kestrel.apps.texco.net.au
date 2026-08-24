@@ -80,7 +80,8 @@ export const DEFAULT_COLUMNS: ColumnConfig = [
   { field: "da", visible: true, label: "Discretionary", format: "currency", decimals: 0 },
   { field: "yoy", visible: true, label: "YoY Change", format: "currency", decimals: 0 },
   { field: "final", visible: true, label: "FY26 Bonus (Final)", format: "currency", decimals: 0 },
-  // Admin-editable, Shared Services rows only — see lib/dataset-edit.ts.
+  // Admin-editable, and shown only on rows whose cost splits across the two
+  // pools — not only Shared Services ones. See lib/dataset-edit.ts.
   { field: "vp", visible: true, label: "VIC %", format: "percent", decimals: 0 },
   { field: "np", visible: true, label: "NSW %", format: "percent", decimals: 0 },
 ];

@@ -1,7 +1,7 @@
 /**
  * The remaining edits to the SOURCE dataset: After IPM, which the finance
- * owner calls "Bonus", and the VIC/NSW split for Shared Services staff. Pure
- * module — no I/O, no server-only imports.
+ * owner calls "Bonus", and the VIC/NSW funding split. Pure module — no I/O,
+ * no server-only imports.
  *
  * Everything else that used to live here is gone on purpose. Employee id,
  * package/REM and bonus % are read-only on an EXISTING row for everyone,
@@ -13,9 +13,11 @@
  *
  * State (VIC/NSW/Shared), the "state" op below: moving someone between pools
  * is a scheme decision, not a payroll fact, and waiting for the next
- * workbook was costing real time. The import stays authoritative: a later
- * import that still lists the person under their old state moves them back,
- * and the edit modal says so.
+ * workbook was costing real time. The import stays authoritative for the
+ * figures, including the split, but NOT for a home state an admin has set on
+ * a split person — the model workbook only infers state from the split, so
+ * lib/import-parse.ts's candidateDataset preserves that decision. The edit
+ * modal says so.
  *
  * Adding a person, the "add" op below (restored — it shipped on 6 Aug and
  * was removed in the field lockdown four days later): a new starter should
@@ -33,8 +35,16 @@
  * between the VIC and NSW pools rather than adjusting one person's own row,
  * which is why it is admin-only rather than routed through the overrides
  * mechanism IPM and Discretionary use — there is no "your own people" for a
- * cross-pool allocation. Editing one side derives the other, since a Shared
- * Services split always accounts for the whole of someone's bonus exposure.
+ * cross-pool allocation. Editing one side derives the other, since a split
+ * always accounts for the whole of someone's bonus exposure.
+ *
+ * A person's state and their split are independent, and both ops here treat
+ * them that way. `st` is a home-state label: which tab and which pool card
+ * they belong to, and which access rules see them. `vp`/`np` are the funding
+ * facts the engine actually spends — lib/calc.ts never reads `st` at all. So
+ * a VIC employee doing a slice of NSW work is VIC at 0.92/0.08, not Shared:
+ * the dollars split, the person doesn't. Only Shared Services REQUIRES a
+ * fractional split; VIC and NSW default to their whole pool and accept one.
  */
 import { z } from "zod";
 import {
@@ -82,14 +92,19 @@ export const DatasetPatchSchema = z.union([
     op: z.literal("state"),
     id: z.string().min(1),
     st: z.enum(["VIC", "NSW", "SHARED"]),
-    /** required when st === "SHARED": the VIC share of the split; NSW = 1 - vp */
+    /**
+     * The VIC share of the funding split; NSW follows as 1 - vp. Required for
+     * SHARED, optional for VIC and NSW — omitted there means the whole pool
+     * (VIC 1/0, NSW 0/1), sent there means a VIC or NSW person whose cost
+     * splits across both states.
+     */
     vp: z.number().finite().min(0).max(1).optional(),
   }),
   /**
-   * A brand-new row. The whole Employee shape is required; vp/np are then
-   * DERIVED server-side from `st` (VIC 1/0, NSW 0/1, SHARED from the sent
-   * vp as the VIC share) so an invalid split is unrepresentable — the same
-   * rule the "state" op enforces.
+   * A brand-new row. The whole Employee shape is required; np is then DERIVED
+   * server-side from the sent vp so a split that doesn't account for the whole
+   * of someone's exposure is unrepresentable — the same rule the "state" op
+   * enforces.
    */
   z.object({ op: z.literal("add"), employee: EmployeeSchema }),
 ]);
@@ -146,17 +161,9 @@ export function applyDatasetPatch(
   const existing = data.emp[index];
   const label = FIELD_LABEL[patch.field];
 
-  if (patch.field === "vp" || patch.field === "np") {
-    // The split is meaningless outside Shared Services: a VIC or NSW employee
-    // is already 100% one pool, and there is nothing to reallocate.
-    if (existing.st !== "SHARED") {
-      return {
-        ok: false,
-        errors: [`'${label}': only set for Shared Services employees.`],
-      };
-    }
-  }
-
+  // The split is independent of the state label: a VIC person can fund a
+  // slice of NSW work. Editing either side derives the other, so the two
+  // always account for the whole of someone's exposure.
   const updated: Employee =
     patch.field === "bipm"
       ? { ...existing, bipm: patch.value }
@@ -205,6 +212,15 @@ export function applyDatasetPatch(
 /** Avoid float residue like 0.30000000000000004 from `1 - value`. */
 function round4(n: number): number {
   return Math.round(n * 10000) / 10000;
+}
+
+/**
+ * Does this VIC share actually divide across the two pools? The test the UI
+ * and the import-preservation rule use as well — a split is a property of the
+ * fractions, not of the state label.
+ */
+export function isSplit(vp: number): boolean {
+  return vp > 0 && vp < 1;
 }
 
 /**
@@ -308,11 +324,15 @@ const STATE_LABEL: Record<Employee["st"], string> = {
 };
 
 /**
- * Move an employee between the pools. VIC and NSW imply their whole-pool
- * split; Shared Services requires an explicit VIC share (NSW follows as the
- * remainder, like the vp/np field patches). Re-attributes the person's whole
- * bonus exposure between the capped pools, which is exactly why this is
- * admin-only and flows through the snapshot/history pipeline.
+ * Move an employee between the pools, optionally with a funding split. VIC and
+ * NSW default to their whole pool but accept an explicit VIC share, which is
+ * how a VIC employee who does a portion of NSW work is modelled: VIC on the
+ * tab and the VIC card, cost divided across both pools. Shared Services still
+ * REQUIRES the share — a Shared person with no split is a contradiction.
+ * Either way NSW follows as the remainder, like the vp/np field patches.
+ * Re-attributes the person's whole bonus exposure between the capped pools,
+ * which is exactly why this is admin-only and flows through the
+ * snapshot/history pipeline.
  */
 function applyStateChange(
   data: Dataset,
@@ -329,15 +349,17 @@ function applyStateChange(
   const existing = data.emp[index];
 
   let vp: number;
-  if (st === "VIC") vp = 1;
-  else if (st === "NSW") vp = 0;
-  else {
+  if (st === "SHARED") {
     if (vpShare === undefined) {
       return {
         ok: false,
         errors: ["Moving someone to Shared Services needs a VIC % for the split."],
       };
     }
+    vp = round4(vpShare);
+  } else if (vpShare === undefined) {
+    vp = st === "VIC" ? 1 : 0;
+  } else {
     vp = round4(vpShare);
   }
   const np = round4(1 - vp);
@@ -357,11 +379,13 @@ function applyStateChange(
 
   const emp = [...data.emp];
   emp[index] = updated;
-  const split = st === "SHARED" ? ` (${fmtPct(vp)} VIC / ${fmtPct(np)} NSW)` : "";
+  // spell the split out whenever there is one to spell out, whatever the
+  // state, so "moved to VIC" never hides that the cost still divides
+  const split = isSplit(vp) ? ` (${fmtPct(vp)} VIC / ${fmtPct(np)} NSW)` : "";
   const summary =
     existing.st === st
-      ? // already SHARED, only the split moved; worded the way the vp/np
-        // field patches word it, so the history reads consistently
+      ? // same state, only the split moved; worded the way the vp/np field
+        // patches word it, so the history reads consistently
         `Set VIC % for ${existing.gn} ${existing.sn}: ${fmtPct(existing.vp)} → ${fmtPct(vp)} (NSW % follows automatically)`
       : `Moved ${existing.gn} ${existing.sn} from ${STATE_LABEL[existing.st]} to ${STATE_LABEL[st]}${split}`;
   return {
@@ -405,9 +429,10 @@ const ADD_FIELD_LABEL: Record<string, string> = {
 
 /**
  * Add a brand-new person to the roster. Restores the "+ Add person" ability
- * removed in the field lockdown, with two hardenings the original lacked:
- * vp/np are derived from `st` rather than trusted (an invalid split is
- * unrepresentable), and an id on the excluded list is refused up front —
+ * removed in the field lockdown, with two hardenings the original lacked: np
+ * is derived from vp rather than trusted (a split that doesn't account for the
+ * whole exposure is unrepresentable), and an id on the excluded list is
+ * refused up front —
  * candidateDataset would silently drop that person on the very next import,
  * which is a confusing way to discover the conflict.
  *
@@ -448,12 +473,10 @@ function applyAdd(
     };
   }
 
-  // The split is the state's, not the caller's — same rule as the state op.
-  // For Shared Services the sent vp is read as the VIC share.
-  let vp: number;
-  if (incoming.st === "VIC") vp = 1;
-  else if (incoming.st === "NSW") vp = 0;
-  else vp = round4(incoming.vp);
+  // The sent vp is the VIC share for every state — same rule as the state op —
+  // and np is derived from it rather than trusted, so the two always account
+  // for the whole of the new starter's exposure.
+  const vp = round4(incoming.vp);
   const np = round4(1 - vp);
 
   const candidate: Employee = { ...incoming, id, vp, np };
@@ -469,8 +492,7 @@ function applyAdd(
   }
 
   const emp = [...data.emp, parsed.data];
-  const split =
-    candidate.st === "SHARED" ? `, ${fmtPct(vp)} VIC / ${fmtPct(np)} NSW` : "";
+  const split = isSplit(vp) ? `, ${fmtPct(vp)} VIC / ${fmtPct(np)} NSW` : "";
   return {
     ok: true,
     dataset: { ...data, emp, ...deriveFacets(emp) },

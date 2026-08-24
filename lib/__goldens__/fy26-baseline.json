@@ -7,10 +7,10 @@
   "gCap": 2618822.75
  },
  "baseline": {
-  "vicScale": 0.6717823483284814,
+  "vicScale": 0.6701269613529727,
   "nswScale": 0.7820525079336984,
-  "totalFinal": 2621822.7499999995,
-  "totalVicAlloc": 1580414.4999999995,
+  "totalFinal": 2618822.75,
+  "totalVicAlloc": 1580414.4999999998,
   "totalNswAlloc": 1038408.25,
   "rows": [
    {
@@ -18,96 +18,96 @@
     "cpm": 1,
     "preIpm": 60000,
     "bipmCalc": 54000,
-    "calcBonus": 38598.53637102387,
-    "finalBonus": 38598.53637102387
+    "calcBonus": 38544.00792405061,
+    "finalBonus": 38544.00792405061
    },
    {
     "id": "BRELL",
     "cpm": 1,
     "preIpm": 75000,
     "bipmCalc": 67500,
-    "calcBonus": 48248.17046377983,
-    "finalBonus": 48248.17046377983
+    "calcBonus": 48180.00990506326,
+    "finalBonus": 48180.00990506326
    },
    {
     "id": "JEBEL",
     "cpm": 1,
     "preIpm": 75000,
     "bipmCalc": 67500,
-    "calcBonus": 48248.17046377983,
-    "finalBonus": 48248.17046377983
+    "calcBonus": 48180.00990506326,
+    "finalBonus": 48180.00990506326
    },
    {
     "id": "DEGIB",
     "cpm": 0.9360090874668686,
     "preIpm": 61800,
     "bipmCalc": 55620,
-    "calcBonus": 39756.49246215458,
-    "finalBonus": 39756.49246215458
+    "calcBonus": 39700.32816177212,
+    "finalBonus": 39700.32816177212
    },
    {
     "id": "RYDEB",
     "cpm": 1,
     "preIpm": 40000,
     "bipmCalc": 36000,
-    "calcBonus": 25732.357580682576,
-    "finalBonus": 25732.357580682576
+    "calcBonus": 25696.005282700404,
+    "finalBonus": 25696.005282700404
    },
    {
     "id": "KRPER",
     "cpm": 0.35342462462462465,
     "preIpm": 19615.06666666667,
     "bipmCalc": 17653.56,
-    "calcBonus": 12618.547735889853,
-    "finalBonus": 12618.547735889853
+    "calcBonus": 12600.721417179684,
+    "finalBonus": 12600.721417179684
    },
    {
     "id": "THRIC",
     "cpm": 0.06575337690631808,
     "preIpm": 1676.711111111111,
     "bipmCalc": 1509.04,
-    "calcBonus": 1078.6432467653676,
-    "finalBonus": 1078.6432467653676
+    "calcBonus": 1077.1194392168395,
+    "finalBonus": 1077.1194392168395
    },
    {
     "id": "TACOR",
     "cpm": 0.9665657508456187,
     "preIpm": 26924.655555555553,
     "bipmCalc": 24232.19,
-    "calcBonus": 17320.87161230668,
-    "finalBonus": 17320.87161230668
+    "calcBonus": 17296.40228476111,
+    "finalBonus": 17296.40228476111
    },
    {
     "id": "STDEM",
     "cpm": 0.7685186101353915,
     "preIpm": 23301.100000000002,
     "bipmCalc": 20970.99,
-    "calcBonus": 14989.805930581071,
-    "finalBonus": 14989.805930581071
+    "calcBonus": 14968.629717318261,
+    "finalBonus": 14968.629717318261
    },
    {
     "id": "NINIL",
     "cpm": 0.9482390347115,
     "preIpm": 23030.355555555554,
     "bipmCalc": 20727.32,
-    "calcBonus": 14815.633609145378,
-    "finalBonus": 14815.633609145378
+    "calcBonus": 14794.703450450605,
+    "finalBonus": 14794.703450450605
    },
    {
     "id": "THGRA",
     "cpm": 1,
     "preIpm": 21000,
     "bipmCalc": 18900,
-    "calcBonus": 13509.487729858352,
-    "finalBonus": 13509.487729858352
+    "calcBonus": 13490.402773417714,
+    "finalBonus": 13490.402773417714
    },
    {
     "id": "NANIC",
     "cpm": 0.2767122085048011,
     "preIpm": 5603.422222222222,
     "bipmCalc": 5043.08,
-    "calcBonus": 3604.7316074441305,
-    "finalBonus": 3604.7316074441305
+    "calcBonus": 3599.6391755855766,
+    "finalBonus": 3599.6391755855766
    },
    {
     "id": "TESCH",
@@ -122,48 +122,48 @@
     "cpm": 1,
     "preIpm": 13000,
     "bipmCalc": 11700,
-    "calcBonus": 8363.016213721838,
-    "finalBonus": 8363.016213721838
+    "calcBonus": 8351.201716877633,
+    "finalBonus": 8351.201716877633
    },
    {
     "id": "SHKIN",
     "cpm": 0.657534188034188,
     "preIpm": 8547.944444444443,
     "bipmCalc": 7693.15,
-    "calcBonus": 5498.969075606337,
-    "finalBonus": 5498.969075606337
+    "calcBonus": 5491.20064001685,
+    "finalBonus": 5491.20064001685
    },
    {
     "id": "ELSAL",
     "cpm": 1,
     "preIpm": 18000,
     "bipmCalc": 16200,
-    "calcBonus": 11579.560911307159,
-    "finalBonus": 11579.560911307159
+    "calcBonus": 11563.202377215182,
+    "finalBonus": 11563.202377215182
    },
    {
     "id": "GATES",
     "cpm": 0.08493148148148148,
     "preIpm": 1528.7666666666667,
     "bipmCalc": 1375.89,
-    "calcBonus": 983.4692631023709,
-    "finalBonus": 983.4692631023709
+    "calcBonus": 982.079908567074,
+    "finalBonus": 982.079908567074
    },
    {
     "id": "STMOO",
     "cpm": 1,
     "preIpm": 16500,
     "bipmCalc": 11550,
-    "calcBonus": 8255.79805713566,
-    "finalBonus": 8255.79805713566
+    "calcBonus": 8244.135028199713,
+    "finalBonus": 8244.135028199713
    },
    {
     "id": "MITAY",
     "cpm": 1,
     "preIpm": 10000,
     "bipmCalc": 9000,
-    "calcBonus": 6433.089395170644,
-    "finalBonus": 6433.089395170644
+    "calcBonus": 6424.001320675101,
+    "finalBonus": 6424.001320675101
    },
    {
     "id": "YVPOH",
@@ -218,88 +218,88 @@
     "cpm": 1,
     "preIpm": 93000,
     "bipmCalc": 83700,
-    "calcBonus": 56228.18255509389,
-    "finalBonus": 56228.18255509389
+    "calcBonus": 56089.62666524381,
+    "finalBonus": 56089.62666524381
    },
    {
     "id": "NETIM",
     "cpm": 1,
     "preIpm": 93000,
     "bipmCalc": 83700,
-    "calcBonus": 56228.18255509389,
-    "finalBonus": 56228.18255509389
+    "calcBonus": 56089.62666524381,
+    "finalBonus": 56089.62666524381
    },
    {
     "id": "LAHIL",
     "cpm": 1,
     "preIpm": 88500,
     "bipmCalc": 79650,
-    "calcBonus": 53507.46404436354,
-    "finalBonus": 53507.46404436354
+    "calcBonus": 53375.612471764274,
+    "finalBonus": 53375.612471764274
    },
    {
     "id": "JOGLI",
     "cpm": 1,
     "preIpm": 88500,
     "bipmCalc": 79650,
-    "calcBonus": 53507.46404436354,
-    "finalBonus": 53507.46404436354
+    "calcBonus": 53375.612471764274,
+    "finalBonus": 53375.612471764274
    },
    {
     "id": "PECLE",
     "cpm": 0.7534246076585058,
     "preIpm": 66678.07777777777,
     "bipmCalc": 60010.27,
-    "calcBonus": 40313.840104426214,
-    "finalBonus": 40313.840104426214
+    "calcBonus": 40214.499885071455,
+    "finalBonus": 40214.499885071455
    },
    {
     "id": "RIPOR",
     "cpm": 1,
     "preIpm": 88500,
     "bipmCalc": 79650,
-    "calcBonus": 53507.46404436354,
-    "finalBonus": 53507.46404436354
+    "calcBonus": 53375.612471764274,
+    "finalBonus": 53375.612471764274
    },
    {
     "id": "WIPET",
     "cpm": 1,
     "preIpm": 72000,
     "bipmCalc": 64800,
-    "calcBonus": 43531.49617168559,
-    "finalBonus": 43531.49617168559
+    "calcBonus": 43424.22709567263,
+    "finalBonus": 43424.22709567263
    },
    {
     "id": "MOMAR",
     "cpm": 1,
     "preIpm": 66000,
     "bipmCalc": 59400,
-    "calcBonus": 39903.8714907118,
-    "finalBonus": 39903.8714907118
+    "calcBonus": 39805.54150436658,
+    "finalBonus": 39805.54150436658
    },
    {
     "id": "STNAS",
     "cpm": 1,
     "preIpm": 36000,
     "bipmCalc": 32400,
-    "calcBonus": 21765.748085842795,
-    "finalBonus": 21765.748085842795
+    "calcBonus": 21712.113547836314,
+    "finalBonus": 21712.113547836314
    },
    {
     "id": "ANJEL",
     "cpm": 1,
     "preIpm": 78000,
     "bipmCalc": 70200,
-    "calcBonus": 47159.12085265939,
-    "finalBonus": 47159.12085265939
+    "calcBonus": 47042.912686978685,
+    "finalBonus": 47042.912686978685
    },
    {
     "id": "AYSOL",
     "cpm": 1,
     "preIpm": 78000,
     "bipmCalc": 70200,
-    "calcBonus": 47159.12085265939,
-    "finalBonus": 47159.12085265939
+    "calcBonus": 47042.912686978685,
+    "finalBonus": 47042.912686978685
    },
    {
     "id": "ADDIC",
@@ -322,40 +322,40 @@
     "cpm": 0.48493151927437644,
     "preIpm": 17821.233333333334,
     "bipmCalc": 16039.11,
-    "calcBonus": 10774.79098089883,
-    "finalBonus": 10774.79098089883
+    "calcBonus": 10748.240047106077,
+    "finalBonus": 10748.240047106077
    },
    {
     "id": "SCRIC",
     "cpm": 1,
     "preIpm": 72615,
     "bipmCalc": 65353.5,
-    "calcBonus": 43903.32770148541,
-    "finalBonus": 43903.32770148541
+    "calcBonus": 43795.1423687815,
+    "finalBonus": 43795.1423687815
    },
    {
     "id": "NIPRE",
     "cpm": 1,
     "preIpm": 72000,
     "bipmCalc": 64800,
-    "calcBonus": 43531.49617168559,
-    "finalBonus": 43531.49617168559
+    "calcBonus": 43424.22709567263,
+    "finalBonus": 43424.22709567263
    },
    {
     "id": "MALIP",
     "cpm": 1,
     "preIpm": 69000,
     "bipmCalc": 62100,
-    "calcBonus": 41717.683831198694,
-    "finalBonus": 41717.683831198694
+    "calcBonus": 41614.8843000196,
+    "finalBonus": 41614.8843000196
    },
    {
     "id": "JOSMI",
     "cpm": 0.9331507407407408,
     "preIpm": 55989.044444444444,
     "bipmCalc": 50390.14,
-    "calcBonus": 33851.20658180094,
-    "finalBonus": 33851.20658180094
+    "calcBonus": 33767.791400350885,
+    "finalBonus": 33767.791400350885
    },
    {
     "id": "DADOY",
@@ -490,64 +490,64 @@
     "cpm": 1,
     "preIpm": 39000,
     "bipmCalc": 35100,
-    "calcBonus": 23579.560426329695,
-    "finalBonus": 23579.560426329695
+    "calcBonus": 23521.456343489343,
+    "finalBonus": 23521.456343489343
    },
    {
     "id": "MIFRA",
     "cpm": 1,
     "preIpm": 38500,
     "bipmCalc": 34650,
-    "calcBonus": 23277.25836958188,
-    "finalBonus": 23277.25836958188
+    "calcBonus": 23219.899210880503,
+    "finalBonus": 23219.899210880503
    },
    {
     "id": "KYFAI",
     "cpm": 1,
     "preIpm": 38000,
     "bipmCalc": 34200,
-    "calcBonus": 22974.956312834063,
-    "finalBonus": 22974.956312834063
+    "calcBonus": 22918.342078271664,
+    "finalBonus": 22918.342078271664
    },
    {
     "id": "KINGU",
     "cpm": 1,
     "preIpm": 35000,
     "bipmCalc": 31500,
-    "calcBonus": 21161.143972347163,
-    "finalBonus": 21161.143972347163
+    "calcBonus": 21108.99928261864,
+    "finalBonus": 21108.99928261864
    },
    {
     "id": "JAROC",
     "cpm": 1,
     "preIpm": 35000,
     "bipmCalc": 31500,
-    "calcBonus": 21161.143972347163,
-    "finalBonus": 21161.143972347163
+    "calcBonus": 21108.99928261864,
+    "finalBonus": 21108.99928261864
    },
    {
     "id": "SAWAL",
     "cpm": 1,
     "preIpm": 35000,
     "bipmCalc": 31500,
-    "calcBonus": 21161.143972347163,
-    "finalBonus": 21161.143972347163
+    "calcBonus": 21108.99928261864,
+    "finalBonus": 21108.99928261864
    },
    {
     "id": "ELPOR",
     "cpm": 1,
     "preIpm": 13000,
     "bipmCalc": 11700,
-    "calcBonus": 7859.853475443232,
-    "finalBonus": 7859.853475443232
+    "calcBonus": 7840.48544782978,
+    "finalBonus": 7840.48544782978
    },
    {
     "id": "GESIB",
     "cpm": 1,
     "preIpm": 12000,
     "bipmCalc": 10800,
-    "calcBonus": 7255.249361947599,
-    "finalBonus": 7255.249361947599
+    "calcBonus": 7237.371182612105,
+    "finalBonus": 7237.371182612105
    },
    {
     "id": "FIPLU",
@@ -562,32 +562,32 @@
     "cpm": 1,
     "preIpm": 24000,
     "bipmCalc": 21600,
-    "calcBonus": 14510.498723895198,
-    "finalBonus": 14510.498723895198
+    "calcBonus": 14474.74236522421,
+    "finalBonus": 14474.74236522421
    },
    {
     "id": "NICHA",
     "cpm": 1,
     "preIpm": 21750,
     "bipmCalc": 19575,
-    "calcBonus": 13150.139468530024,
-    "finalBonus": 13150.139468530024
+    "calcBonus": 13117.73526848444,
+    "finalBonus": 13117.73526848444
    },
    {
     "id": "CHHUA",
     "cpm": 0.6,
     "preIpm": 8362.5,
     "bipmCalc": 7526.25,
-    "calcBonus": 5056.001899107233,
-    "finalBonus": 5056.001899107233
+    "calcBonus": 5043.54304288281,
+    "finalBonus": 5043.54304288281
    },
    {
     "id": "LIFON",
     "cpm": 1,
     "preIpm": 11700,
     "bipmCalc": 10530,
-    "calcBonus": 7073.868127898909,
-    "finalBonus": 7073.868127898909
+    "calcBonus": 7056.436903046802,
+    "finalBonus": 7056.436903046802
    },
    {
     "id": "TALAU",
@@ -610,8 +610,8 @@
     "cpm": 1,
     "preIpm": 31140,
     "bipmCalc": 28026,
-    "calcBonus": 18827.37209425402,
-    "finalBonus": 18827.37209425402
+    "calcBonus": 18780.978218878412,
+    "finalBonus": 18780.978218878412
    },
    {
     "id": "ALPRI",
@@ -682,56 +682,56 @@
     "cpm": 1,
     "preIpm": 24000,
     "bipmCalc": 21600,
-    "calcBonus": 14510.498723895198,
-    "finalBonus": 14510.498723895198
+    "calcBonus": 14474.74236522421,
+    "finalBonus": 14474.74236522421
    },
    {
     "id": "JOABE",
     "cpm": 1,
     "preIpm": 23250,
     "bipmCalc": 20925,
-    "calcBonus": 14057.045638773472,
-    "finalBonus": 14057.045638773472
+    "calcBonus": 14022.406666310953,
+    "finalBonus": 14022.406666310953
    },
    {
     "id": "LUBET",
     "cpm": 1,
     "preIpm": 22500,
     "bipmCalc": 20250,
-    "calcBonus": 13603.592553651748,
-    "finalBonus": 13603.592553651748
+    "calcBonus": 13570.070967397696,
+    "finalBonus": 13570.070967397696
    },
    {
     "id": "BEWAT",
     "cpm": 1,
     "preIpm": 22500,
     "bipmCalc": 20250,
-    "calcBonus": 13603.592553651748,
-    "finalBonus": 13603.592553651748
+    "calcBonus": 13570.070967397696,
+    "finalBonus": 13570.070967397696
    },
    {
     "id": "TOHAD",
     "cpm": 1,
     "preIpm": 22500,
     "bipmCalc": 20250,
-    "calcBonus": 13603.592553651748,
-    "finalBonus": 13603.592553651748
+    "calcBonus": 13570.070967397696,
+    "finalBonus": 13570.070967397696
    },
    {
     "id": "MIPAR",
     "cpm": 1,
     "preIpm": 21480,
     "bipmCalc": 19332,
-    "calcBonus": 12986.896357886202,
-    "finalBonus": 12986.896357886202
+    "calcBonus": 12954.894416875668,
+    "finalBonus": 12954.894416875668
    },
    {
     "id": "NIDER",
     "cpm": 1,
     "preIpm": 21000,
     "bipmCalc": 18900,
-    "calcBonus": 12696.686383408298,
-    "finalBonus": 12696.686383408298
+    "calcBonus": 12665.399569571184,
+    "finalBonus": 12665.399569571184
    },
    {
     "id": "CHGOG",
@@ -746,72 +746,72 @@
     "cpm": 0.9442925925925926,
     "preIpm": 11331.511111111111,
     "bipmCalc": 10198.36,
-    "calcBonus": 6851.078229899252,
-    "finalBonus": 6851.078229899252
+    "calcBonus": 6834.195997583703,
+    "finalBonus": 6834.195997583703
    },
    {
     "id": "JOGRI",
     "cpm": 0.7534251207729469,
     "preIpm": 8664.388888888889,
     "bipmCalc": 7797.95,
-    "calcBonus": 5238.525163148081,
-    "finalBonus": 5238.525163148081
+    "calcBonus": 5225.616538282413,
+    "finalBonus": 5225.616538282413
    },
    {
     "id": "PAWAT",
     "cpm": 1,
     "preIpm": 10510,
     "bipmCalc": 9459,
-    "calcBonus": 6354.389232839106,
-    "finalBonus": 6354.389232839106
+    "calcBonus": 6338.7309274377685,
+    "finalBonus": 6338.7309274377685
    },
    {
     "id": "MIHOL",
     "cpm": 0.8173513227513228,
     "preIpm": 8582.18888888889,
     "bipmCalc": 7723.970000000001,
-    "calcBonus": 5188.826705018741,
-    "finalBonus": 5188.826705018741
+    "calcBonus": 5176.0405456815215,
+    "finalBonus": 5176.0405456815215
    },
    {
     "id": "MACUM",
     "cpm": 0.8997255555555556,
     "preIpm": 8997.255555555555,
     "bipmCalc": 8097.53,
-    "calcBonus": 5439.777719060327,
-    "finalBonus": 5439.777719060327
+    "calcBonus": 5426.373173364536,
+    "finalBonus": 5426.373173364536
    },
    {
     "id": "SOLI",
     "cpm": 0.7716433333333333,
     "preIpm": 7716.433333333333,
     "bipmCalc": 6944.79,
-    "calcBonus": 4665.387334848154,
-    "finalBonus": 4665.387334848154
+    "calcBonus": 4653.891019934511,
+    "finalBonus": 4653.891019934511
    },
    {
     "id": "AYMES",
     "cpm": 0.2739732142857143,
     "preIpm": 2454.8,
     "bipmCalc": 2209.32,
-    "calcBonus": 1484.1821778090805,
-    "finalBonus": 1484.1821778090805
+    "calcBonus": 1480.5248982563496,
+    "finalBonus": 1480.5248982563496
    },
    {
     "id": "HAWIL",
     "cpm": 1,
     "preIpm": 8500,
     "bipmCalc": 7650,
-    "calcBonus": 5139.134964712883,
-    "finalBonus": 5139.134964712883
+    "calcBonus": 5126.471254350241,
+    "finalBonus": 5126.471254350241
    },
    {
     "id": "YUYAN",
     "cpm": 1,
     "preIpm": 8500,
     "bipmCalc": 7650,
-    "calcBonus": 5139.134964712883,
-    "finalBonus": 5139.134964712883
+    "calcBonus": 5126.471254350241,
+    "finalBonus": 5126.471254350241
    },
    {
     "id": "PARIB",
@@ -1261,113 +1261,113 @@
    "overrides": {
     "ALBID": {
      "locked": true,
-     "lockedFinal": 38598.53637102387
+     "lockedFinal": 38544.00792405061
     },
     "PADAR": {
      "daEdit": 5000
     }
    },
-   "vicScale": 0.6717823483284814,
-   "nswScale": 0.7820525079336983,
-   "totalFinal": 2626822.7499999995,
-   "totalVicAlloc": 1581831.0966323838,
-   "totalNswAlloc": 1036991.6533676154,
+   "vicScale": 0.6670816113005549,
+   "nswScale": 0.7820736075437908,
+   "totalFinal": 2618822.750000001,
+   "totalVicAlloc": 1581829.0953955075,
+   "totalNswAlloc": 1036993.6546044917,
    "rows": [
     {
      "id": "ALBID",
      "cpm": 1,
      "preIpm": 60000,
      "bipmCalc": 54000,
-     "calcBonus": 38598.53637102386,
-     "finalBonus": 38598.53637102387
+     "calcBonus": 38444.138451112514,
+     "finalBonus": 38544.00792405061
     },
     {
      "id": "BRELL",
      "cpm": 1,
      "preIpm": 75000,
      "bipmCalc": 67500,
-     "calcBonus": 48248.170463779825,
-     "finalBonus": 48248.170463779825
+     "calcBonus": 48055.173063890645,
+     "finalBonus": 48055.173063890645
     },
     {
      "id": "JEBEL",
      "cpm": 1,
      "preIpm": 75000,
      "bipmCalc": 67500,
-     "calcBonus": 48248.170463779825,
-     "finalBonus": 48248.170463779825
+     "calcBonus": 48055.173063890645,
+     "finalBonus": 48055.173063890645
     },
     {
      "id": "DEGIB",
      "cpm": 0.9360090874668686,
      "preIpm": 61800,
      "bipmCalc": 55620,
-     "calcBonus": 39756.49246215458,
-     "finalBonus": 39756.49246215458
+     "calcBonus": 39597.46260464589,
+     "finalBonus": 39597.46260464589
     },
     {
      "id": "RYDEB",
      "cpm": 1,
      "preIpm": 40000,
      "bipmCalc": 36000,
-     "calcBonus": 25732.357580682576,
-     "finalBonus": 25732.357580682576
+     "calcBonus": 25629.425634075007,
+     "finalBonus": 25629.425634075007
     },
     {
      "id": "KRPER",
      "cpm": 0.35342462462462465,
      "preIpm": 19615.06666666667,
      "bipmCalc": 17653.56,
-     "calcBonus": 12618.547735889853,
-     "finalBonus": 12618.547735889853
+     "calcBonus": 12568.072311018923,
+     "finalBonus": 12568.072311018923
     },
     {
      "id": "THRIC",
      "cpm": 0.06575337690631808,
      "preIpm": 1676.711111111111,
      "bipmCalc": 1509.04,
-     "calcBonus": 1078.6432467653676,
-     "finalBonus": 1078.6432467653676
+     "calcBonus": 1074.3285683012375,
+     "finalBonus": 1074.3285683012375
     },
     {
      "id": "TACOR",
      "cpm": 0.9665657508456187,
      "preIpm": 26924.655555555553,
      "bipmCalc": 24232.19,
-     "calcBonus": 17320.871612306677,
-     "finalBonus": 17320.871612306677
+     "calcBonus": 17251.58643210489,
+     "finalBonus": 17251.58643210489
     },
     {
      "id": "STDEM",
      "cpm": 0.7685186101353915,
      "preIpm": 23301.100000000002,
      "bipmCalc": 20970.99,
-     "calcBonus": 14989.805930581071,
-     "finalBonus": 14989.805930581071
+     "calcBonus": 14929.845241053632,
+     "finalBonus": 14929.845241053632
     },
     {
      "id": "NINIL",
      "cpm": 0.9482390347115,
      "preIpm": 23030.355555555554,
      "bipmCalc": 20727.32,
-     "calcBonus": 14815.633609145376,
-     "finalBonus": 14815.633609145376
+     "calcBonus": 14756.369625935433,
+     "finalBonus": 14756.369625935433
     },
     {
      "id": "THGRA",
      "cpm": 1,
      "preIpm": 21000,
      "bipmCalc": 18900,
-     "calcBonus": 13509.487729858352,
-     "finalBonus": 13509.487729858352
+     "calcBonus": 13455.448457889379,
+     "finalBonus": 13455.448457889379
     },
     {
      "id": "NANIC",
      "cpm": 0.2767122085048011,
      "preIpm": 5603.422222222222,
      "bipmCalc": 5043.08,
-     "calcBonus": 3604.73160744413,
-     "finalBonus": 3604.73160744413
+     "calcBonus": 3590.312328519194,
+     "finalBonus": 3590.312328519194
     },
     {
      "id": "TESCH",
@@ -1382,48 +1382,48 @@
      "cpm": 1,
      "preIpm": 13000,
      "bipmCalc": 11700,
-     "calcBonus": 8363.016213721838,
-     "finalBonus": 8363.016213721838
+     "calcBonus": 8329.563331074378,
+     "finalBonus": 8329.563331074378
     },
     {
      "id": "SHKIN",
      "cpm": 0.657534188034188,
      "preIpm": 8547.944444444443,
      "bipmCalc": 7693.15,
-     "calcBonus": 5498.969075606337,
-     "finalBonus": 5498.969075606337
+     "calcBonus": 5476.972661577338,
+     "finalBonus": 5476.972661577338
     },
     {
      "id": "ELSAL",
      "cpm": 1,
      "preIpm": 18000,
      "bipmCalc": 16200,
-     "calcBonus": 11579.560911307159,
-     "finalBonus": 11579.560911307159
+     "calcBonus": 11533.241535333753,
+     "finalBonus": 11533.241535333753
     },
     {
      "id": "GATES",
      "cpm": 0.08493148148148148,
      "preIpm": 1528.7666666666667,
      "bipmCalc": 1375.89,
-     "calcBonus": 983.4692631023709,
-     "finalBonus": 983.4692631023709
+     "calcBonus": 979.5352898796518,
+     "finalBonus": 979.5352898796518
     },
     {
      "id": "STMOO",
      "cpm": 1,
      "preIpm": 16500,
      "bipmCalc": 11550,
-     "calcBonus": 8255.79805713566,
-     "finalBonus": 8255.79805713566
+     "calcBonus": 8222.774057599065,
+     "finalBonus": 8222.774057599065
     },
     {
      "id": "MITAY",
      "cpm": 1,
      "preIpm": 10000,
      "bipmCalc": 9000,
-     "calcBonus": 6433.089395170644,
-     "finalBonus": 6433.089395170644
+     "calcBonus": 6407.356408518752,
+     "finalBonus": 6407.356408518752
     },
     {
      "id": "YVPOH",
@@ -1478,88 +1478,88 @@
      "cpm": 1,
      "preIpm": 93000,
      "bipmCalc": 83700,
-     "calcBonus": 56228.18255509389,
-     "finalBonus": 61228.18255509389
+     "calcBonus": 56229.629484771904,
+     "finalBonus": 61229.629484771904
     },
     {
      "id": "NETIM",
      "cpm": 1,
      "preIpm": 93000,
      "bipmCalc": 83700,
-     "calcBonus": 56228.18255509389,
-     "finalBonus": 56228.18255509389
+     "calcBonus": 55834.73086585644,
+     "finalBonus": 55834.73086585644
     },
     {
      "id": "LAHIL",
      "cpm": 1,
      "preIpm": 88500,
      "bipmCalc": 79650,
-     "calcBonus": 53507.46404436354,
-     "finalBonus": 53507.46404436354
+     "calcBonus": 53133.0503400892,
+     "finalBonus": 53133.0503400892
     },
     {
      "id": "JOGLI",
      "cpm": 1,
      "preIpm": 88500,
      "bipmCalc": 79650,
-     "calcBonus": 53507.46404436354,
-     "finalBonus": 53507.46404436354
+     "calcBonus": 53133.0503400892,
+     "finalBonus": 53133.0503400892
     },
     {
      "id": "PECLE",
      "cpm": 0.7534246076585058,
      "preIpm": 66678.07777777777,
      "bipmCalc": 60010.27,
-     "calcBonus": 40313.840104426214,
-     "finalBonus": 40313.840104426214
+     "calcBonus": 40031.74760618135,
+     "finalBonus": 40031.74760618135
     },
     {
      "id": "RIPOR",
      "cpm": 1,
      "preIpm": 88500,
      "bipmCalc": 79650,
-     "calcBonus": 53507.46404436354,
-     "finalBonus": 53507.46404436354
+     "calcBonus": 53133.0503400892,
+     "finalBonus": 53133.0503400892
     },
     {
      "id": "WIPET",
      "cpm": 1,
      "preIpm": 72000,
      "bipmCalc": 64800,
-     "calcBonus": 43531.49617168559,
-     "finalBonus": 43531.49617168559
+     "calcBonus": 43226.888412275955,
+     "finalBonus": 43226.888412275955
     },
     {
      "id": "MOMAR",
      "cpm": 1,
      "preIpm": 66000,
      "bipmCalc": 59400,
-     "calcBonus": 39903.8714907118,
-     "finalBonus": 39903.8714907118
+     "calcBonus": 39624.64771125296,
+     "finalBonus": 39624.64771125296
     },
     {
      "id": "STNAS",
      "cpm": 1,
      "preIpm": 36000,
      "bipmCalc": 32400,
-     "calcBonus": 21765.748085842795,
-     "finalBonus": 21765.748085842795
+     "calcBonus": 21613.444206137978,
+     "finalBonus": 21613.444206137978
     },
     {
      "id": "ANJEL",
      "cpm": 1,
      "preIpm": 78000,
      "bipmCalc": 70200,
-     "calcBonus": 47159.12085265939,
-     "finalBonus": 47159.12085265939
+     "calcBonus": 46829.12911329895,
+     "finalBonus": 46829.12911329895
     },
     {
      "id": "AYSOL",
      "cpm": 1,
      "preIpm": 78000,
      "bipmCalc": 70200,
-     "calcBonus": 47159.12085265939,
-     "finalBonus": 47159.12085265939
+     "calcBonus": 46829.12911329895,
+     "finalBonus": 46829.12911329895
     },
     {
      "id": "ADDIC",
@@ -1582,40 +1582,40 @@
      "cpm": 0.48493151927437644,
      "preIpm": 17821.233333333334,
      "bipmCalc": 16039.11,
-     "calcBonus": 10774.79098089883,
-     "finalBonus": 10774.79098089883
+     "calcBonus": 10699.395342626844,
+     "finalBonus": 10699.395342626844
     },
     {
      "id": "SCRIC",
      "cpm": 1,
      "preIpm": 72615,
      "bipmCalc": 65353.5,
-     "calcBonus": 43903.32770148541,
-     "finalBonus": 43903.32770148541
+     "calcBonus": 43596.118084130816,
+     "finalBonus": 43596.118084130816
     },
     {
      "id": "NIPRE",
      "cpm": 1,
      "preIpm": 72000,
      "bipmCalc": 64800,
-     "calcBonus": 43531.49617168559,
-     "finalBonus": 43531.49617168559
+     "calcBonus": 43226.888412275955,
+     "finalBonus": 43226.888412275955
     },
     {
      "id": "MALIP",
      "cpm": 1,
      "preIpm": 69000,
      "bipmCalc": 62100,
-     "calcBonus": 41717.683831198694,
-     "finalBonus": 41717.683831198694
+     "calcBonus": 41425.76806176446,
+     "finalBonus": 41425.76806176446
     },
     {
      "id": "JOSMI",
      "cpm": 0.9331507407407408,
      "preIpm": 55989.044444444444,
      "bipmCalc": 50390.14,
-     "calcBonus": 33851.20658180094,
-     "finalBonus": 33851.20658180094
+     "calcBonus": 33614.335784860545,
+     "finalBonus": 33614.335784860545
     },
     {
      "id": "DADOY",
@@ -1750,64 +1750,64 @@
      "cpm": 1,
      "preIpm": 39000,
      "bipmCalc": 35100,
-     "calcBonus": 23579.560426329695,
-     "finalBonus": 23579.560426329695
+     "calcBonus": 23414.564556649475,
+     "finalBonus": 23414.564556649475
     },
     {
      "id": "MIFRA",
      "cpm": 1,
      "preIpm": 38500,
      "bipmCalc": 34650,
-     "calcBonus": 23277.25836958188,
-     "finalBonus": 23277.25836958188
+     "calcBonus": 23114.377831564227,
+     "finalBonus": 23114.377831564227
     },
     {
      "id": "KYFAI",
      "cpm": 1,
      "preIpm": 38000,
      "bipmCalc": 34200,
-     "calcBonus": 22974.956312834063,
-     "finalBonus": 22974.956312834063
+     "calcBonus": 22814.19110647898,
+     "finalBonus": 22814.19110647898
     },
     {
      "id": "KINGU",
      "cpm": 1,
      "preIpm": 35000,
      "bipmCalc": 31500,
-     "calcBonus": 21161.143972347163,
-     "finalBonus": 21161.143972347163
+     "calcBonus": 21013.070755967477,
+     "finalBonus": 21013.070755967477
     },
     {
      "id": "JAROC",
      "cpm": 1,
      "preIpm": 35000,
      "bipmCalc": 31500,
-     "calcBonus": 21161.143972347163,
-     "finalBonus": 21161.143972347163
+     "calcBonus": 21013.070755967477,
+     "finalBonus": 21013.070755967477
     },
     {
      "id": "SAWAL",
      "cpm": 1,
      "preIpm": 35000,
      "bipmCalc": 31500,
-     "calcBonus": 21161.143972347163,
-     "finalBonus": 21161.143972347163
+     "calcBonus": 21013.070755967477,
+     "finalBonus": 21013.070755967477
     },
     {
      "id": "ELPOR",
      "cpm": 1,
      "preIpm": 13000,
      "bipmCalc": 11700,
-     "calcBonus": 7859.853475443232,
-     "finalBonus": 7859.853475443232
+     "calcBonus": 7804.854852216492,
+     "finalBonus": 7804.854852216492
     },
     {
      "id": "GESIB",
      "cpm": 1,
      "preIpm": 12000,
      "bipmCalc": 10800,
-     "calcBonus": 7255.249361947599,
-     "finalBonus": 7255.249361947599
+     "calcBonus": 7204.481402045993,
+     "finalBonus": 7204.481402045993
     },
     {
      "id": "FIPLU",
@@ -1822,32 +1822,32 @@
      "cpm": 1,
      "preIpm": 24000,
      "bipmCalc": 21600,
-     "calcBonus": 14510.498723895198,
-     "finalBonus": 14510.498723895198
+     "calcBonus": 14408.962804091985,
+     "finalBonus": 14408.962804091985
     },
     {
      "id": "NICHA",
      "cpm": 1,
      "preIpm": 21750,
      "bipmCalc": 19575,
-     "calcBonus": 13150.139468530024,
-     "finalBonus": 13150.139468530024
+     "calcBonus": 13058.122541208362,
+     "finalBonus": 13058.122541208362
     },
     {
      "id": "CHHUA",
      "cpm": 0.6,
      "preIpm": 8362.5,
      "bipmCalc": 7526.25,
-     "calcBonus": 5056.001899107233,
-     "finalBonus": 5056.001899107233
+     "calcBonus": 5020.622977050801,
+     "finalBonus": 5020.622977050801
     },
     {
      "id": "LIFON",
      "cpm": 1,
      "preIpm": 11700,
      "bipmCalc": 10530,
-     "calcBonus": 7073.868127898909,
-     "finalBonus": 7073.868127898909
+     "calcBonus": 7024.3693669948425,
+     "finalBonus": 7024.3693669948425
     },
     {
      "id": "TALAU",
@@ -1862,16 +1862,16 @@
      "cpm": 1,
      "preIpm": 32250,
      "bipmCalc": 29025,
-     "calcBonus": 19498.48266023417,
-     "finalBonus": 22498.48266023417
+     "calcBonus": 19498.984418106385,
+     "finalBonus": 22498.984418106385
     },
     {
      "id": "GITAS",
      "cpm": 1,
      "preIpm": 31140,
      "bipmCalc": 28026,
-     "calcBonus": 18827.37209425402,
-     "finalBonus": 18827.37209425402
+     "calcBonus": 18695.62923830935,
+     "finalBonus": 18695.62923830935
     },
     {
      "id": "ALPRI",
@@ -1942,56 +1942,56 @@
      "cpm": 1,
      "preIpm": 24000,
      "bipmCalc": 21600,
-     "calcBonus": 14510.498723895198,
-     "finalBonus": 14510.498723895198
+     "calcBonus": 14408.962804091985,
+     "finalBonus": 14408.962804091985
     },
     {
      "id": "JOABE",
      "cpm": 1,
      "preIpm": 23250,
      "bipmCalc": 20925,
-     "calcBonus": 14057.045638773472,
-     "finalBonus": 14057.045638773472
+     "calcBonus": 13958.68271646411,
+     "finalBonus": 13958.68271646411
     },
     {
      "id": "LUBET",
      "cpm": 1,
      "preIpm": 22500,
      "bipmCalc": 20250,
-     "calcBonus": 13603.592553651748,
-     "finalBonus": 13603.592553651748
+     "calcBonus": 13508.402628836237,
+     "finalBonus": 13508.402628836237
     },
     {
      "id": "BEWAT",
      "cpm": 1,
      "preIpm": 22500,
      "bipmCalc": 20250,
-     "calcBonus": 13603.592553651748,
-     "finalBonus": 13603.592553651748
+     "calcBonus": 13508.402628836237,
+     "finalBonus": 13508.402628836237
     },
     {
      "id": "TOHAD",
      "cpm": 1,
      "preIpm": 22500,
      "bipmCalc": 20250,
-     "calcBonus": 13603.592553651748,
-     "finalBonus": 13603.592553651748
+     "calcBonus": 13508.402628836237,
+     "finalBonus": 13508.402628836237
     },
     {
      "id": "MIPAR",
      "cpm": 1,
      "preIpm": 21480,
      "bipmCalc": 19332,
-     "calcBonus": 12986.896357886202,
-     "finalBonus": 12986.896357886202
+     "calcBonus": 12896.021709662327,
+     "finalBonus": 12896.021709662327
     },
     {
      "id": "NIDER",
      "cpm": 1,
      "preIpm": 21000,
      "bipmCalc": 18900,
-     "calcBonus": 12696.686383408298,
-     "finalBonus": 12696.686383408298
+     "calcBonus": 12607.842453580488,
+     "finalBonus": 12607.842453580488
     },
     {
      "id": "CHGOG",
@@ -2006,72 +2006,72 @@
      "cpm": 0.9442925925925926,
      "preIpm": 11331.511111111111,
      "bipmCalc": 10198.36,
-     "calcBonus": 6851.078229899252,
-     "finalBonus": 6851.078229899252
+     "calcBonus": 6803.1384214231275,
+     "finalBonus": 6803.1384214231275
     },
     {
      "id": "JOGRI",
      "cpm": 0.7534251207729469,
      "preIpm": 8664.388888888889,
      "bipmCalc": 7797.95,
-     "calcBonus": 5238.525163148081,
-     "finalBonus": 5238.525163148081
+     "calcBonus": 5201.869050841162,
+     "finalBonus": 5201.869050841162
     },
     {
      "id": "PAWAT",
      "cpm": 1,
      "preIpm": 10510,
      "bipmCalc": 9459,
-     "calcBonus": 6354.389232839106,
-     "finalBonus": 6354.389232839106
+     "calcBonus": 6309.924961291948,
+     "finalBonus": 6309.924961291948
     },
     {
      "id": "MIHOL",
      "cpm": 0.8173513227513228,
      "preIpm": 8582.18888888889,
      "bipmCalc": 7723.970000000001,
-     "calcBonus": 5188.826705018741,
-     "finalBonus": 5188.826705018741
+     "calcBonus": 5152.5183532371475,
+     "finalBonus": 5152.5183532371475
     },
     {
      "id": "MACUM",
      "cpm": 0.8997255555555556,
      "preIpm": 8997.255555555555,
      "bipmCalc": 8097.53,
-     "calcBonus": 5439.777719060327,
-     "finalBonus": 5439.777719060327
+     "calcBonus": 5401.713359954582,
+     "finalBonus": 5401.713359954582
     },
     {
      "id": "SOLI",
      "cpm": 0.7716433333333333,
      "preIpm": 7716.433333333333,
      "bipmCalc": 6944.79,
-     "calcBonus": 4665.387334848154,
-     "finalBonus": 4665.387334848154
+     "calcBonus": 4632.741703343981,
+     "finalBonus": 4632.741703343981
     },
     {
      "id": "AYMES",
      "cpm": 0.2739732142857143,
      "preIpm": 2454.8,
      "bipmCalc": 2209.32,
-     "calcBonus": 1484.1821778090805,
-     "finalBonus": 1484.1821778090805
+     "calcBonus": 1473.796745478542,
+     "finalBonus": 1473.796745478542
     },
     {
      "id": "HAWIL",
      "cpm": 1,
      "preIpm": 8500,
      "bipmCalc": 7650,
-     "calcBonus": 5139.134964712883,
-     "finalBonus": 5139.134964712883
+     "calcBonus": 5103.174326449245,
+     "finalBonus": 5103.174326449245
     },
     {
      "id": "YUYAN",
      "cpm": 1,
      "preIpm": 8500,
      "bipmCalc": 7650,
-     "calcBonus": 5139.134964712883,
-     "finalBonus": 5139.134964712883
+     "calcBonus": 5103.174326449245,
+     "finalBonus": 5103.174326449245
     },
     {
      "id": "PARIB",
@@ -2086,32 +2086,32 @@
      "cpm": 1,
      "preIpm": 109500,
      "bipmCalc": 98550,
-     "calcBonus": 77071.27465686596,
-     "finalBonus": 77071.27465686596
+     "calcBonus": 77073.3540234406,
+     "finalBonus": 77073.3540234406
     },
     {
      "id": "LUTOW",
      "cpm": 1,
      "preIpm": 71750,
      "bipmCalc": 64575,
-     "calcBonus": 50501.040699818564,
-     "finalBonus": 50501.040699818564
+     "calcBonus": 50502.40320714029,
+     "finalBonus": 50502.40320714029
     },
     {
      "id": "ANAAL",
      "cpm": 1,
      "preIpm": 27000,
      "bipmCalc": 24300,
-     "calcBonus": 19003.87594278887,
-     "finalBonus": 19003.87594278887
+     "calcBonus": 19004.38866331412,
+     "finalBonus": 19004.38866331412
     },
     {
      "id": "THMCC",
      "cpm": 1,
      "preIpm": 90000,
      "bipmCalc": 81000,
-     "calcBonus": 63346.25314262956,
-     "finalBonus": 63346.25314262956
+     "calcBonus": 63347.96221104706,
+     "finalBonus": 63347.96221104706
     },
     {
      "id": "MAHEN",
@@ -2126,40 +2126,40 @@
      "cpm": 1,
      "preIpm": 81000,
      "bipmCalc": 72900,
-     "calcBonus": 57011.6278283666,
-     "finalBonus": 57011.6278283666
+     "calcBonus": 57013.165989942354,
+     "finalBonus": 57013.165989942354
     },
     {
      "id": "SALUP",
      "cpm": 1,
      "preIpm": 79500,
      "bipmCalc": 71550,
-     "calcBonus": 55955.856942656115,
-     "finalBonus": 55955.856942656115
+     "calcBonus": 55957.366619758235,
+     "finalBonus": 55957.366619758235
     },
     {
      "id": "JYSHA",
      "cpm": 1,
      "preIpm": 72000,
      "bipmCalc": 64800,
-     "calcBonus": 50677.002514103646,
-     "finalBonus": 50677.002514103646
+     "calcBonus": 50678.36976883765,
+     "finalBonus": 50678.36976883765
     },
     {
      "id": "NIRAM",
      "cpm": 0.526027441077441,
      "preIpm": 34717.81111111111,
      "bipmCalc": 31246.029999999995,
-     "calcBonus": 24436.03612447157,
-     "finalBonus": 24436.03612447157
+     "calcBonus": 24436.695403521513,
+     "finalBonus": 24436.695403521513
     },
     {
      "id": "JOBEN",
      "cpm": 0.987746299123,
      "preIpm": 45620.544444444444,
      "bipmCalc": 41058.49,
-     "calcBonus": 32109.89507647067,
-     "finalBonus": 32109.89507647067
+     "calcBonus": 32110.76139460066,
+     "finalBonus": 32110.76139460066
     },
     {
      "id": "MIBRI",
@@ -2230,176 +2230,176 @@
      "cpm": 0.947945219638243,
      "preIpm": 10190.411111111112,
      "bipmCalc": 9171.37,
-     "calcBonus": 7172.492909687883,
-     "finalBonus": 7172.492909687883
+     "calcBonus": 7172.686422018898,
+     "finalBonus": 7172.686422018898
     },
     {
      "id": "MAJOS",
      "cpm": 0.9095891358024691,
      "preIpm": 10232.877777777778,
      "bipmCalc": 9209.59,
-     "calcBonus": 7202.382956541109,
-     "finalBonus": 7202.382956541109
+     "calcBonus": 7202.577275299221,
+     "finalBonus": 7202.577275299221
     },
     {
      "id": "NOPER",
      "cpm": 1,
      "preIpm": 10500,
      "bipmCalc": 9450,
-     "calcBonus": 7390.396199973449,
-     "finalBonus": 7390.396199973449
+     "calcBonus": 7390.595591288824,
+     "finalBonus": 7390.595591288824
     },
     {
      "id": "TANIC",
      "cpm": 1,
      "preIpm": 9750,
      "bipmCalc": 8775,
-     "calcBonus": 6862.5107571182025,
-     "finalBonus": 6862.5107571182025
+     "calcBonus": 6862.695906196765,
+     "finalBonus": 6862.695906196765
     },
     {
      "id": "RUCUN",
      "cpm": 1,
      "preIpm": 9500,
      "bipmCalc": 8550,
-     "calcBonus": 6686.54894283312,
-     "finalBonus": 6686.54894283312
+     "calcBonus": 6686.729344499412,
+     "finalBonus": 6686.729344499412
     },
     {
      "id": "LEBRO",
      "cpm": 1,
      "preIpm": 9500,
      "bipmCalc": 8550,
-     "calcBonus": 6686.54894283312,
-     "finalBonus": 6686.54894283312
+     "calcBonus": 6686.729344499412,
+     "finalBonus": 6686.729344499412
     },
     {
      "id": "MAHOO",
      "cpm": 1,
      "preIpm": 9000,
      "bipmCalc": 8100,
-     "calcBonus": 6334.625314262956,
-     "finalBonus": 6334.625314262956
+     "calcBonus": 6334.796221104706,
+     "finalBonus": 6334.796221104706
     },
     {
      "id": "MISHA",
      "cpm": 1,
      "preIpm": 8750,
      "bipmCalc": 7875,
-     "calcBonus": 6158.663499977874,
-     "finalBonus": 6158.663499977874
+     "calcBonus": 6158.829659407353,
+     "finalBonus": 6158.829659407353
     },
     {
      "id": "PAALB",
      "cpm": 1,
      "preIpm": 30000,
      "bipmCalc": 27000,
-     "calcBonus": 21115.417714209852,
-     "finalBonus": 21115.417714209852
+     "calcBonus": 21115.987403682353,
+     "finalBonus": 21115.987403682353
     },
     {
      "id": "NIBAI",
      "cpm": 1,
      "preIpm": 29250,
      "bipmCalc": 26325,
-     "calcBonus": 20587.53227135461,
-     "finalBonus": 20587.53227135461
+     "calcBonus": 20588.087718590294,
+     "finalBonus": 20588.087718590294
     },
     {
      "id": "VIRAO",
      "cpm": 0.9863013645224171,
      "preIpm": 28109.588888888888,
      "bipmCalc": 25298.63,
-     "calcBonus": 19784.857038786697,
-     "finalBonus": 19784.857038786697
+     "calcBonus": 19785.390830015574,
+     "finalBonus": 19785.390830015574
     },
     {
      "id": "MALIU",
      "cpm": 1,
      "preIpm": 27000,
      "bipmCalc": 24300,
-     "calcBonus": 19003.87594278887,
-     "finalBonus": 19003.87594278887
+     "calcBonus": 19004.38866331412,
+     "finalBonus": 19004.38866331412
     },
     {
      "id": "LUALK",
      "cpm": 1,
      "preIpm": 16000,
      "bipmCalc": 14400,
-     "calcBonus": 11261.556114245255,
-     "finalBonus": 11261.556114245255
+     "calcBonus": 11261.859948630588,
+     "finalBonus": 11261.859948630588
     },
     {
      "id": "FRYAN",
      "cpm": 1,
      "preIpm": 15000,
      "bipmCalc": 13500,
-     "calcBonus": 10557.708857104926,
-     "finalBonus": 10557.708857104926
+     "calcBonus": 10557.993701841177,
+     "finalBonus": 10557.993701841177
     },
     {
      "id": "ISBOR",
      "cpm": 0.33424674329501913,
      "preIpm": 4846.577777777778,
      "bipmCalc": 4361.92,
-     "calcBonus": 3411.2504754061574,
-     "finalBonus": 3411.2504754061574
+     "calcBonus": 3411.3425102174124,
+     "finalBonus": 3411.3425102174124
     },
     {
      "id": "ERBLA",
      "cpm": 1,
      "preIpm": 14000,
      "bipmCalc": 12600,
-     "calcBonus": 9853.861599964599,
-     "finalBonus": 9853.861599964599
+     "calcBonus": 9854.127455051765,
+     "finalBonus": 9854.127455051765
     },
     {
      "id": "SAKAS",
      "cpm": 0.8520547619047619,
      "preIpm": 11928.766666666666,
      "bipmCalc": 10735.89,
-     "calcBonus": 8396.029699400311,
-     "finalBonus": 8396.029699400311
+     "calcBonus": 8396.256222493308,
+     "finalBonus": 8396.256222493308
     },
     {
      "id": "DAJOR",
      "cpm": 0.6794518518518519,
      "preIpm": 9172.6,
      "bipmCalc": 8255.34,
-     "calcBonus": 6456.109350845377,
-     "finalBonus": 6456.109350845377
+     "calcBonus": 6456.2835353005585,
+     "finalBonus": 6456.2835353005585
     },
     {
      "id": "CHDUO",
      "cpm": 1,
      "preIpm": 12000,
      "bipmCalc": 10800,
-     "calcBonus": 8446.167085683941,
-     "finalBonus": 8446.167085683941
+     "calcBonus": 8446.39496147294,
+     "finalBonus": 8446.39496147294
     },
     {
      "id": "KAPET",
      "cpm": 0.9673453864607103,
      "preIpm": 3673.9777777777776,
      "bipmCalc": 3306.58,
-     "calcBonus": 2585.919181683408,
-     "finalBonus": 2585.919181683408
+     "calcBonus": 2585.988949232148,
+     "finalBonus": 2585.988949232148
     },
     {
      "id": "MIJAR",
      "cpm": 1,
      "preIpm": 32500,
      "bipmCalc": 29250,
-     "calcBonus": 22875.035857060677,
-     "finalBonus": 22875.035857060677
+     "calcBonus": 22875.653020655882,
+     "finalBonus": 22875.653020655882
     },
     {
      "id": "DIKUM",
      "cpm": 0.8712329140461215,
      "preIpm": 46175.34444444444,
      "bipmCalc": 41557.81,
-     "calcBonus": 32500.389534732123,
-     "finalBonus": 32500.389534732123
+     "calcBonus": 32501.266388319425,
+     "finalBonus": 32501.266388319425
     },
     {
      "id": "DHAMI",
@@ -2414,16 +2414,16 @@
      "cpm": 1,
      "preIpm": 29500,
      "bipmCalc": 26550,
-     "calcBonus": 20763.49408563969,
-     "finalBonus": 20763.49408563969
+     "calcBonus": 20764.054280287648,
+     "finalBonus": 20764.054280287648
     },
     {
      "id": "GAJOH",
      "cpm": 0.3917808278867103,
      "preIpm": 9990.411111111112,
      "bipmCalc": 8991.37,
-     "calcBonus": 7031.723458259818,
-     "finalBonus": 7031.723458259818
+     "calcBonus": 7031.913172661016,
+     "finalBonus": 7031.913172661016
     },
     {
      "id": "ZAKAL",
@@ -2438,40 +2438,40 @@
      "cpm": 1,
      "preIpm": 20000,
      "bipmCalc": 18000,
-     "calcBonus": 14076.94514280657,
-     "finalBonus": 14076.94514280657
+     "calcBonus": 14077.324935788236,
+     "finalBonus": 14077.324935788236
     },
     {
      "id": "JUCON",
      "cpm": 0.6027399176954733,
      "preIpm": 8136.98888888889,
      "bipmCalc": 7323.290000000001,
-     "calcBonus": 5727.197310825774,
-     "finalBonus": 5727.197310825774
+     "calcBonus": 5727.3518293893685,
+     "finalBonus": 5727.3518293893685
     },
     {
      "id": "CAMAN",
      "cpm": 0.39178111111111114,
      "preIpm": 3917.811111111111,
      "bipmCalc": 3526.03,
-     "calcBonus": 2757.5406045494583,
-     "finalBonus": 2757.5406045494583
+     "calcBonus": 2757.615002407633,
+     "finalBonus": 2757.615002407633
     },
     {
      "id": "RIMOS",
      "cpm": 0.9754726901802427,
      "preIpm": 5153.422222222222,
      "bipmCalc": 4638.08,
-     "calcBonus": 3627.2220959971273,
-     "finalBonus": 3627.2220959971273
+     "calcBonus": 3627.3199576767056,
+     "finalBonus": 3627.3199576767056
     },
     {
      "id": "KUPIC",
      "cpm": 1,
      "preIpm": 9000,
      "bipmCalc": 8100,
-     "calcBonus": 6334.625314262956,
-     "finalBonus": 6334.625314262956
+     "calcBonus": 6334.796221104706,
+     "finalBonus": 6334.796221104706
     },
     {
      "id": "JADRI",
@@ -2502,8 +2502,8 @@
      "cpm": 0.23671239935587762,
      "preIpm": 1020.8222222222222,
      "bipmCalc": 918.74,
-     "calcBonus": 718.5029211390059,
-     "finalBonus": 718.5029211390059
+     "calcBonus": 718.5223061947825,
+     "finalBonus": 718.5223061947825
     },
     {
      "id": "THHAN",
@@ -2522,9 +2522,2531 @@
      "daEdit": 10000000
     }
    },
+   "vicScale": 0,
+   "nswScale": 0.7820525079336984,
+   "totalFinal": 11460603.245215325,
+   "totalVicAlloc": 10422194.995215323,
+   "totalNswAlloc": 1038408.25,
+   "rows": [
+    {
+     "id": "ALBID",
+     "cpm": 1,
+     "preIpm": 60000,
+     "bipmCalc": 54000,
+     "calcBonus": 16470.02581708369,
+     "finalBonus": 16470.02581708369
+    },
+    {
+     "id": "BRELL",
+     "cpm": 1,
+     "preIpm": 75000,
+     "bipmCalc": 67500,
+     "calcBonus": 20587.532271354612,
+     "finalBonus": 20587.532271354612
+    },
+    {
+     "id": "JEBEL",
+     "cpm": 1,
+     "preIpm": 75000,
+     "bipmCalc": 67500,
+     "calcBonus": 20587.532271354612,
+     "finalBonus": 20587.532271354612
+    },
+    {
+     "id": "DEGIB",
+     "cpm": 0.9360090874668686,
+     "preIpm": 61800,
+     "bipmCalc": 55620,
+     "calcBonus": 16964.1265915962,
+     "finalBonus": 16964.1265915962
+    },
+    {
+     "id": "RYDEB",
+     "cpm": 1,
+     "preIpm": 40000,
+     "bipmCalc": 36000,
+     "calcBonus": 10980.017211389126,
+     "finalBonus": 10980.017211389126
+    },
+    {
+     "id": "KRPER",
+     "cpm": 0.35342462462462465,
+     "preIpm": 19615.06666666667,
+     "bipmCalc": 17653.56,
+     "calcBonus": 5384.344240063629,
+     "finalBonus": 5384.344240063629
+    },
+    {
+     "id": "THRIC",
+     "cpm": 0.06575337690631808,
+     "preIpm": 1676.711111111111,
+     "bipmCalc": 1509.04,
+     "calcBonus": 460.25792146318463,
+     "finalBonus": 460.25792146318463
+    },
+    {
+     "id": "TACOR",
+     "cpm": 0.9665657508456187,
+     "preIpm": 26924.655555555553,
+     "bipmCalc": 24232.19,
+     "calcBonus": 7390.829535268095,
+     "finalBonus": 7390.829535268095
+    },
+    {
+     "id": "STDEM",
+     "cpm": 0.7685186101353915,
+     "preIpm": 23301.100000000002,
+     "bipmCalc": 20970.99,
+     "calcBonus": 6396.16197610748,
+     "finalBonus": 6396.16197610748
+    },
+    {
+     "id": "NINIL",
+     "cpm": 0.9482390347115,
+     "preIpm": 23030.355555555554,
+     "bipmCalc": 20727.32,
+     "calcBonus": 6321.842509610279,
+     "finalBonus": 6321.842509610279
+    },
+    {
+     "id": "THGRA",
+     "cpm": 1,
+     "preIpm": 21000,
+     "bipmCalc": 18900,
+     "calcBonus": 5764.509035979291,
+     "finalBonus": 5764.509035979291
+    },
+    {
+     "id": "NANIC",
+     "cpm": 0.2767122085048011,
+     "preIpm": 5603.422222222222,
+     "bipmCalc": 5043.08,
+     "calcBonus": 1538.1418110670077,
+     "finalBonus": 1538.1418110670077
+    },
+    {
+     "id": "TESCH",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "GECHO",
+     "cpm": 1,
+     "preIpm": 13000,
+     "bipmCalc": 11700,
+     "calcBonus": 3568.505593701466,
+     "finalBonus": 3568.505593701466
+    },
+    {
+     "id": "SHKIN",
+     "cpm": 0.657534188034188,
+     "preIpm": 8547.944444444443,
+     "bipmCalc": 7693.15,
+     "calcBonus": 2346.4144280499513,
+     "finalBonus": 2346.4144280499513
+    },
+    {
+     "id": "ELSAL",
+     "cpm": 1,
+     "preIpm": 18000,
+     "bipmCalc": 16200,
+     "calcBonus": 4941.007745125106,
+     "finalBonus": 4941.007745125106
+    },
+    {
+     "id": "GATES",
+     "cpm": 0.08493148148148148,
+     "preIpm": 1528.7666666666667,
+     "bipmCalc": 1375.89,
+     "calcBonus": 419.6471078049496,
+     "finalBonus": 419.6471078049496
+    },
+    {
+     "id": "STMOO",
+     "cpm": 1,
+     "preIpm": 16500,
+     "bipmCalc": 11550,
+     "calcBonus": 3522.7555219873443,
+     "finalBonus": 3522.7555219873443
+    },
+    {
+     "id": "MITAY",
+     "cpm": 1,
+     "preIpm": 10000,
+     "bipmCalc": 9000,
+     "calcBonus": 2745.0043028472815,
+     "finalBonus": 2745.0043028472815
+    },
+    {
+     "id": "YVPOH",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "BEYOU",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "KOWRI",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "ADWIL",
+     "cpm": 0.8421918518518517,
+     "preIpm": 63164.38888888888,
+     "bipmCalc": 56847.95,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "KATOS",
+     "cpm": 1,
+     "preIpm": 30000,
+     "bipmCalc": 27000,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "ANNIC",
+     "cpm": 1,
+     "preIpm": 13500,
+     "bipmCalc": 12150,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "PADAR",
+     "cpm": 1,
+     "preIpm": 93000,
+     "bipmCalc": 83700,
+     "calcBonus": 56228.18255509389,
+     "finalBonus": 10056228.182555094
+    },
+    {
+     "id": "NETIM",
+     "cpm": 1,
+     "preIpm": 93000,
+     "bipmCalc": 83700,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "LAHIL",
+     "cpm": 1,
+     "preIpm": 88500,
+     "bipmCalc": 79650,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "JOGLI",
+     "cpm": 1,
+     "preIpm": 88500,
+     "bipmCalc": 79650,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "PECLE",
+     "cpm": 0.7534246076585058,
+     "preIpm": 66678.07777777777,
+     "bipmCalc": 60010.27,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "RIPOR",
+     "cpm": 1,
+     "preIpm": 88500,
+     "bipmCalc": 79650,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "WIPET",
+     "cpm": 1,
+     "preIpm": 72000,
+     "bipmCalc": 64800,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "MOMAR",
+     "cpm": 1,
+     "preIpm": 66000,
+     "bipmCalc": 59400,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "STNAS",
+     "cpm": 1,
+     "preIpm": 36000,
+     "bipmCalc": 32400,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "ANJEL",
+     "cpm": 1,
+     "preIpm": 78000,
+     "bipmCalc": 70200,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "AYSOL",
+     "cpm": 1,
+     "preIpm": 78000,
+     "bipmCalc": 70200,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "ADDIC",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "JACHA",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "BRHOL",
+     "cpm": 0.48493151927437644,
+     "preIpm": 17821.233333333334,
+     "bipmCalc": 16039.11,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "SCRIC",
+     "cpm": 1,
+     "preIpm": 72615,
+     "bipmCalc": 65353.5,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "NIPRE",
+     "cpm": 1,
+     "preIpm": 72000,
+     "bipmCalc": 64800,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "MALIP",
+     "cpm": 1,
+     "preIpm": 69000,
+     "bipmCalc": 62100,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "JOSMI",
+     "cpm": 0.9331507407407408,
+     "preIpm": 55989.044444444444,
+     "bipmCalc": 50390.14,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "DADOY",
+     "cpm": 1,
+     "preIpm": 29458,
+     "bipmCalc": 26512.2,
+     "calcBonus": 26512.2,
+     "finalBonus": 26512.2
+    },
+    {
+     "id": "MAWEA",
+     "cpm": 1,
+     "preIpm": 29458,
+     "bipmCalc": 26512.2,
+     "calcBonus": 26512.2,
+     "finalBonus": 26512.2
+    },
+    {
+     "id": "JUROS",
+     "cpm": 1,
+     "preIpm": 29458,
+     "bipmCalc": 26512.2,
+     "calcBonus": 26512.2,
+     "finalBonus": 26512.2
+    },
+    {
+     "id": "STHOW",
+     "cpm": 1,
+     "preIpm": 29458,
+     "bipmCalc": 26512.2,
+     "calcBonus": 26512.2,
+     "finalBonus": 26512.2
+    },
+    {
+     "id": "PADWY",
+     "cpm": 1,
+     "preIpm": 29458,
+     "bipmCalc": 26512.2,
+     "calcBonus": 26512.2,
+     "finalBonus": 26512.2
+    },
+    {
+     "id": "HUMCL",
+     "cpm": 1,
+     "preIpm": 23750,
+     "bipmCalc": 21375,
+     "calcBonus": 21375,
+     "finalBonus": 21375
+    },
+    {
+     "id": "CHBOY",
+     "cpm": 1,
+     "preIpm": 23750,
+     "bipmCalc": 21375,
+     "calcBonus": 21375,
+     "finalBonus": 21375
+    },
+    {
+     "id": "MAMOR",
+     "cpm": 1,
+     "preIpm": 27500,
+     "bipmCalc": 24750,
+     "calcBonus": 24750,
+     "finalBonus": 24750
+    },
+    {
+     "id": "TIMCS",
+     "cpm": 0.9999999999999999,
+     "preIpm": 23483.999999999996,
+     "bipmCalc": 21135.6,
+     "calcBonus": 21135.6,
+     "finalBonus": 21135.6
+    },
+    {
+     "id": "ADHAS",
+     "cpm": 0.9999999999999999,
+     "preIpm": 23483.999999999996,
+     "bipmCalc": 21135.6,
+     "calcBonus": 21135.6,
+     "finalBonus": 21135.6
+    },
+    {
+     "id": "COTUC",
+     "cpm": 0.6767122568325576,
+     "preIpm": 15750.47777777778,
+     "bipmCalc": 14175.430000000002,
+     "calcBonus": 14175.430000000002,
+     "finalBonus": 14175.430000000002
+    },
+    {
+     "id": "GYSCI",
+     "cpm": 1,
+     "preIpm": 21850,
+     "bipmCalc": 19665,
+     "calcBonus": 19665,
+     "finalBonus": 19665
+    },
+    {
+     "id": "MILAR",
+     "cpm": 1,
+     "preIpm": 20425,
+     "bipmCalc": 18382.5,
+     "calcBonus": 18382.5,
+     "finalBonus": 18382.5
+    },
+    {
+     "id": "ROHUG",
+     "cpm": 0.7342466772993089,
+     "preIpm": 15345.755555555557,
+     "bipmCalc": 13811.180000000002,
+     "calcBonus": 13811.180000000002,
+     "finalBonus": 13811.180000000002
+    },
+    {
+     "id": "SEROB",
+     "cpm": 0.9999996931013794,
+     "preIpm": 18102.244444444445,
+     "bipmCalc": 16292.02,
+     "calcBonus": 16292.02,
+     "finalBonus": 16292.02
+    },
+    {
+     "id": "SHGAL",
+     "cpm": 1,
+     "preIpm": 20900,
+     "bipmCalc": 18810,
+     "calcBonus": 18810,
+     "finalBonus": 18810
+    },
+    {
+     "id": "SACUT",
+     "cpm": 1,
+     "preIpm": 39000,
+     "bipmCalc": 35100,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "MIFRA",
+     "cpm": 1,
+     "preIpm": 38500,
+     "bipmCalc": 34650,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "KYFAI",
+     "cpm": 1,
+     "preIpm": 38000,
+     "bipmCalc": 34200,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "KINGU",
+     "cpm": 1,
+     "preIpm": 35000,
+     "bipmCalc": 31500,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "JAROC",
+     "cpm": 1,
+     "preIpm": 35000,
+     "bipmCalc": 31500,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "SAWAL",
+     "cpm": 1,
+     "preIpm": 35000,
+     "bipmCalc": 31500,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "ELPOR",
+     "cpm": 1,
+     "preIpm": 13000,
+     "bipmCalc": 11700,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "GESIB",
+     "cpm": 1,
+     "preIpm": 12000,
+     "bipmCalc": 10800,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "FIPLU",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "VERNG",
+     "cpm": 1,
+     "preIpm": 24000,
+     "bipmCalc": 21600,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "NICHA",
+     "cpm": 1,
+     "preIpm": 21750,
+     "bipmCalc": 19575,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "CHHUA",
+     "cpm": 0.6,
+     "preIpm": 8362.5,
+     "bipmCalc": 7526.25,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "LIFON",
+     "cpm": 1,
+     "preIpm": 11700,
+     "bipmCalc": 10530,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "TALAU",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "ALANT",
+     "cpm": 1,
+     "preIpm": 32250,
+     "bipmCalc": 29025,
+     "calcBonus": 19498.48266023417,
+     "finalBonus": 22498.48266023417
+    },
+    {
+     "id": "GITAS",
+     "cpm": 1,
+     "preIpm": 31140,
+     "bipmCalc": 28026,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "ALPRI",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "ANDYO",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "DABAL",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "JACHE",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "MOALO",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "JOGAN",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "TRLAS",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "MASWA",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "ADBUL",
+     "cpm": 1,
+     "preIpm": 24000,
+     "bipmCalc": 21600,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "JOABE",
+     "cpm": 1,
+     "preIpm": 23250,
+     "bipmCalc": 20925,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "LUBET",
+     "cpm": 1,
+     "preIpm": 22500,
+     "bipmCalc": 20250,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "BEWAT",
+     "cpm": 1,
+     "preIpm": 22500,
+     "bipmCalc": 20250,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "TOHAD",
+     "cpm": 1,
+     "preIpm": 22500,
+     "bipmCalc": 20250,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "MIPAR",
+     "cpm": 1,
+     "preIpm": 21480,
+     "bipmCalc": 19332,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "NIDER",
+     "cpm": 1,
+     "preIpm": 21000,
+     "bipmCalc": 18900,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "CHGOG",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "ALTSO",
+     "cpm": 0.9442925925925926,
+     "preIpm": 11331.511111111111,
+     "bipmCalc": 10198.36,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "JOGRI",
+     "cpm": 0.7534251207729469,
+     "preIpm": 8664.388888888889,
+     "bipmCalc": 7797.95,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "PAWAT",
+     "cpm": 1,
+     "preIpm": 10510,
+     "bipmCalc": 9459,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "MIHOL",
+     "cpm": 0.8173513227513228,
+     "preIpm": 8582.18888888889,
+     "bipmCalc": 7723.970000000001,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "MACUM",
+     "cpm": 0.8997255555555556,
+     "preIpm": 8997.255555555555,
+     "bipmCalc": 8097.53,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "SOLI",
+     "cpm": 0.7716433333333333,
+     "preIpm": 7716.433333333333,
+     "bipmCalc": 6944.79,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "AYMES",
+     "cpm": 0.2739732142857143,
+     "preIpm": 2454.8,
+     "bipmCalc": 2209.32,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "HAWIL",
+     "cpm": 1,
+     "preIpm": 8500,
+     "bipmCalc": 7650,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "YUYAN",
+     "cpm": 1,
+     "preIpm": 8500,
+     "bipmCalc": 7650,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "PARIB",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "MACOO",
+     "cpm": 1,
+     "preIpm": 109500,
+     "bipmCalc": 98550,
+     "calcBonus": 77071.27465686598,
+     "finalBonus": 77071.27465686598
+    },
+    {
+     "id": "LUTOW",
+     "cpm": 1,
+     "preIpm": 71750,
+     "bipmCalc": 64575,
+     "calcBonus": 50501.04069981857,
+     "finalBonus": 50501.04069981857
+    },
+    {
+     "id": "ANAAL",
+     "cpm": 1,
+     "preIpm": 27000,
+     "bipmCalc": 24300,
+     "calcBonus": 19003.875942788873,
+     "finalBonus": 19003.875942788873
+    },
+    {
+     "id": "THMCC",
+     "cpm": 1,
+     "preIpm": 90000,
+     "bipmCalc": 81000,
+     "calcBonus": 63346.25314262957,
+     "finalBonus": 63346.25314262957
+    },
+    {
+     "id": "MAHEN",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "ANNKA",
+     "cpm": 1,
+     "preIpm": 81000,
+     "bipmCalc": 72900,
+     "calcBonus": 57011.62782836661,
+     "finalBonus": 57011.62782836661
+    },
+    {
+     "id": "SALUP",
+     "cpm": 1,
+     "preIpm": 79500,
+     "bipmCalc": 71550,
+     "calcBonus": 55955.85694265612,
+     "finalBonus": 55955.85694265612
+    },
+    {
+     "id": "JYSHA",
+     "cpm": 1,
+     "preIpm": 72000,
+     "bipmCalc": 64800,
+     "calcBonus": 50677.00251410365,
+     "finalBonus": 50677.00251410365
+    },
+    {
+     "id": "NIRAM",
+     "cpm": 0.526027441077441,
+     "preIpm": 34717.81111111111,
+     "bipmCalc": 31246.029999999995,
+     "calcBonus": 24436.036124471575,
+     "finalBonus": 24436.036124471575
+    },
+    {
+     "id": "JOBEN",
+     "cpm": 0.987746299123,
+     "preIpm": 45620.544444444444,
+     "bipmCalc": 41058.49,
+     "calcBonus": 32109.895076470675,
+     "finalBonus": 32109.895076470675
+    },
+    {
+     "id": "MIBRI",
+     "cpm": 1,
+     "preIpm": 25175,
+     "bipmCalc": 22657.5,
+     "calcBonus": 22657.5,
+     "finalBonus": 22657.5
+    },
+    {
+     "id": "BENFO",
+     "cpm": 1,
+     "preIpm": 23750,
+     "bipmCalc": 21375,
+     "calcBonus": 21375,
+     "finalBonus": 21375
+    },
+    {
+     "id": "GRGRI",
+     "cpm": 1,
+     "preIpm": 23750,
+     "bipmCalc": 21375,
+     "calcBonus": 21375,
+     "finalBonus": 21375
+    },
+    {
+     "id": "PEFRE",
+     "cpm": 0.9671230558666167,
+     "preIpm": 21591.02222222222,
+     "bipmCalc": 19431.92,
+     "calcBonus": 19431.92,
+     "finalBonus": 19431.92
+    },
+    {
+     "id": "DAMAS",
+     "cpm": 1,
+     "preIpm": 21850,
+     "bipmCalc": 19665,
+     "calcBonus": 19665,
+     "finalBonus": 19665
+    },
+    {
+     "id": "BESMI",
+     "cpm": 1,
+     "preIpm": 21850,
+     "bipmCalc": 19665,
+     "calcBonus": 19665,
+     "finalBonus": 19665
+    },
+    {
+     "id": "BEJEN",
+     "cpm": 1,
+     "preIpm": 20140,
+     "bipmCalc": 18126,
+     "calcBonus": 18126,
+     "finalBonus": 18126
+    },
+    {
+     "id": "KETAL",
+     "cpm": 0.9804876800655017,
+     "preIpm": 19160.2,
+     "bipmCalc": 17244.18,
+     "calcBonus": 17244.18,
+     "finalBonus": 17244.18
+    },
+    {
+     "id": "LUGUI",
+     "cpm": 0.947945219638243,
+     "preIpm": 10190.411111111112,
+     "bipmCalc": 9171.37,
+     "calcBonus": 7172.492909687884,
+     "finalBonus": 7172.492909687884
+    },
+    {
+     "id": "MAJOS",
+     "cpm": 0.9095891358024691,
+     "preIpm": 10232.877777777778,
+     "bipmCalc": 9209.59,
+     "calcBonus": 7202.38295654111,
+     "finalBonus": 7202.38295654111
+    },
+    {
+     "id": "NOPER",
+     "cpm": 1,
+     "preIpm": 10500,
+     "bipmCalc": 9450,
+     "calcBonus": 7390.39619997345,
+     "finalBonus": 7390.39619997345
+    },
+    {
+     "id": "TANIC",
+     "cpm": 1,
+     "preIpm": 9750,
+     "bipmCalc": 8775,
+     "calcBonus": 6862.510757118203,
+     "finalBonus": 6862.510757118203
+    },
+    {
+     "id": "RUCUN",
+     "cpm": 1,
+     "preIpm": 9500,
+     "bipmCalc": 8550,
+     "calcBonus": 6686.548942833121,
+     "finalBonus": 6686.548942833121
+    },
+    {
+     "id": "LEBRO",
+     "cpm": 1,
+     "preIpm": 9500,
+     "bipmCalc": 8550,
+     "calcBonus": 6686.548942833121,
+     "finalBonus": 6686.548942833121
+    },
+    {
+     "id": "MAHOO",
+     "cpm": 1,
+     "preIpm": 9000,
+     "bipmCalc": 8100,
+     "calcBonus": 6334.625314262957,
+     "finalBonus": 6334.625314262957
+    },
+    {
+     "id": "MISHA",
+     "cpm": 1,
+     "preIpm": 8750,
+     "bipmCalc": 7875,
+     "calcBonus": 6158.663499977875,
+     "finalBonus": 6158.663499977875
+    },
+    {
+     "id": "PAALB",
+     "cpm": 1,
+     "preIpm": 30000,
+     "bipmCalc": 27000,
+     "calcBonus": 21115.417714209856,
+     "finalBonus": 21115.417714209856
+    },
+    {
+     "id": "NIBAI",
+     "cpm": 1,
+     "preIpm": 29250,
+     "bipmCalc": 26325,
+     "calcBonus": 20587.532271354612,
+     "finalBonus": 20587.532271354612
+    },
+    {
+     "id": "VIRAO",
+     "cpm": 0.9863013645224171,
+     "preIpm": 28109.588888888888,
+     "bipmCalc": 25298.63,
+     "calcBonus": 19784.8570387867,
+     "finalBonus": 19784.8570387867
+    },
+    {
+     "id": "MALIU",
+     "cpm": 1,
+     "preIpm": 27000,
+     "bipmCalc": 24300,
+     "calcBonus": 19003.875942788873,
+     "finalBonus": 19003.875942788873
+    },
+    {
+     "id": "LUALK",
+     "cpm": 1,
+     "preIpm": 16000,
+     "bipmCalc": 14400,
+     "calcBonus": 11261.556114245257,
+     "finalBonus": 11261.556114245257
+    },
+    {
+     "id": "FRYAN",
+     "cpm": 1,
+     "preIpm": 15000,
+     "bipmCalc": 13500,
+     "calcBonus": 10557.708857104928,
+     "finalBonus": 10557.708857104928
+    },
+    {
+     "id": "ISBOR",
+     "cpm": 0.33424674329501913,
+     "preIpm": 4846.577777777778,
+     "bipmCalc": 4361.92,
+     "calcBonus": 3411.250475406158,
+     "finalBonus": 3411.250475406158
+    },
+    {
+     "id": "ERBLA",
+     "cpm": 1,
+     "preIpm": 14000,
+     "bipmCalc": 12600,
+     "calcBonus": 9853.861599964599,
+     "finalBonus": 9853.861599964599
+    },
+    {
+     "id": "SAKAS",
+     "cpm": 0.8520547619047619,
+     "preIpm": 11928.766666666666,
+     "bipmCalc": 10735.89,
+     "calcBonus": 8396.029699400313,
+     "finalBonus": 8396.029699400313
+    },
+    {
+     "id": "DAJOR",
+     "cpm": 0.6794518518518519,
+     "preIpm": 9172.6,
+     "bipmCalc": 8255.34,
+     "calcBonus": 6456.109350845378,
+     "finalBonus": 6456.109350845378
+    },
+    {
+     "id": "CHDUO",
+     "cpm": 1,
+     "preIpm": 12000,
+     "bipmCalc": 10800,
+     "calcBonus": 8446.167085683943,
+     "finalBonus": 8446.167085683943
+    },
+    {
+     "id": "KAPET",
+     "cpm": 0.9673453864607103,
+     "preIpm": 3673.9777777777776,
+     "bipmCalc": 3306.58,
+     "calcBonus": 2585.9191816834086,
+     "finalBonus": 2585.9191816834086
+    },
+    {
+     "id": "MIJAR",
+     "cpm": 1,
+     "preIpm": 32500,
+     "bipmCalc": 29250,
+     "calcBonus": 22875.035857060677,
+     "finalBonus": 22875.035857060677
+    },
+    {
+     "id": "DIKUM",
+     "cpm": 0.8712329140461215,
+     "preIpm": 46175.34444444444,
+     "bipmCalc": 41557.81,
+     "calcBonus": 32500.38953473213,
+     "finalBonus": 32500.38953473213
+    },
+    {
+     "id": "DHAMI",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "SCPOR",
+     "cpm": 1,
+     "preIpm": 29500,
+     "bipmCalc": 26550,
+     "calcBonus": 20763.494085639693,
+     "finalBonus": 20763.494085639693
+    },
+    {
+     "id": "GAJOH",
+     "cpm": 0.3917808278867103,
+     "preIpm": 9990.411111111112,
+     "bipmCalc": 8991.37,
+     "calcBonus": 7031.7234582598185,
+     "finalBonus": 7031.7234582598185
+    },
+    {
+     "id": "ZAKAL",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "MACAR",
+     "cpm": 1,
+     "preIpm": 20000,
+     "bipmCalc": 18000,
+     "calcBonus": 14076.945142806571,
+     "finalBonus": 14076.945142806571
+    },
+    {
+     "id": "JUCON",
+     "cpm": 0.6027399176954733,
+     "preIpm": 8136.98888888889,
+     "bipmCalc": 7323.290000000001,
+     "calcBonus": 5727.197310825775,
+     "finalBonus": 5727.197310825775
+    },
+    {
+     "id": "CAMAN",
+     "cpm": 0.39178111111111114,
+     "preIpm": 3917.811111111111,
+     "bipmCalc": 3526.03,
+     "calcBonus": 2757.5406045494587,
+     "finalBonus": 2757.5406045494587
+    },
+    {
+     "id": "RIMOS",
+     "cpm": 0.9754726901802427,
+     "preIpm": 5153.422222222222,
+     "bipmCalc": 4638.08,
+     "calcBonus": 3627.222095997128,
+     "finalBonus": 3627.222095997128
+    },
+    {
+     "id": "KUPIC",
+     "cpm": 1,
+     "preIpm": 9000,
+     "bipmCalc": 8100,
+     "calcBonus": 6334.625314262957,
+     "finalBonus": 6334.625314262957
+    },
+    {
+     "id": "JADRI",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "AVROB",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "JAALV",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "MARUB",
+     "cpm": 0.23671239935587762,
+     "preIpm": 1020.8222222222222,
+     "bipmCalc": 918.74,
+     "calcBonus": 718.502921139006,
+     "finalBonus": 718.502921139006
+    },
+    {
+     "id": "THHAN",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    }
+   ]
+  },
+  {
+   "name": "mixed-edits-and-lock",
+   "overrides": {
+    "PADAR": {
+     "daEdit": 2500,
+     "ipmEdit": 0.75
+    },
+    "MACOO": {
+     "daEdit": 1000,
+     "bpEdit": 0.25
+    },
+    "NETIM": {
+     "locked": true,
+     "lockedFinal": 56089.62666524381
+    },
+    "ALBID": {
+     "ipmEdit": 1.1
+    }
+   },
+   "vicScale": 0.6710762547321858,
+   "nswScale": 0.7893412538459555,
+   "totalFinal": 2618822.7499999986,
+   "totalVicAlloc": 1580414.4999999986,
+   "totalNswAlloc": 1038408.2500000001,
+   "rows": [
+    {
+     "id": "ALBID",
+     "cpm": 1,
+     "preIpm": 60000,
+     "bipmCalc": 66000,
+     "calcBonus": 47335.1738895127,
+     "finalBonus": 47335.1738895127
+    },
+    {
+     "id": "BRELL",
+     "cpm": 1,
+     "preIpm": 75000,
+     "bipmCalc": 67500,
+     "calcBonus": 48410.97329609253,
+     "finalBonus": 48410.97329609253
+    },
+    {
+     "id": "JEBEL",
+     "cpm": 1,
+     "preIpm": 75000,
+     "bipmCalc": 67500,
+     "calcBonus": 48410.97329609253,
+     "finalBonus": 48410.97329609253
+    },
+    {
+     "id": "DEGIB",
+     "cpm": 0.9360090874668686,
+     "preIpm": 61800,
+     "bipmCalc": 55620,
+     "calcBonus": 39890.641995980244,
+     "finalBonus": 39890.641995980244
+    },
+    {
+     "id": "RYDEB",
+     "cpm": 1,
+     "preIpm": 40000,
+     "bipmCalc": 36000,
+     "calcBonus": 25819.185757916013,
+     "finalBonus": 25819.185757916013
+    },
+    {
+     "id": "KRPER",
+     "cpm": 0.35342462462462465,
+     "preIpm": 19615.06666666667,
+     "bipmCalc": 17653.56,
+     "calcBonus": 12661.12624801433,
+     "finalBonus": 12661.12624801433
+    },
+    {
+     "id": "THRIC",
+     "cpm": 0.06575337690631808,
+     "preIpm": 1676.711111111111,
+     "bipmCalc": 1509.04,
+     "calcBonus": 1082.2828910034884,
+     "finalBonus": 1082.2828910034884
+    },
+    {
+     "id": "TACOR",
+     "cpm": 0.9665657508456187,
+     "preIpm": 26924.655555555553,
+     "bipmCalc": 24232.19,
+     "calcBonus": 17379.317081419857,
+     "finalBonus": 17379.317081419857
+    },
+    {
+     "id": "STDEM",
+     "cpm": 0.7685186101353915,
+     "preIpm": 23301.100000000002,
+     "bipmCalc": 20970.99,
+     "calcBonus": 15040.385731594422,
+     "finalBonus": 15040.385731594422
+    },
+    {
+     "id": "NINIL",
+     "cpm": 0.9482390347115,
+     "preIpm": 23030.355555555554,
+     "bipmCalc": 20727.32,
+     "calcBonus": 14865.625703993548,
+     "finalBonus": 14865.625703993548
+    },
+    {
+     "id": "THGRA",
+     "cpm": 1,
+     "preIpm": 21000,
+     "bipmCalc": 18900,
+     "calcBonus": 13555.072522905908,
+     "finalBonus": 13555.072522905908
+    },
+    {
+     "id": "NANIC",
+     "cpm": 0.2767122085048011,
+     "preIpm": 5603.422222222222,
+     "bipmCalc": 5043.08,
+     "calcBonus": 3616.894980889753,
+     "finalBonus": 3616.894980889753
+    },
+    {
+     "id": "TESCH",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "GECHO",
+     "cpm": 1,
+     "preIpm": 13000,
+     "bipmCalc": 11700,
+     "calcBonus": 8391.235371322706,
+     "finalBonus": 8391.235371322706
+    },
+    {
+     "id": "SHKIN",
+     "cpm": 0.657534188034188,
+     "preIpm": 8547.944444444443,
+     "bipmCalc": 7693.15,
+     "calcBonus": 5517.524136486433,
+     "finalBonus": 5517.524136486433
+    },
+    {
+     "id": "ELSAL",
+     "cpm": 1,
+     "preIpm": 18000,
+     "bipmCalc": 16200,
+     "calcBonus": 11618.633591062207,
+     "finalBonus": 11618.633591062207
+    },
+    {
+     "id": "GATES",
+     "cpm": 0.08493148148148148,
+     "preIpm": 1528.7666666666667,
+     "bipmCalc": 1375.89,
+     "calcBonus": 986.7877636794186,
+     "finalBonus": 986.7877636794186
+    },
+    {
+     "id": "STMOO",
+     "cpm": 1,
+     "preIpm": 16500,
+     "bipmCalc": 11550,
+     "calcBonus": 8283.655430664721,
+     "finalBonus": 8283.655430664721
+    },
+    {
+     "id": "MITAY",
+     "cpm": 1,
+     "preIpm": 10000,
+     "bipmCalc": 9000,
+     "calcBonus": 6454.796439479003,
+     "finalBonus": 6454.796439479003
+    },
+    {
+     "id": "YVPOH",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "BEYOU",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "KOWRI",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "ADWIL",
+     "cpm": 0.8421918518518517,
+     "preIpm": 63164.38888888888,
+     "bipmCalc": 56847.95,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "KATOS",
+     "cpm": 1,
+     "preIpm": 30000,
+     "bipmCalc": 27000,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "ANNIC",
+     "cpm": 1,
+     "preIpm": 13500,
+     "bipmCalc": 12150,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "PADAR",
+     "cpm": 1,
+     "preIpm": 93000,
+     "bipmCalc": 69750,
+     "calcBonus": 47039.76127795549,
+     "finalBonus": 49539.76127795549
+    },
+    {
+     "id": "NETIM",
+     "cpm": 1,
+     "preIpm": 93000,
+     "bipmCalc": 83700,
+     "calcBonus": 56169.082521083954,
+     "finalBonus": 56089.62666524381
+    },
+    {
+     "id": "LAHIL",
+     "cpm": 1,
+     "preIpm": 88500,
+     "bipmCalc": 79650,
+     "calcBonus": 53451.2236894186,
+     "finalBonus": 53451.2236894186
+    },
+    {
+     "id": "JOGLI",
+     "cpm": 1,
+     "preIpm": 88500,
+     "bipmCalc": 79650,
+     "calcBonus": 53451.2236894186,
+     "finalBonus": 53451.2236894186
+    },
+    {
+     "id": "PECLE",
+     "cpm": 0.7534246076585058,
+     "preIpm": 66678.07777777777,
+     "bipmCalc": 60010.27,
+     "calcBonus": 40271.46723706724,
+     "finalBonus": 40271.46723706724
+    },
+    {
+     "id": "RIPOR",
+     "cpm": 1,
+     "preIpm": 88500,
+     "bipmCalc": 79650,
+     "calcBonus": 53451.2236894186,
+     "finalBonus": 53451.2236894186
+    },
+    {
+     "id": "WIPET",
+     "cpm": 1,
+     "preIpm": 72000,
+     "bipmCalc": 64800,
+     "calcBonus": 43485.74130664564,
+     "finalBonus": 43485.74130664564
+    },
+    {
+     "id": "MOMAR",
+     "cpm": 1,
+     "preIpm": 66000,
+     "bipmCalc": 59400,
+     "calcBonus": 39861.92953109184,
+     "finalBonus": 39861.92953109184
+    },
+    {
+     "id": "STNAS",
+     "cpm": 1,
+     "preIpm": 36000,
+     "bipmCalc": 32400,
+     "calcBonus": 21742.87065332282,
+     "finalBonus": 21742.87065332282
+    },
+    {
+     "id": "ANJEL",
+     "cpm": 1,
+     "preIpm": 78000,
+     "bipmCalc": 70200,
+     "calcBonus": 47109.55308219944,
+     "finalBonus": 47109.55308219944
+    },
+    {
+     "id": "AYSOL",
+     "cpm": 1,
+     "preIpm": 78000,
+     "bipmCalc": 70200,
+     "calcBonus": 47109.55308219944,
+     "finalBonus": 47109.55308219944
+    },
+    {
+     "id": "ADDIC",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "JACHA",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "BRHOL",
+     "cpm": 0.48493151927437644,
+     "preIpm": 17821.233333333334,
+     "bipmCalc": 16039.11,
+     "calcBonus": 10763.465868037549,
+     "finalBonus": 10763.465868037549
+    },
+    {
+     "id": "SCRIC",
+     "cpm": 1,
+     "preIpm": 72615,
+     "bipmCalc": 65353.5,
+     "calcBonus": 43857.182013639904,
+     "finalBonus": 43857.182013639904
+    },
+    {
+     "id": "NIPRE",
+     "cpm": 1,
+     "preIpm": 72000,
+     "bipmCalc": 64800,
+     "calcBonus": 43485.74130664564,
+     "finalBonus": 43485.74130664564
+    },
+    {
+     "id": "MALIP",
+     "cpm": 1,
+     "preIpm": 69000,
+     "bipmCalc": 62100,
+     "calcBonus": 41673.83541886874,
+     "finalBonus": 41673.83541886874
+    },
+    {
+     "id": "JOSMI",
+     "cpm": 0.9331507407407408,
+     "preIpm": 55989.044444444444,
+     "bipmCalc": 50390.14,
+     "calcBonus": 33815.62642663051,
+     "finalBonus": 33815.62642663051
+    },
+    {
+     "id": "DADOY",
+     "cpm": 1,
+     "preIpm": 29458,
+     "bipmCalc": 26512.2,
+     "calcBonus": 26512.2,
+     "finalBonus": 26512.2
+    },
+    {
+     "id": "MAWEA",
+     "cpm": 1,
+     "preIpm": 29458,
+     "bipmCalc": 26512.2,
+     "calcBonus": 26512.2,
+     "finalBonus": 26512.2
+    },
+    {
+     "id": "JUROS",
+     "cpm": 1,
+     "preIpm": 29458,
+     "bipmCalc": 26512.2,
+     "calcBonus": 26512.2,
+     "finalBonus": 26512.2
+    },
+    {
+     "id": "STHOW",
+     "cpm": 1,
+     "preIpm": 29458,
+     "bipmCalc": 26512.2,
+     "calcBonus": 26512.2,
+     "finalBonus": 26512.2
+    },
+    {
+     "id": "PADWY",
+     "cpm": 1,
+     "preIpm": 29458,
+     "bipmCalc": 26512.2,
+     "calcBonus": 26512.2,
+     "finalBonus": 26512.2
+    },
+    {
+     "id": "HUMCL",
+     "cpm": 1,
+     "preIpm": 23750,
+     "bipmCalc": 21375,
+     "calcBonus": 21375,
+     "finalBonus": 21375
+    },
+    {
+     "id": "CHBOY",
+     "cpm": 1,
+     "preIpm": 23750,
+     "bipmCalc": 21375,
+     "calcBonus": 21375,
+     "finalBonus": 21375
+    },
+    {
+     "id": "MAMOR",
+     "cpm": 1,
+     "preIpm": 27500,
+     "bipmCalc": 24750,
+     "calcBonus": 24750,
+     "finalBonus": 24750
+    },
+    {
+     "id": "TIMCS",
+     "cpm": 0.9999999999999999,
+     "preIpm": 23483.999999999996,
+     "bipmCalc": 21135.6,
+     "calcBonus": 21135.6,
+     "finalBonus": 21135.6
+    },
+    {
+     "id": "ADHAS",
+     "cpm": 0.9999999999999999,
+     "preIpm": 23483.999999999996,
+     "bipmCalc": 21135.6,
+     "calcBonus": 21135.6,
+     "finalBonus": 21135.6
+    },
+    {
+     "id": "COTUC",
+     "cpm": 0.6767122568325576,
+     "preIpm": 15750.47777777778,
+     "bipmCalc": 14175.430000000002,
+     "calcBonus": 14175.430000000002,
+     "finalBonus": 14175.430000000002
+    },
+    {
+     "id": "GYSCI",
+     "cpm": 1,
+     "preIpm": 21850,
+     "bipmCalc": 19665,
+     "calcBonus": 19665,
+     "finalBonus": 19665
+    },
+    {
+     "id": "MILAR",
+     "cpm": 1,
+     "preIpm": 20425,
+     "bipmCalc": 18382.5,
+     "calcBonus": 18382.5,
+     "finalBonus": 18382.5
+    },
+    {
+     "id": "ROHUG",
+     "cpm": 0.7342466772993089,
+     "preIpm": 15345.755555555557,
+     "bipmCalc": 13811.180000000002,
+     "calcBonus": 13811.180000000002,
+     "finalBonus": 13811.180000000002
+    },
+    {
+     "id": "SEROB",
+     "cpm": 0.9999996931013794,
+     "preIpm": 18102.244444444445,
+     "bipmCalc": 16292.02,
+     "calcBonus": 16292.02,
+     "finalBonus": 16292.02
+    },
+    {
+     "id": "SHGAL",
+     "cpm": 1,
+     "preIpm": 20900,
+     "bipmCalc": 18810,
+     "calcBonus": 18810,
+     "finalBonus": 18810
+    },
+    {
+     "id": "SACUT",
+     "cpm": 1,
+     "preIpm": 39000,
+     "bipmCalc": 35100,
+     "calcBonus": 23554.77654109972,
+     "finalBonus": 23554.77654109972
+    },
+    {
+     "id": "MIFRA",
+     "cpm": 1,
+     "preIpm": 38500,
+     "bipmCalc": 34650,
+     "calcBonus": 23252.79222647024,
+     "finalBonus": 23252.79222647024
+    },
+    {
+     "id": "KYFAI",
+     "cpm": 1,
+     "preIpm": 38000,
+     "bipmCalc": 34200,
+     "calcBonus": 22950.807911840755,
+     "finalBonus": 22950.807911840755
+    },
+    {
+     "id": "KINGU",
+     "cpm": 1,
+     "preIpm": 35000,
+     "bipmCalc": 31500,
+     "calcBonus": 21138.902024063853,
+     "finalBonus": 21138.902024063853
+    },
+    {
+     "id": "JAROC",
+     "cpm": 1,
+     "preIpm": 35000,
+     "bipmCalc": 31500,
+     "calcBonus": 21138.902024063853,
+     "finalBonus": 21138.902024063853
+    },
+    {
+     "id": "SAWAL",
+     "cpm": 1,
+     "preIpm": 35000,
+     "bipmCalc": 31500,
+     "calcBonus": 21138.902024063853,
+     "finalBonus": 21138.902024063853
+    },
+    {
+     "id": "ELPOR",
+     "cpm": 1,
+     "preIpm": 13000,
+     "bipmCalc": 11700,
+     "calcBonus": 7851.592180366574,
+     "finalBonus": 7851.592180366574
+    },
+    {
+     "id": "GESIB",
+     "cpm": 1,
+     "preIpm": 12000,
+     "bipmCalc": 10800,
+     "calcBonus": 7247.6235511076065,
+     "finalBonus": 7247.6235511076065
+    },
+    {
+     "id": "FIPLU",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "VERNG",
+     "cpm": 1,
+     "preIpm": 24000,
+     "bipmCalc": 21600,
+     "calcBonus": 14495.247102215213,
+     "finalBonus": 14495.247102215213
+    },
+    {
+     "id": "NICHA",
+     "cpm": 1,
+     "preIpm": 21750,
+     "bipmCalc": 19575,
+     "calcBonus": 13136.317686382537,
+     "finalBonus": 13136.317686382537
+    },
+    {
+     "id": "CHHUA",
+     "cpm": 0.6,
+     "preIpm": 8362.5,
+     "bipmCalc": 7526.25,
+     "calcBonus": 5050.687662178113,
+     "finalBonus": 5050.687662178113
+    },
+    {
+     "id": "LIFON",
+     "cpm": 1,
+     "preIpm": 11700,
+     "bipmCalc": 10530,
+     "calcBonus": 7066.432962329916,
+     "finalBonus": 7066.432962329916
+    },
+    {
+     "id": "TALAU",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "ALANT",
+     "cpm": 1,
+     "preIpm": 32250,
+     "bipmCalc": 29025,
+     "calcBonus": 19574.610338245995,
+     "finalBonus": 22574.610338245995
+    },
+    {
+     "id": "GITAS",
+     "cpm": 1,
+     "preIpm": 31140,
+     "bipmCalc": 28026,
+     "calcBonus": 18807.58311512424,
+     "finalBonus": 18807.58311512424
+    },
+    {
+     "id": "ALPRI",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "ANDYO",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "DABAL",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "JACHE",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "MOALO",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "JOGAN",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "TRLAS",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "MASWA",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "ADBUL",
+     "cpm": 1,
+     "preIpm": 24000,
+     "bipmCalc": 21600,
+     "calcBonus": 14495.247102215213,
+     "finalBonus": 14495.247102215213
+    },
+    {
+     "id": "JOABE",
+     "cpm": 1,
+     "preIpm": 23250,
+     "bipmCalc": 20925,
+     "calcBonus": 14042.270630270988,
+     "finalBonus": 14042.270630270988
+    },
+    {
+     "id": "LUBET",
+     "cpm": 1,
+     "preIpm": 22500,
+     "bipmCalc": 20250,
+     "calcBonus": 13589.294158326762,
+     "finalBonus": 13589.294158326762
+    },
+    {
+     "id": "BEWAT",
+     "cpm": 1,
+     "preIpm": 22500,
+     "bipmCalc": 20250,
+     "calcBonus": 13589.294158326762,
+     "finalBonus": 13589.294158326762
+    },
+    {
+     "id": "TOHAD",
+     "cpm": 1,
+     "preIpm": 22500,
+     "bipmCalc": 20250,
+     "calcBonus": 13589.294158326762,
+     "finalBonus": 13589.294158326762
+    },
+    {
+     "id": "MIPAR",
+     "cpm": 1,
+     "preIpm": 21480,
+     "bipmCalc": 19332,
+     "calcBonus": 12973.246156482615,
+     "finalBonus": 12973.246156482615
+    },
+    {
+     "id": "NIDER",
+     "cpm": 1,
+     "preIpm": 21000,
+     "bipmCalc": 18900,
+     "calcBonus": 12683.341214438311,
+     "finalBonus": 12683.341214438311
+    },
+    {
+     "id": "CHGOG",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "ALTSO",
+     "cpm": 0.9442925925925926,
+     "preIpm": 11331.511111111111,
+     "bipmCalc": 10198.36,
+     "calcBonus": 6843.8772332105345,
+     "finalBonus": 6843.8772332105345
+    },
+    {
+     "id": "JOGRI",
+     "cpm": 0.7534251207729469,
+     "preIpm": 8664.388888888889,
+     "bipmCalc": 7797.95,
+     "calcBonus": 5233.019080588848,
+     "finalBonus": 5233.019080588848
+    },
+    {
+     "id": "PAWAT",
+     "cpm": 1,
+     "preIpm": 10510,
+     "bipmCalc": 9459,
+     "calcBonus": 6347.7102935117455,
+     "finalBonus": 6347.7102935117455
+    },
+    {
+     "id": "MIHOL",
+     "cpm": 0.8173513227513228,
+     "preIpm": 8582.18888888889,
+     "bipmCalc": 7723.970000000001,
+     "calcBonus": 5183.372859263762,
+     "finalBonus": 5183.372859263762
+    },
+    {
+     "id": "MACUM",
+     "cpm": 0.8997255555555556,
+     "preIpm": 8997.255555555555,
+     "bipmCalc": 8097.53,
+     "calcBonus": 5434.060104981516,
+     "finalBonus": 5434.060104981516
+    },
+    {
+     "id": "SOLI",
+     "cpm": 0.7716433333333333,
+     "preIpm": 7716.433333333333,
+     "bipmCalc": 6944.79,
+     "calcBonus": 4660.483663101537,
+     "finalBonus": 4660.483663101537
+    },
+    {
+     "id": "AYMES",
+     "cpm": 0.2739732142857143,
+     "preIpm": 2454.8,
+     "bipmCalc": 2209.32,
+     "calcBonus": 1482.6221911049129,
+     "finalBonus": 1482.6221911049129
+    },
+    {
+     "id": "HAWIL",
+     "cpm": 1,
+     "preIpm": 8500,
+     "bipmCalc": 7650,
+     "calcBonus": 5133.733348701221,
+     "finalBonus": 5133.733348701221
+    },
+    {
+     "id": "YUYAN",
+     "cpm": 1,
+     "preIpm": 8500,
+     "bipmCalc": 7650,
+     "calcBonus": 5133.733348701221,
+     "finalBonus": 5133.733348701221
+    },
+    {
+     "id": "PARIB",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "MACOO",
+     "cpm": 1,
+     "preIpm": 91250,
+     "bipmCalc": 82125,
+     "calcBonus": 64904.38909480302,
+     "finalBonus": 65904.38909480302
+    },
+    {
+     "id": "LUTOW",
+     "cpm": 1,
+     "preIpm": 71750,
+     "bipmCalc": 64575,
+     "calcBonus": 50971.71146710258,
+     "finalBonus": 50971.71146710258
+    },
+    {
+     "id": "ANAAL",
+     "cpm": 1,
+     "preIpm": 27000,
+     "bipmCalc": 24300,
+     "calcBonus": 19180.99246845672,
+     "finalBonus": 19180.99246845672
+    },
+    {
+     "id": "THMCC",
+     "cpm": 1,
+     "preIpm": 90000,
+     "bipmCalc": 81000,
+     "calcBonus": 63936.641561522396,
+     "finalBonus": 63936.641561522396
+    },
+    {
+     "id": "MAHEN",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "ANNKA",
+     "cpm": 1,
+     "preIpm": 81000,
+     "bipmCalc": 72900,
+     "calcBonus": 57542.97740537016,
+     "finalBonus": 57542.97740537016
+    },
+    {
+     "id": "SALUP",
+     "cpm": 1,
+     "preIpm": 79500,
+     "bipmCalc": 71550,
+     "calcBonus": 56477.36671267812,
+     "finalBonus": 56477.36671267812
+    },
+    {
+     "id": "JYSHA",
+     "cpm": 1,
+     "preIpm": 72000,
+     "bipmCalc": 64800,
+     "calcBonus": 51149.31324921792,
+     "finalBonus": 51149.31324921792
+    },
+    {
+     "id": "NIRAM",
+     "cpm": 0.526027441077441,
+     "preIpm": 34717.81111111111,
+     "bipmCalc": 31246.029999999995,
+     "calcBonus": 24663.780497908338,
+     "finalBonus": 24663.780497908338
+    },
+    {
+     "id": "JOBEN",
+     "cpm": 0.987746299123,
+     "preIpm": 45620.544444444444,
+     "bipmCalc": 41058.49,
+     "calcBonus": 32409.159977621624,
+     "finalBonus": 32409.159977621624
+    },
+    {
+     "id": "MIBRI",
+     "cpm": 1,
+     "preIpm": 25175,
+     "bipmCalc": 22657.5,
+     "calcBonus": 22657.5,
+     "finalBonus": 22657.5
+    },
+    {
+     "id": "BENFO",
+     "cpm": 1,
+     "preIpm": 23750,
+     "bipmCalc": 21375,
+     "calcBonus": 21375,
+     "finalBonus": 21375
+    },
+    {
+     "id": "GRGRI",
+     "cpm": 1,
+     "preIpm": 23750,
+     "bipmCalc": 21375,
+     "calcBonus": 21375,
+     "finalBonus": 21375
+    },
+    {
+     "id": "PEFRE",
+     "cpm": 0.9671230558666167,
+     "preIpm": 21591.02222222222,
+     "bipmCalc": 19431.92,
+     "calcBonus": 19431.92,
+     "finalBonus": 19431.92
+    },
+    {
+     "id": "DAMAS",
+     "cpm": 1,
+     "preIpm": 21850,
+     "bipmCalc": 19665,
+     "calcBonus": 19665,
+     "finalBonus": 19665
+    },
+    {
+     "id": "BESMI",
+     "cpm": 1,
+     "preIpm": 21850,
+     "bipmCalc": 19665,
+     "calcBonus": 19665,
+     "finalBonus": 19665
+    },
+    {
+     "id": "BEJEN",
+     "cpm": 1,
+     "preIpm": 20140,
+     "bipmCalc": 18126,
+     "calcBonus": 18126,
+     "finalBonus": 18126
+    },
+    {
+     "id": "KETAL",
+     "cpm": 0.9804876800655017,
+     "preIpm": 19160.2,
+     "bipmCalc": 17244.18,
+     "calcBonus": 17244.18,
+     "finalBonus": 17244.18
+    },
+    {
+     "id": "LUGUI",
+     "cpm": 0.947945219638243,
+     "preIpm": 10190.411111111112,
+     "bipmCalc": 9171.37,
+     "calcBonus": 7239.340695285182,
+     "finalBonus": 7239.340695285182
+    },
+    {
+     "id": "MAJOS",
+     "cpm": 0.9095891358024691,
+     "preIpm": 10232.877777777778,
+     "bipmCalc": 9209.59,
+     "calcBonus": 7269.5093180071735,
+     "finalBonus": 7269.5093180071735
+    },
+    {
+     "id": "NOPER",
+     "cpm": 1,
+     "preIpm": 10500,
+     "bipmCalc": 9450,
+     "calcBonus": 7459.27484884428,
+     "finalBonus": 7459.27484884428
+    },
+    {
+     "id": "TANIC",
+     "cpm": 1,
+     "preIpm": 9750,
+     "bipmCalc": 8775,
+     "calcBonus": 6926.46950249826,
+     "finalBonus": 6926.46950249826
+    },
+    {
+     "id": "RUCUN",
+     "cpm": 1,
+     "preIpm": 9500,
+     "bipmCalc": 8550,
+     "calcBonus": 6748.86772038292,
+     "finalBonus": 6748.86772038292
+    },
+    {
+     "id": "LEBRO",
+     "cpm": 1,
+     "preIpm": 9500,
+     "bipmCalc": 8550,
+     "calcBonus": 6748.86772038292,
+     "finalBonus": 6748.86772038292
+    },
+    {
+     "id": "MAHOO",
+     "cpm": 1,
+     "preIpm": 9000,
+     "bipmCalc": 8100,
+     "calcBonus": 6393.66415615224,
+     "finalBonus": 6393.66415615224
+    },
+    {
+     "id": "MISHA",
+     "cpm": 1,
+     "preIpm": 8750,
+     "bipmCalc": 7875,
+     "calcBonus": 6216.0623740369,
+     "finalBonus": 6216.0623740369
+    },
+    {
+     "id": "PAALB",
+     "cpm": 1,
+     "preIpm": 30000,
+     "bipmCalc": 27000,
+     "calcBonus": 21312.2138538408,
+     "finalBonus": 21312.2138538408
+    },
+    {
+     "id": "NIBAI",
+     "cpm": 1,
+     "preIpm": 29250,
+     "bipmCalc": 26325,
+     "calcBonus": 20779.40850749478,
+     "finalBonus": 20779.40850749478
+    },
+    {
+     "id": "VIRAO",
+     "cpm": 0.9863013645224171,
+     "preIpm": 28109.588888888888,
+     "bipmCalc": 25298.63,
+     "calcBonus": 19969.252324784906,
+     "finalBonus": 19969.252324784906
+    },
+    {
+     "id": "MALIU",
+     "cpm": 1,
+     "preIpm": 27000,
+     "bipmCalc": 24300,
+     "calcBonus": 19180.99246845672,
+     "finalBonus": 19180.99246845672
+    },
+    {
+     "id": "LUALK",
+     "cpm": 1,
+     "preIpm": 16000,
+     "bipmCalc": 14400,
+     "calcBonus": 11366.51405538176,
+     "finalBonus": 11366.51405538176
+    },
+    {
+     "id": "FRYAN",
+     "cpm": 1,
+     "preIpm": 15000,
+     "bipmCalc": 13500,
+     "calcBonus": 10656.1069269204,
+     "finalBonus": 10656.1069269204
+    },
+    {
+     "id": "ISBOR",
+     "cpm": 0.33424674329501913,
+     "preIpm": 4846.577777777778,
+     "bipmCalc": 4361.92,
+     "calcBonus": 3443.0434019757504,
+     "finalBonus": 3443.0434019757504
+    },
+    {
+     "id": "ERBLA",
+     "cpm": 1,
+     "preIpm": 14000,
+     "bipmCalc": 12600,
+     "calcBonus": 9945.69979845904,
+     "finalBonus": 9945.69979845904
+    },
+    {
+     "id": "SAKAS",
+     "cpm": 0.8520547619047619,
+     "preIpm": 11928.766666666666,
+     "bipmCalc": 10735.89,
+     "calcBonus": 8474.280873752256,
+     "finalBonus": 8474.280873752256
+    },
+    {
+     "id": "DAJOR",
+     "cpm": 0.6794518518518519,
+     "preIpm": 9172.6,
+     "bipmCalc": 8255.34,
+     "calcBonus": 6516.2804265246705,
+     "finalBonus": 6516.2804265246705
+    },
+    {
+     "id": "CHDUO",
+     "cpm": 1,
+     "preIpm": 12000,
+     "bipmCalc": 10800,
+     "calcBonus": 8524.88554153632,
+     "finalBonus": 8524.88554153632
+    },
+    {
+     "id": "KAPET",
+     "cpm": 0.9673453864607103,
+     "preIpm": 3673.9777777777776,
+     "bipmCalc": 3306.58,
+     "calcBonus": 2610.0200031419595,
+     "finalBonus": 2610.0200031419595
+    },
+    {
+     "id": "MIJAR",
+     "cpm": 1,
+     "preIpm": 32500,
+     "bipmCalc": 29250,
+     "calcBonus": 23088.2316749942,
+     "finalBonus": 23088.2316749942
+    },
+    {
+     "id": "DIKUM",
+     "cpm": 0.8712329140461215,
+     "preIpm": 46175.34444444444,
+     "bipmCalc": 41557.81,
+     "calcBonus": 32803.29385249199,
+     "finalBonus": 32803.29385249199
+    },
+    {
+     "id": "DHAMI",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "SCPOR",
+     "cpm": 1,
+     "preIpm": 29500,
+     "bipmCalc": 26550,
+     "calcBonus": 20957.01028961012,
+     "finalBonus": 20957.01028961012
+    },
+    {
+     "id": "GAJOH",
+     "cpm": 0.3917808278867103,
+     "preIpm": 9990.411111111112,
+     "bipmCalc": 8991.37,
+     "calcBonus": 7097.25926959291,
+     "finalBonus": 7097.25926959291
+    },
+    {
+     "id": "ZAKAL",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "MACAR",
+     "cpm": 1,
+     "preIpm": 20000,
+     "bipmCalc": 18000,
+     "calcBonus": 14208.1425692272,
+     "finalBonus": 14208.1425692272
+    },
+    {
+     "id": "JUCON",
+     "cpm": 0.6027399176954733,
+     "preIpm": 8136.98888888889,
+     "bipmCalc": 7323.290000000001,
+     "calcBonus": 5780.574910877548,
+     "finalBonus": 5780.574910877548
+    },
+    {
+     "id": "CAMAN",
+     "cpm": 0.39178111111111114,
+     "preIpm": 3917.811111111111,
+     "bipmCalc": 3526.03,
+     "calcBonus": 2783.240941298455,
+     "finalBonus": 2783.240941298455
+    },
+    {
+     "id": "RIMOS",
+     "cpm": 0.9754726901802427,
+     "preIpm": 5153.422222222222,
+     "bipmCalc": 4638.08,
+     "calcBonus": 3661.0278826378494,
+     "finalBonus": 3661.0278826378494
+    },
+    {
+     "id": "KUPIC",
+     "cpm": 1,
+     "preIpm": 9000,
+     "bipmCalc": 8100,
+     "calcBonus": 6393.66415615224,
+     "finalBonus": 6393.66415615224
+    },
+    {
+     "id": "JADRI",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "AVROB",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "JAALV",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    },
+    {
+     "id": "MARUB",
+     "cpm": 0.23671239935587762,
+     "preIpm": 1020.8222222222222,
+     "bipmCalc": 918.74,
+     "calcBonus": 725.1993835584332,
+     "finalBonus": 725.1993835584332
+    },
+    {
+     "id": "THHAN",
+     "cpm": 1,
+     "preIpm": 0,
+     "bipmCalc": 0,
+     "calcBonus": 0,
+     "finalBonus": 0
+    }
+   ]
+  },
+  {
+   "name": "no-da",
+   "overrides": {
+    "ALANT": {
+     "daEdit": 0
+    }
+   },
    "vicScale": 0.6717823483284814,
    "nswScale": 0.7820525079336984,
-   "totalFinal": 12621822.749999987,
+   "totalFinal": 2618822.7499999995,
    "totalVicAlloc": 1580414.4999999995,
    "totalNswAlloc": 1038408.25,
    "rows": [
@@ -2734,7 +5256,7 @@
      "preIpm": 93000,
      "bipmCalc": 83700,
      "calcBonus": 56228.18255509389,
-     "finalBonus": 10056228.182555094
+     "finalBonus": 56228.18255509389
     },
     {
      "id": "NETIM",
@@ -3118,7 +5640,7 @@
      "preIpm": 32250,
      "bipmCalc": 29025,
      "calcBonus": 19498.48266023417,
-     "finalBonus": 22498.48266023417
+     "finalBonus": 19498.48266023417
     },
     {
      "id": "GITAS",
@@ -3759,1273 +6281,6 @@
      "bipmCalc": 918.74,
      "calcBonus": 718.502921139006,
      "finalBonus": 718.502921139006
-    },
-    {
-     "id": "THHAN",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    }
-   ]
-  },
-  {
-   "name": "mixed-edits-and-lock",
-   "overrides": {
-    "PADAR": {
-     "daEdit": 2500,
-     "ipmEdit": 0.75
-    },
-    "MACOO": {
-     "daEdit": 1000,
-     "bpEdit": 0.25
-    },
-    "NETIM": {
-     "locked": true,
-     "lockedFinal": 56228.18255509389
-    },
-    "ALBID": {
-     "ipmEdit": 1.1
-    }
-   },
-   "vicScale": 0.6743260482306352,
-   "nswScale": 0.7903121959793366,
-   "totalFinal": 2625322.75,
-   "totalVicAlloc": 1580414.4999999998,
-   "totalNswAlloc": 1038408.2499999997,
-   "rows": [
-    {
-     "id": "ALBID",
-     "cpm": 1,
-     "preIpm": 60000,
-     "bipmCalc": 66000,
-     "calcBonus": 47491.0026262735,
-     "finalBonus": 47491.0026262735
-    },
-    {
-     "id": "BRELL",
-     "cpm": 1,
-     "preIpm": 75000,
-     "bipmCalc": 67500,
-     "calcBonus": 48570.34359505244,
-     "finalBonus": 48570.34359505244
-    },
-    {
-     "id": "JEBEL",
-     "cpm": 1,
-     "preIpm": 75000,
-     "bipmCalc": 67500,
-     "calcBonus": 48570.34359505244,
-     "finalBonus": 48570.34359505244
-    },
-    {
-     "id": "DEGIB",
-     "cpm": 0.9360090874668686,
-     "preIpm": 61800,
-     "bipmCalc": 55620,
-     "calcBonus": 40021.963122323206,
-     "finalBonus": 40021.963122323206
-    },
-    {
-     "id": "RYDEB",
-     "cpm": 1,
-     "preIpm": 40000,
-     "bipmCalc": 36000,
-     "calcBonus": 25904.183250694634,
-     "finalBonus": 25904.183250694634
-    },
-    {
-     "id": "KRPER",
-     "cpm": 0.35342462462462465,
-     "preIpm": 19615.06666666667,
-     "bipmCalc": 17653.56,
-     "calcBonus": 12702.807035198133,
-     "finalBonus": 12702.807035198133
-    },
-    {
-     "id": "THRIC",
-     "cpm": 0.06575337690631808,
-     "preIpm": 1676.711111111111,
-     "bipmCalc": 1509.04,
-     "calcBonus": 1085.8457970174509,
-     "finalBonus": 1085.8457970174509
-    },
-    {
-     "id": "TACOR",
-     "cpm": 0.9665657508456187,
-     "preIpm": 26924.655555555553,
-     "bipmCalc": 24232.19,
-     "calcBonus": 17436.53028682361,
-     "finalBonus": 17436.53028682361
-    },
-    {
-     "id": "STDEM",
-     "cpm": 0.7685186101353915,
-     "preIpm": 23301.100000000002,
-     "bipmCalc": 20970.99,
-     "calcBonus": 15089.89910856902,
-     "finalBonus": 15089.89910856902
-    },
-    {
-     "id": "NINIL",
-     "cpm": 0.9482390347115,
-     "preIpm": 23030.355555555554,
-     "bipmCalc": 20727.32,
-     "calcBonus": 14914.56376599411,
-     "finalBonus": 14914.56376599411
-    },
-    {
-     "id": "THGRA",
-     "cpm": 1,
-     "preIpm": 21000,
-     "bipmCalc": 18900,
-     "calcBonus": 13599.696206614684,
-     "finalBonus": 13599.696206614684
-    },
-    {
-     "id": "NANIC",
-     "cpm": 0.2767122085048011,
-     "preIpm": 5603.422222222222,
-     "bipmCalc": 5043.08,
-     "calcBonus": 3628.801901886475,
-     "finalBonus": 3628.801901886475
-    },
-    {
-     "id": "TESCH",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "GECHO",
-     "cpm": 1,
-     "preIpm": 13000,
-     "bipmCalc": 11700,
-     "calcBonus": 8418.859556475756,
-     "finalBonus": 8418.859556475756
-    },
-    {
-     "id": "SHKIN",
-     "cpm": 0.657534188034188,
-     "preIpm": 8547.944444444443,
-     "bipmCalc": 7693.15,
-     "calcBonus": 5535.687982641151,
-     "finalBonus": 5535.687982641151
-    },
-    {
-     "id": "ELSAL",
-     "cpm": 1,
-     "preIpm": 18000,
-     "bipmCalc": 16200,
-     "calcBonus": 11656.882462812586,
-     "finalBonus": 11656.882462812586
-    },
-    {
-     "id": "GATES",
-     "cpm": 0.08493148148148148,
-     "preIpm": 1528.7666666666667,
-     "bipmCalc": 1375.89,
-     "calcBonus": 990.0362970221735,
-     "finalBonus": 990.0362970221735
-    },
-    {
-     "id": "STMOO",
-     "cpm": 1,
-     "preIpm": 16500,
-     "bipmCalc": 11550,
-     "calcBonus": 8310.925459597862,
-     "finalBonus": 8310.925459597862
-    },
-    {
-     "id": "MITAY",
-     "cpm": 1,
-     "preIpm": 10000,
-     "bipmCalc": 9000,
-     "calcBonus": 6476.0458126736585,
-     "finalBonus": 6476.0458126736585
-    },
-    {
-     "id": "YVPOH",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "BEYOU",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "KOWRI",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "ADWIL",
-     "cpm": 0.8421918518518517,
-     "preIpm": 63164.38888888888,
-     "bipmCalc": 56847.95,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "KATOS",
-     "cpm": 1,
-     "preIpm": 30000,
-     "bipmCalc": 27000,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "ANNIC",
-     "cpm": 1,
-     "preIpm": 13500,
-     "bipmCalc": 12150,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "PADAR",
-     "cpm": 1,
-     "preIpm": 93000,
-     "bipmCalc": 69750,
-     "calcBonus": 47034.241864086805,
-     "finalBonus": 49534.241864086805
-    },
-    {
-     "id": "NETIM",
-     "cpm": 1,
-     "preIpm": 93000,
-     "bipmCalc": 83700,
-     "calcBonus": 56441.09023690417,
-     "finalBonus": 56228.18255509389
-    },
-    {
-     "id": "LAHIL",
-     "cpm": 1,
-     "preIpm": 88500,
-     "bipmCalc": 79650,
-     "calcBonus": 53710.0697415701,
-     "finalBonus": 53710.0697415701
-    },
-    {
-     "id": "JOGLI",
-     "cpm": 1,
-     "preIpm": 88500,
-     "bipmCalc": 79650,
-     "calcBonus": 53710.0697415701,
-     "finalBonus": 53710.0697415701
-    },
-    {
-     "id": "PECLE",
-     "cpm": 0.7534246076585058,
-     "preIpm": 66678.07777777777,
-     "bipmCalc": 60010.27,
-     "calcBonus": 40466.488222353444,
-     "finalBonus": 40466.488222353444
-    },
-    {
-     "id": "RIPOR",
-     "cpm": 1,
-     "preIpm": 88500,
-     "bipmCalc": 79650,
-     "calcBonus": 53710.0697415701,
-     "finalBonus": 53710.0697415701
-    },
-    {
-     "id": "WIPET",
-     "cpm": 1,
-     "preIpm": 72000,
-     "bipmCalc": 64800,
-     "calcBonus": 43696.32792534516,
-     "finalBonus": 43696.32792534516
-    },
-    {
-     "id": "MOMAR",
-     "cpm": 1,
-     "preIpm": 66000,
-     "bipmCalc": 59400,
-     "calcBonus": 40054.96726489974,
-     "finalBonus": 40054.96726489974
-    },
-    {
-     "id": "STNAS",
-     "cpm": 1,
-     "preIpm": 36000,
-     "bipmCalc": 32400,
-     "calcBonus": 21848.16396267258,
-     "finalBonus": 21848.16396267258
-    },
-    {
-     "id": "ANJEL",
-     "cpm": 1,
-     "preIpm": 78000,
-     "bipmCalc": 70200,
-     "calcBonus": 47337.688585790595,
-     "finalBonus": 47337.688585790595
-    },
-    {
-     "id": "AYSOL",
-     "cpm": 1,
-     "preIpm": 78000,
-     "bipmCalc": 70200,
-     "calcBonus": 47337.688585790595,
-     "finalBonus": 47337.688585790595
-    },
-    {
-     "id": "ADDIC",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "JACHA",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "BRHOL",
-     "cpm": 0.48493151927437644,
-     "preIpm": 17821.233333333334,
-     "bipmCalc": 16039.11,
-     "calcBonus": 10815.589663436465,
-     "finalBonus": 10815.589663436465
-    },
-    {
-     "id": "SCRIC",
-     "cpm": 1,
-     "preIpm": 72615,
-     "bipmCalc": 65353.5,
-     "calcBonus": 44069.56739304082,
-     "finalBonus": 44069.56739304082
-    },
-    {
-     "id": "NIPRE",
-     "cpm": 1,
-     "preIpm": 72000,
-     "bipmCalc": 64800,
-     "calcBonus": 43696.32792534516,
-     "finalBonus": 43696.32792534516
-    },
-    {
-     "id": "MALIP",
-     "cpm": 1,
-     "preIpm": 69000,
-     "bipmCalc": 62100,
-     "calcBonus": 41875.64759512245,
-     "finalBonus": 41875.64759512245
-    },
-    {
-     "id": "JOSMI",
-     "cpm": 0.9331507407407408,
-     "preIpm": 55989.044444444444,
-     "bipmCalc": 50390.14,
-     "calcBonus": 33979.383975988465,
-     "finalBonus": 33979.383975988465
-    },
-    {
-     "id": "DADOY",
-     "cpm": 1,
-     "preIpm": 29458,
-     "bipmCalc": 26512.2,
-     "calcBonus": 26512.2,
-     "finalBonus": 26512.2
-    },
-    {
-     "id": "MAWEA",
-     "cpm": 1,
-     "preIpm": 29458,
-     "bipmCalc": 26512.2,
-     "calcBonus": 26512.2,
-     "finalBonus": 26512.2
-    },
-    {
-     "id": "JUROS",
-     "cpm": 1,
-     "preIpm": 29458,
-     "bipmCalc": 26512.2,
-     "calcBonus": 26512.2,
-     "finalBonus": 26512.2
-    },
-    {
-     "id": "STHOW",
-     "cpm": 1,
-     "preIpm": 29458,
-     "bipmCalc": 26512.2,
-     "calcBonus": 26512.2,
-     "finalBonus": 26512.2
-    },
-    {
-     "id": "PADWY",
-     "cpm": 1,
-     "preIpm": 29458,
-     "bipmCalc": 26512.2,
-     "calcBonus": 26512.2,
-     "finalBonus": 26512.2
-    },
-    {
-     "id": "HUMCL",
-     "cpm": 1,
-     "preIpm": 23750,
-     "bipmCalc": 21375,
-     "calcBonus": 21375,
-     "finalBonus": 21375
-    },
-    {
-     "id": "CHBOY",
-     "cpm": 1,
-     "preIpm": 23750,
-     "bipmCalc": 21375,
-     "calcBonus": 21375,
-     "finalBonus": 21375
-    },
-    {
-     "id": "MAMOR",
-     "cpm": 1,
-     "preIpm": 27500,
-     "bipmCalc": 24750,
-     "calcBonus": 24750,
-     "finalBonus": 24750
-    },
-    {
-     "id": "TIMCS",
-     "cpm": 0.9999999999999999,
-     "preIpm": 23483.999999999996,
-     "bipmCalc": 21135.6,
-     "calcBonus": 21135.6,
-     "finalBonus": 21135.6
-    },
-    {
-     "id": "ADHAS",
-     "cpm": 0.9999999999999999,
-     "preIpm": 23483.999999999996,
-     "bipmCalc": 21135.6,
-     "calcBonus": 21135.6,
-     "finalBonus": 21135.6
-    },
-    {
-     "id": "COTUC",
-     "cpm": 0.6767122568325576,
-     "preIpm": 15750.47777777778,
-     "bipmCalc": 14175.430000000002,
-     "calcBonus": 14175.430000000002,
-     "finalBonus": 14175.430000000002
-    },
-    {
-     "id": "GYSCI",
-     "cpm": 1,
-     "preIpm": 21850,
-     "bipmCalc": 19665,
-     "calcBonus": 19665,
-     "finalBonus": 19665
-    },
-    {
-     "id": "MILAR",
-     "cpm": 1,
-     "preIpm": 20425,
-     "bipmCalc": 18382.5,
-     "calcBonus": 18382.5,
-     "finalBonus": 18382.5
-    },
-    {
-     "id": "ROHUG",
-     "cpm": 0.7342466772993089,
-     "preIpm": 15345.755555555557,
-     "bipmCalc": 13811.180000000002,
-     "calcBonus": 13811.180000000002,
-     "finalBonus": 13811.180000000002
-    },
-    {
-     "id": "SEROB",
-     "cpm": 0.9999996931013794,
-     "preIpm": 18102.244444444445,
-     "bipmCalc": 16292.02,
-     "calcBonus": 16292.02,
-     "finalBonus": 16292.02
-    },
-    {
-     "id": "SHGAL",
-     "cpm": 1,
-     "preIpm": 20900,
-     "bipmCalc": 18810,
-     "calcBonus": 18810,
-     "finalBonus": 18810
-    },
-    {
-     "id": "SACUT",
-     "cpm": 1,
-     "preIpm": 39000,
-     "bipmCalc": 35100,
-     "calcBonus": 23668.844292895297,
-     "finalBonus": 23668.844292895297
-    },
-    {
-     "id": "MIFRA",
-     "cpm": 1,
-     "preIpm": 38500,
-     "bipmCalc": 34650,
-     "calcBonus": 23365.39757119151,
-     "finalBonus": 23365.39757119151
-    },
-    {
-     "id": "KYFAI",
-     "cpm": 1,
-     "preIpm": 38000,
-     "bipmCalc": 34200,
-     "calcBonus": 23061.950849487726,
-     "finalBonus": 23061.950849487726
-    },
-    {
-     "id": "KINGU",
-     "cpm": 1,
-     "preIpm": 35000,
-     "bipmCalc": 31500,
-     "calcBonus": 21241.27051926501,
-     "finalBonus": 21241.27051926501
-    },
-    {
-     "id": "JAROC",
-     "cpm": 1,
-     "preIpm": 35000,
-     "bipmCalc": 31500,
-     "calcBonus": 21241.27051926501,
-     "finalBonus": 21241.27051926501
-    },
-    {
-     "id": "SAWAL",
-     "cpm": 1,
-     "preIpm": 35000,
-     "bipmCalc": 31500,
-     "calcBonus": 21241.27051926501,
-     "finalBonus": 21241.27051926501
-    },
-    {
-     "id": "ELPOR",
-     "cpm": 1,
-     "preIpm": 13000,
-     "bipmCalc": 11700,
-     "calcBonus": 7889.614764298432,
-     "finalBonus": 7889.614764298432
-    },
-    {
-     "id": "GESIB",
-     "cpm": 1,
-     "preIpm": 12000,
-     "bipmCalc": 10800,
-     "calcBonus": 7282.721320890861,
-     "finalBonus": 7282.721320890861
-    },
-    {
-     "id": "FIPLU",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "VERNG",
-     "cpm": 1,
-     "preIpm": 24000,
-     "bipmCalc": 21600,
-     "calcBonus": 14565.442641781721,
-     "finalBonus": 14565.442641781721
-    },
-    {
-     "id": "NICHA",
-     "cpm": 1,
-     "preIpm": 21750,
-     "bipmCalc": 19575,
-     "calcBonus": 13199.932394114685,
-     "finalBonus": 13199.932394114685
-    },
-    {
-     "id": "CHHUA",
-     "cpm": 0.6,
-     "preIpm": 8362.5,
-     "bipmCalc": 7526.25,
-     "calcBonus": 5075.146420495818,
-     "finalBonus": 5075.146420495818
-    },
-    {
-     "id": "LIFON",
-     "cpm": 1,
-     "preIpm": 11700,
-     "bipmCalc": 10530,
-     "calcBonus": 7100.653287868589,
-     "finalBonus": 7100.653287868589
-    },
-    {
-     "id": "TALAU",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "ALANT",
-     "cpm": 1,
-     "preIpm": 32250,
-     "bipmCalc": 29025,
-     "calcBonus": 19572.31354989419,
-     "finalBonus": 22572.31354989419
-    },
-    {
-     "id": "GITAS",
-     "cpm": 1,
-     "preIpm": 31140,
-     "bipmCalc": 28026,
-     "calcBonus": 18898.661827711785,
-     "finalBonus": 18898.661827711785
-    },
-    {
-     "id": "ALPRI",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "ANDYO",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "DABAL",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "JACHE",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "MOALO",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "JOGAN",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "TRLAS",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "MASWA",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "ADBUL",
-     "cpm": 1,
-     "preIpm": 24000,
-     "bipmCalc": 21600,
-     "calcBonus": 14565.442641781721,
-     "finalBonus": 14565.442641781721
-    },
-    {
-     "id": "JOABE",
-     "cpm": 1,
-     "preIpm": 23250,
-     "bipmCalc": 20925,
-     "calcBonus": 14110.272559226043,
-     "finalBonus": 14110.272559226043
-    },
-    {
-     "id": "LUBET",
-     "cpm": 1,
-     "preIpm": 22500,
-     "bipmCalc": 20250,
-     "calcBonus": 13655.102476670363,
-     "finalBonus": 13655.102476670363
-    },
-    {
-     "id": "BEWAT",
-     "cpm": 1,
-     "preIpm": 22500,
-     "bipmCalc": 20250,
-     "calcBonus": 13655.102476670363,
-     "finalBonus": 13655.102476670363
-    },
-    {
-     "id": "TOHAD",
-     "cpm": 1,
-     "preIpm": 22500,
-     "bipmCalc": 20250,
-     "calcBonus": 13655.102476670363,
-     "finalBonus": 13655.102476670363
-    },
-    {
-     "id": "MIPAR",
-     "cpm": 1,
-     "preIpm": 21480,
-     "bipmCalc": 19332,
-     "calcBonus": 13036.07116439464,
-     "finalBonus": 13036.07116439464
-    },
-    {
-     "id": "NIDER",
-     "cpm": 1,
-     "preIpm": 21000,
-     "bipmCalc": 18900,
-     "calcBonus": 12744.762311559007,
-     "finalBonus": 12744.762311559007
-    },
-    {
-     "id": "CHGOG",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "ALTSO",
-     "cpm": 0.9442925925925926,
-     "preIpm": 11331.511111111111,
-     "bipmCalc": 10198.36,
-     "calcBonus": 6877.019797233382,
-     "finalBonus": 6877.019797233382
-    },
-    {
-     "id": "JOGRI",
-     "cpm": 0.7534251207729469,
-     "preIpm": 8664.388888888889,
-     "bipmCalc": 7797.95,
-     "calcBonus": 5258.360807800082,
-     "finalBonus": 5258.360807800082
-    },
-    {
-     "id": "PAWAT",
-     "cpm": 1,
-     "preIpm": 10510,
-     "bipmCalc": 9459,
-     "calcBonus": 6378.450090213579,
-     "finalBonus": 6378.450090213579
-    },
-    {
-     "id": "MIHOL",
-     "cpm": 0.8173513227513228,
-     "preIpm": 8582.18888888889,
-     "bipmCalc": 7723.970000000001,
-     "calcBonus": 5208.47416675198,
-     "finalBonus": 5208.47416675198
-    },
-    {
-     "id": "MACUM",
-     "cpm": 0.8997255555555556,
-     "preIpm": 8997.255555555555,
-     "bipmCalc": 8097.53,
-     "calcBonus": 5460.375405329016,
-     "finalBonus": 5460.375405329016
-    },
-    {
-     "id": "SOLI",
-     "cpm": 0.7716433333333333,
-     "preIpm": 7716.433333333333,
-     "bipmCalc": 6944.79,
-     "calcBonus": 4683.052796491634,
-     "finalBonus": 4683.052796491634
-    },
-    {
-     "id": "AYMES",
-     "cpm": 0.2739732142857143,
-     "preIpm": 2454.8,
-     "bipmCalc": 2209.32,
-     "calcBonus": 1489.8020248769071,
-     "finalBonus": 1489.8020248769071
-    },
-    {
-     "id": "HAWIL",
-     "cpm": 1,
-     "preIpm": 8500,
-     "bipmCalc": 7650,
-     "calcBonus": 5158.59426896436,
-     "finalBonus": 5158.59426896436
-    },
-    {
-     "id": "YUYAN",
-     "cpm": 1,
-     "preIpm": 8500,
-     "bipmCalc": 7650,
-     "calcBonus": 5158.59426896436,
-     "finalBonus": 5158.59426896436
-    },
-    {
-     "id": "PARIB",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "MACOO",
-     "cpm": 1,
-     "preIpm": 91250,
-     "bipmCalc": 82125,
-     "calcBonus": 64904.38909480302,
-     "finalBonus": 65904.38909480302
-    },
-    {
-     "id": "LUTOW",
-     "cpm": 1,
-     "preIpm": 71750,
-     "bipmCalc": 64575,
-     "calcBonus": 51034.41005536566,
-     "finalBonus": 51034.41005536566
-    },
-    {
-     "id": "ANAAL",
-     "cpm": 1,
-     "preIpm": 27000,
-     "bipmCalc": 24300,
-     "calcBonus": 19204.58636229788,
-     "finalBonus": 19204.58636229788
-    },
-    {
-     "id": "THMCC",
-     "cpm": 1,
-     "preIpm": 90000,
-     "bipmCalc": 81000,
-     "calcBonus": 64015.28787432626,
-     "finalBonus": 64015.28787432626
-    },
-    {
-     "id": "MAHEN",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "ANNKA",
-     "cpm": 1,
-     "preIpm": 81000,
-     "bipmCalc": 72900,
-     "calcBonus": 57613.75908689363,
-     "finalBonus": 57613.75908689363
-    },
-    {
-     "id": "SALUP",
-     "cpm": 1,
-     "preIpm": 79500,
-     "bipmCalc": 71550,
-     "calcBonus": 56546.83762232153,
-     "finalBonus": 56546.83762232153
-    },
-    {
-     "id": "JYSHA",
-     "cpm": 1,
-     "preIpm": 72000,
-     "bipmCalc": 64800,
-     "calcBonus": 51212.23029946101,
-     "finalBonus": 51212.23029946101
-    },
-    {
-     "id": "NIRAM",
-     "cpm": 0.526027441077441,
-     "preIpm": 34717.81111111111,
-     "bipmCalc": 31246.029999999995,
-     "calcBonus": 24694.118584936226,
-     "finalBonus": 24694.118584936226
-    },
-    {
-     "id": "JOBEN",
-     "cpm": 0.987746299123,
-     "preIpm": 45620.544444444444,
-     "bipmCalc": 41058.49,
-     "calcBonus": 32449.025395495628,
-     "finalBonus": 32449.025395495628
-    },
-    {
-     "id": "MIBRI",
-     "cpm": 1,
-     "preIpm": 25175,
-     "bipmCalc": 22657.5,
-     "calcBonus": 22657.5,
-     "finalBonus": 22657.5
-    },
-    {
-     "id": "BENFO",
-     "cpm": 1,
-     "preIpm": 23750,
-     "bipmCalc": 21375,
-     "calcBonus": 21375,
-     "finalBonus": 21375
-    },
-    {
-     "id": "GRGRI",
-     "cpm": 1,
-     "preIpm": 23750,
-     "bipmCalc": 21375,
-     "calcBonus": 21375,
-     "finalBonus": 21375
-    },
-    {
-     "id": "PEFRE",
-     "cpm": 0.9671230558666167,
-     "preIpm": 21591.02222222222,
-     "bipmCalc": 19431.92,
-     "calcBonus": 19431.92,
-     "finalBonus": 19431.92
-    },
-    {
-     "id": "DAMAS",
-     "cpm": 1,
-     "preIpm": 21850,
-     "bipmCalc": 19665,
-     "calcBonus": 19665,
-     "finalBonus": 19665
-    },
-    {
-     "id": "BESMI",
-     "cpm": 1,
-     "preIpm": 21850,
-     "bipmCalc": 19665,
-     "calcBonus": 19665,
-     "finalBonus": 19665
-    },
-    {
-     "id": "BEJEN",
-     "cpm": 1,
-     "preIpm": 20140,
-     "bipmCalc": 18126,
-     "calcBonus": 18126,
-     "finalBonus": 18126
-    },
-    {
-     "id": "KETAL",
-     "cpm": 0.9804876800655017,
-     "preIpm": 19160.2,
-     "bipmCalc": 17244.18,
-     "calcBonus": 17244.18,
-     "finalBonus": 17244.18
-    },
-    {
-     "id": "LUGUI",
-     "cpm": 0.947945219638243,
-     "preIpm": 10190.411111111112,
-     "bipmCalc": 9171.37,
-     "calcBonus": 7248.245564839009,
-     "finalBonus": 7248.245564839009
-    },
-    {
-     "id": "MAJOS",
-     "cpm": 0.9095891358024691,
-     "preIpm": 10232.877777777778,
-     "bipmCalc": 9209.59,
-     "calcBonus": 7278.451296969338,
-     "finalBonus": 7278.451296969338
-    },
-    {
-     "id": "NOPER",
-     "cpm": 1,
-     "preIpm": 10500,
-     "bipmCalc": 9450,
-     "calcBonus": 7468.450252004731,
-     "finalBonus": 7468.450252004731
-    },
-    {
-     "id": "TANIC",
-     "cpm": 1,
-     "preIpm": 9750,
-     "bipmCalc": 8775,
-     "calcBonus": 6934.989519718678,
-     "finalBonus": 6934.989519718678
-    },
-    {
-     "id": "RUCUN",
-     "cpm": 1,
-     "preIpm": 9500,
-     "bipmCalc": 8550,
-     "calcBonus": 6757.169275623328,
-     "finalBonus": 6757.169275623328
-    },
-    {
-     "id": "LEBRO",
-     "cpm": 1,
-     "preIpm": 9500,
-     "bipmCalc": 8550,
-     "calcBonus": 6757.169275623328,
-     "finalBonus": 6757.169275623328
-    },
-    {
-     "id": "MAHOO",
-     "cpm": 1,
-     "preIpm": 9000,
-     "bipmCalc": 8100,
-     "calcBonus": 6401.528787432626,
-     "finalBonus": 6401.528787432626
-    },
-    {
-     "id": "MISHA",
-     "cpm": 1,
-     "preIpm": 8750,
-     "bipmCalc": 7875,
-     "calcBonus": 6223.708543337275,
-     "finalBonus": 6223.708543337275
-    },
-    {
-     "id": "PAALB",
-     "cpm": 1,
-     "preIpm": 30000,
-     "bipmCalc": 27000,
-     "calcBonus": 21338.429291442088,
-     "finalBonus": 21338.429291442088
-    },
-    {
-     "id": "NIBAI",
-     "cpm": 1,
-     "preIpm": 29250,
-     "bipmCalc": 26325,
-     "calcBonus": 20804.968559156034,
-     "finalBonus": 20804.968559156034
-    },
-    {
-     "id": "VIRAO",
-     "cpm": 0.9863013645224171,
-     "preIpm": 28109.588888888888,
-     "bipmCalc": 25298.63,
-     "calcBonus": 19993.815830568725,
-     "finalBonus": 19993.815830568725
-    },
-    {
-     "id": "MALIU",
-     "cpm": 1,
-     "preIpm": 27000,
-     "bipmCalc": 24300,
-     "calcBonus": 19204.58636229788,
-     "finalBonus": 19204.58636229788
-    },
-    {
-     "id": "LUALK",
-     "cpm": 1,
-     "preIpm": 16000,
-     "bipmCalc": 14400,
-     "calcBonus": 11380.495622102446,
-     "finalBonus": 11380.495622102446
-    },
-    {
-     "id": "FRYAN",
-     "cpm": 1,
-     "preIpm": 15000,
-     "bipmCalc": 13500,
-     "calcBonus": 10669.214645721044,
-     "finalBonus": 10669.214645721044
-    },
-    {
-     "id": "ISBOR",
-     "cpm": 0.33424674329501913,
-     "preIpm": 4846.577777777778,
-     "bipmCalc": 4361.92,
-     "calcBonus": 3447.2785738861876,
-     "finalBonus": 3447.2785738861876
-    },
-    {
-     "id": "ERBLA",
-     "cpm": 1,
-     "preIpm": 14000,
-     "bipmCalc": 12600,
-     "calcBonus": 9957.93366933964,
-     "finalBonus": 9957.93366933964
-    },
-    {
-     "id": "SAKAS",
-     "cpm": 0.8520547619047619,
-     "preIpm": 11928.766666666666,
-     "bipmCalc": 10735.89,
-     "calcBonus": 8484.704801692598,
-     "finalBonus": 8484.704801692598
-    },
-    {
-     "id": "DAJOR",
-     "cpm": 0.6794518518518519,
-     "preIpm": 9172.6,
-     "bipmCalc": 8255.34,
-     "calcBonus": 6524.295883956056,
-     "finalBonus": 6524.295883956056
-    },
-    {
-     "id": "CHDUO",
-     "cpm": 1,
-     "preIpm": 12000,
-     "bipmCalc": 10800,
-     "calcBonus": 8535.371716576834,
-     "finalBonus": 8535.371716576834
-    },
-    {
-     "id": "KAPET",
-     "cpm": 0.9673453864607103,
-     "preIpm": 3673.9777777777776,
-     "bipmCalc": 3306.58,
-     "calcBonus": 2613.2305009813545,
-     "finalBonus": 2613.2305009813545
-    },
-    {
-     "id": "MIJAR",
-     "cpm": 1,
-     "preIpm": 32500,
-     "bipmCalc": 29250,
-     "calcBonus": 23116.631732395595,
-     "finalBonus": 23116.631732395595
-    },
-    {
-     "id": "DIKUM",
-     "cpm": 0.8712329140461215,
-     "preIpm": 46175.34444444444,
-     "bipmCalc": 41557.81,
-     "calcBonus": 32843.64408119203,
-     "finalBonus": 32843.64408119203
-    },
-    {
-     "id": "DHAMI",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "SCPOR",
-     "cpm": 1,
-     "preIpm": 29500,
-     "bipmCalc": 26550,
-     "calcBonus": 20982.788803251384,
-     "finalBonus": 20982.788803251384
-    },
-    {
-     "id": "GAJOH",
-     "cpm": 0.3917808278867103,
-     "preIpm": 9990.411111111112,
-     "bipmCalc": 8991.37,
-     "calcBonus": 7105.989369562728,
-     "finalBonus": 7105.989369562728
-    },
-    {
-     "id": "ZAKAL",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "MACAR",
-     "cpm": 1,
-     "preIpm": 20000,
-     "bipmCalc": 18000,
-     "calcBonus": 14225.619527628058,
-     "finalBonus": 14225.619527628058
-    },
-    {
-     "id": "JUCON",
-     "cpm": 0.6027399176954733,
-     "preIpm": 8136.98888888889,
-     "bipmCalc": 7323.290000000001,
-     "calcBonus": 5787.685401693516,
-     "finalBonus": 5787.685401693516
-    },
-    {
-     "id": "CAMAN",
-     "cpm": 0.39178111111111114,
-     "preIpm": 3917.811111111111,
-     "bipmCalc": 3526.03,
-     "calcBonus": 2786.6645123890203,
-     "finalBonus": 2786.6645123890203
-    },
-    {
-     "id": "RIMOS",
-     "cpm": 0.9754726901802427,
-     "preIpm": 5153.422222222222,
-     "bipmCalc": 4638.08,
-     "calcBonus": 3665.5311899278413,
-     "finalBonus": 3665.5311899278413
-    },
-    {
-     "id": "KUPIC",
-     "cpm": 1,
-     "preIpm": 9000,
-     "bipmCalc": 8100,
-     "calcBonus": 6401.528787432626,
-     "finalBonus": 6401.528787432626
-    },
-    {
-     "id": "JADRI",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "AVROB",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "JAALV",
-     "cpm": 1,
-     "preIpm": 0,
-     "bipmCalc": 0,
-     "calcBonus": 0,
-     "finalBonus": 0
-    },
-    {
-     "id": "MARUB",
-     "cpm": 0.23671239935587762,
-     "preIpm": 1020.8222222222222,
-     "bipmCalc": 918.74,
-     "calcBonus": 726.0914269340557,
-     "finalBonus": 726.0914269340557
     },
     {
      "id": "THHAN",

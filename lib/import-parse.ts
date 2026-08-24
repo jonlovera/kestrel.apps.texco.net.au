@@ -16,7 +16,7 @@ import {
   type Dataset,
 } from "./schema";
 import { applyOverrides, computeScalesAndBonuses, isLockable } from "./calc";
-import { deriveFacets } from "./dataset-edit";
+import { deriveFacets, isSplit } from "./dataset-edit";
 import { isModelWorkbook, readModelWorkbook } from "./import-model";
 import {
   cellValue,
@@ -329,6 +329,9 @@ export interface ImportPreview {
  * other figure it carries — so when `caps` is supplied, it replaces
  * whatever's currently stored. A flat file/CSV has no such concept, so caps
  * still carry over from the current dataset for that path (`caps` absent).
+ *
+ * Home state on a split person is the one thing an import does NOT overwrite,
+ * per preserveSplitHomeState below.
  */
 export function candidateDataset(
   current: Dataset,
@@ -336,7 +339,10 @@ export function candidateDataset(
   caps?: { vCap: number; nCap: number; gCap: number }
 ): Dataset {
   const excluded = new Set(current.excludedIds);
-  const kept = employees.filter((e) => !excluded.has(e.id));
+  const kept = preserveSplitHomeState(
+    current.emp,
+    employees.filter((e) => !excluded.has(e.id))
+  );
   return {
     emp: kept,
     vCap: caps?.vCap ?? current.vCap,
@@ -345,6 +351,44 @@ export function candidateDataset(
     excludedIds: current.excludedIds,
     ...deriveFacets(kept),
   };
+}
+
+/**
+ * Keep an admin's home-state decision for people whose cost splits across both
+ * pools. The model workbook has no state column — lib/import-model.ts INFERS
+ * state from the split, so anyone fractional comes back as SHARED. That is a
+ * guess about a funding fact, and it is wrong for the VIC staff who do a
+ * portion of NSW work: they belong on the VIC tab and in the VIC pool card
+ * with their cost still divided.
+ *
+ * So when someone is already flagged VIC or NSW with a fractional split and
+ * the sheet still splits them, their state survives the import. Everything
+ * else stays the workbook's call:
+ *
+ *  - the split itself is always the sheet's, percentages and all, so a
+ *    92/8 moving to 85/15 lands as VIC 85/15 rather than reverting to SHARED;
+ *  - a split collapsing to a clean 1/0 IS a real move, so the inferred state
+ *    wins there;
+ *  - new people always take the inferred state — there is no decision to keep;
+ *  - anyone an admin has deliberately flagged SHARED is untouched.
+ *
+ * One consequence worth knowing: a flat file that explicitly writes State =
+ * SHARED for a person flagged VIC-with-a-split is overridden back to VIC. The
+ * app's own XLSX export writes their real state, so an export round trip is
+ * unaffected; re-flagging them Shared is an edit-modal action.
+ */
+function preserveSplitHomeState(current: Employee[], incoming: Employee[]): Employee[] {
+  const byId = new Map(current.map((e) => [e.id, e]));
+  return incoming.map((e) => {
+    const cur = byId.get(e.id);
+    const keep =
+      cur &&
+      e.st === "SHARED" &&
+      cur.st !== "SHARED" &&
+      isSplit(cur.vp) &&
+      isSplit(e.vp);
+    return keep ? { ...e, st: cur.st } : e;
+  });
 }
 
 /**
