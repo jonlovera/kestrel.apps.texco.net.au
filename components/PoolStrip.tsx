@@ -11,7 +11,14 @@ import { fmt } from "@/lib/fmt";
 export type PoolSummary =
   | {
       kind: "editor";
-      items: { key: string; title: string; value: number; cap?: number; over: boolean }[];
+      items: {
+        key: string;
+        title: string;
+        value: number;
+        cap?: number;
+        remaining?: number;
+        over: boolean;
+      }[];
     }
   | {
       kind: "manager";

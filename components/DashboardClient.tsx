@@ -1492,7 +1492,12 @@ export default function DashboardClient({
         value={fmt(it.value)}
         footer={
           it.cap !== undefined && capCommits[it.key]
-            ? capFooter(capCommits[it.key].label, it.cap, it.remaining, capCommits[it.key].commit)
+            ? capFooter(
+                capCommits[it.key].label,
+                it.cap,
+                "remaining" in it && typeof it.remaining === "number" ? it.remaining : undefined,
+                capCommits[it.key].commit
+              )
             : undefined
         }
         tone={it.over ? "alert" : "normal"}
@@ -1515,10 +1520,7 @@ export default function DashboardClient({
    * Only a lead has a pool to spend. `mgrPool` is null for an admin, who sees
    * cap cards rather than a Remaining figure, so this is a no-op for them.
    */
-  function withRedistribution(
-    next: Overrides,
-    opts: { skip?: string } = {}
-  ): Overrides | null {
+  function withRedistribution(next: Overrides): Overrides | null {
     if (!canEditFields.includes("da")) return null;
     if (isEditor && activeTab !== "VIC" && activeTab !== "NSW") return null;
 
