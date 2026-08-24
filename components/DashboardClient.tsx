@@ -1433,15 +1433,15 @@ export default function DashboardClient({
   function conflictLine(c: OverrideConflict): string {
     const name = isEditor
       ? (() => {
-          const e = empById.get(c.empId);
-          return e ? `${e.gn} ${e.sn}` : c.empId;
-        })()
+        const e = empById.get(c.empId);
+        return e ? `${e.gn} ${e.sn}` : c.empId;
+      })()
       : (rowById.get(c.empId)?.name ?? c.empId);
     const label =
       c.field === "lock"
         ? "Lock"
         : (columns.find((col) => col.key === (c.field === "daEdit" ? "da" : "ipm"))
-            ?.label ?? (c.field === "daEdit" ? "Discretionary" : "IPM"));
+          ?.label ?? (c.field === "daEdit" ? "Discretionary" : "IPM"));
     const show = (v: number | boolean | undefined): string => {
       if (v === undefined) return "cleared";
       if (typeof v === "boolean") return v ? "locked" : "unlocked";
@@ -1574,9 +1574,8 @@ export default function DashboardClient({
       {/* Status banner — editable in place, and switchable off once final */}
       {(copy.bannerVisible || configuring) && (
         <div
-          className={`px-6 py-1.5 text-center text-xs font-bold text-white ${
-            copy.bannerVisible ? "bg-brand-orange" : "bg-neutral-400"
-          }`}
+          className={`px-6 py-1.5 text-center text-xs font-bold text-white ${copy.bannerVisible ? "bg-brand-orange" : "bg-neutral-400"
+            }`}
         >
           <EditableText
             value={copy.bannerText}
@@ -1609,7 +1608,7 @@ export default function DashboardClient({
           back to the team. It takes the same grant a cap change does, because
           it moves everyone's figure — everyone else sees it read-only, so it
           is always visible which model produced the numbers on screen. */}
-      {isEditor && !viewingAs && (
+      {isEditor && (
         <div className="flex items-center justify-center gap-2 border-b border-neutral-100 bg-neutral-50 px-6 py-1.5 text-[11px]">
           <label className="inline-flex items-center gap-1.5 font-bold">
             <input
@@ -1646,8 +1645,8 @@ export default function DashboardClient({
                   type="button"
                   onClick={() => openTab(t)}
                   className={`px-4 py-1.5 text-xs font-bold tracking-wide transition-colors ${activeTab === t
-                      ? "bg-brand-orange text-white"
-                      : "bg-neutral-200 text-brand-70 hover:bg-neutral-300"
+                    ? "bg-brand-orange text-white"
+                    : "bg-neutral-200 text-brand-70 hover:bg-neutral-300"
                     }`}
                 >
                   {t === "ALL" ? "All" : t === "SHARED" ? "Shared" : t === "HISTORY" ? "History" : t}
@@ -1698,13 +1697,13 @@ export default function DashboardClient({
                     {(activeTab === "VIC" ||
                       activeTab === "NSW" ||
                       (!isEditor && visibleRows.length < allRows.length)) && (
-                      // Matches the card above exactly when nothing is
-                      // filtered — this figure narrows with any search or
-                      // category filter, the card doesn't.
-                      <span className="font-normal text-neutral-400">
-                        {" "}(filtered rows — see the card above for the true total)
-                      </span>
-                    )}
+                        // Matches the card above exactly when nothing is
+                        // filtered — this figure narrows with any search or
+                        // category filter, the card doesn't.
+                        <span className="font-normal text-neutral-400">
+                          {" "}(filtered rows — see the card above for the true total)
+                        </span>
+                      )}
                   </span>
                 )}
               </div>
@@ -1785,7 +1784,7 @@ export default function DashboardClient({
           <>
             {/* A rejected inline edit explains itself here; the cell has already
             snapped back to the stored figure. */}
-            {isEditor && dsError  && (
+            {isEditor && dsError && (
               <div className="mb-4 flex items-start justify-between gap-4 border-2 border-error bg-error-tint px-4 py-2 text-[13px] font-semibold">
                 <span>{dsError}</span>
                 <button
@@ -1906,9 +1905,8 @@ export default function DashboardClient({
               <>
                 <div
                   inert={poolCollapsed}
-                  className={`grid shrink-0 transition-[grid-template-rows] duration-300 ease-out ${
-                    poolCollapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]"
-                  }`}
+                  className={`grid shrink-0 transition-[grid-template-rows] duration-300 ease-out ${poolCollapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]"
+                    }`}
                 >
                   <div className="min-h-0 overflow-hidden">
                     <div className="mb-4 flex flex-wrap gap-4">{poolCardEls}</div>
@@ -1916,9 +1914,8 @@ export default function DashboardClient({
                 </div>
                 <div
                   aria-hidden={!poolCollapsed}
-                  className={`grid shrink-0 transition-[grid-template-rows] duration-300 ease-out ${
-                    poolCollapsed ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-                  }`}
+                  className={`grid shrink-0 transition-[grid-template-rows] duration-300 ease-out ${poolCollapsed ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+                    }`}
                 >
                   <div className="min-h-0 overflow-hidden">
                     <div className="mb-2">
