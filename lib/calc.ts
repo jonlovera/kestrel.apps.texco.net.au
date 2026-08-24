@@ -272,21 +272,35 @@ export function applyOverrides(
   return emps.map((e) => {
     const { preIpm, cpm } = deriveCpm(e);
     const ov = overrides[e.id] ?? {};
+    // The same two rules /api/state's gate 2, the table and the import enforce,
+    // applied here as well — because this is the function that decides what is
+    // PAID. Without them a figure stranded by a rule change keeps being paid:
+    // for ~35 minutes on 24 Aug 2026 every site manager's discretionary cell
+    // was editable in production, and after b8b22a1 restricted that to NSW the
+    // amounts typed into VIC site managers were still being paid while their
+    // cell rendered a dash — invisible, and unreachable from the row. Tolerant
+    // at the load site, strict on save: the same shape as dropInvalidRules
+    // (lib/access-rules.ts) and dropRetiredFields (lib/columns.ts).
+    const rule = rowRule(e);
+    const locked = isLockable(rule) ? ov.locked ?? false : false;
     return {
       ...e,
       bpEdit: ov.bpEdit ?? e.bp,
       ipmEdit: ov.ipmEdit ?? e.ipm,
-      daEdit: ov.daEdit ?? e.da,
+      // Covers the source-data fallback too, which the save gate cannot reach:
+      // an imported `da` on a row that may not carry one would otherwise be
+      // paid with no override and no history entry behind it.
+      daEdit: isDaEditable(rule) ? ov.daEdit ?? e.da : 0,
       // Absent means on top — the default. There is deliberately no source-data
       // fallback here (unlike daEdit's `?? e.da`): an import brings amounts,
       // never a funding decision.
       daPooled: ov.daPooled === true,
-      locked: ov.locked ?? false,
+      locked,
       cpm,
       preIpm,
       bipmCalc: 0,
       calcBonus: 0,
-      finalBonus: ov.locked ? ov.lockedFinal ?? 0 : 0,
+      finalBonus: locked ? ov.lockedFinal ?? 0 : 0,
     };
   });
 }

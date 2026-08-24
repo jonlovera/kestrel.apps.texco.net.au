@@ -94,6 +94,32 @@ function cardTotal(emps: CalcEmployee[], st?: Employee["st"]) {
   return emps.reduce((s, e) => (!st || e.st === st ? s + e.finalBonus : s), 0);
 }
 
+/**
+ * The same fixture with C — the site manager — relabelled NSW.
+ *
+ * Only an NSW site manager may carry a discretionary amount or a lock
+ * (isDaEditable/isLockable, 24 Aug 2026), and since 25 Aug 2026 the engine
+ * enforces that too rather than paying whatever is stored. So the tests for
+ * those two rules need a row the rules admit; against VIC's C they were
+ * exercising behaviour the scheme forbids.
+ *
+ * Only the LABEL moves. C keeps vp 1, so every VIC pool figure is unchanged and
+ * the arithmetic below reads exactly as before — a state label and pool
+ * exposure are separate facts here, and plenty of people draw from the pool of
+ * a state they do not belong to. What does move is which card C's own bonus
+ * lands on, which the grant tests assert against NSW accordingly.
+ */
+const FIXTURE_NSW_SM: Employee[] = FIXTURE.map((e) =>
+  e.id === "C" ? { ...e, st: "NSW" as const } : e
+);
+
+function runSm(overrides: Overrides = {}) {
+  const emps = applyOverrides(FIXTURE_NSW_SM, overrides);
+  const pool = computeScalesAndBonuses(emps, CAPS);
+  const byId = Object.fromEntries(emps.map((e) => [e.id, e]));
+  return { emps, pool, byId };
+}
+
 describe("baseline (no edits, no locks)", () => {
   it("computes the expected scales", () => {
     const { pool } = run();
@@ -227,11 +253,15 @@ describe("discretionary adjustments sit on top of the pool (owner decision, 25 A
     expect(two.byId.B.finalBonus).toBeCloseTo(one.byId.B.finalBonus, 12);
   });
 
-  it("a zero-weight employee's final is exactly their DA", () => {
+  it("a zero-weight employee cannot carry one at all, stored or imported", () => {
     const base = run();
     const adj = run({ F: { daEdit: 500 } });
     expect(adj.byId.F.calcBonus).toBe(0);
-    expect(adj.byId.F.finalBonus).toBe(500);
+    // F draws from no pool, so the scheme does not admit a discretionary
+    // amount for them (isDaEditable). /api/state has always refused to store
+    // one; since 25 Aug 2026 applyOverrides will not pay one already stored
+    // either, so a figure stranded by a rule change cannot keep being paid.
+    expect(adj.byId.F.finalBonus).toBe(0);
     expect(adj.pool.vicScale).toBeCloseTo(base.pool.vicScale, 12);
     expect(adj.pool.nswScale).toBeCloseTo(base.pool.nswScale, 12);
   });
@@ -460,10 +490,10 @@ describe("a stored over-cap adjustment overshoots the cap and shows it", () => {
   });
 });
 
-describe("a site manager's discretionary rides on the fixed bonus (24 Aug 2026)", () => {
+describe("an NSW site manager's discretionary rides on the fixed bonus (24 Aug 2026)", () => {
   it("final = fixed bonus + DA, with the pool untouched", () => {
-    const base = run();
-    const adj = run({ C: { daEdit: 100 } });
+    const base = runSm();
+    const adj = runSm({ C: { daEdit: 100 } });
     // the fixed bonus itself never scales; the DA sits on top of it
     expect(adj.byId.C.calcBonus).toBeCloseTo(200, 10);
     expect(adj.byId.C.finalBonus).toBeCloseTo(300, 10);
@@ -473,17 +503,36 @@ describe("a site manager's discretionary rides on the fixed bonus (24 Aug 2026)"
     expect(adj.pool.nswScale).toBeCloseTo(base.pool.nswScale, 12);
     expect(adj.byId.A.finalBonus).toBeCloseTo(base.byId.A.finalBonus, 12);
     expect(totalVicAlloc(adj.emps, adj.pool)).toBeCloseTo(1000, 6);
-    // it does land on their state's total, like any other grant
-    expect(cardTotal(adj.emps, "VIC") - cardTotal(base.emps, "VIC")).toBeCloseTo(100, 8);
+    // it lands on their own state's total, like any other grant — C's card is
+    // NSW even though VIC funds their fixed bonus (vp 1)
+    expect(cardTotal(adj.emps, "NSW") - cardTotal(base.emps, "NSW")).toBeCloseTo(100, 8);
   });
 
   it("a negative DA lowers them and their pool's total, and frees nothing", () => {
-    const base = run();
-    const adj = run({ C: { daEdit: -50 } });
+    const base = runSm();
+    const adj = runSm({ C: { daEdit: -50 } });
     expect(adj.byId.C.finalBonus).toBeCloseTo(150, 10);
     expect(adj.pool.vicScale).toBeCloseTo(base.pool.vicScale, 12);
     expect(adj.byId.B.finalBonus).toBeCloseTo(base.byId.B.finalBonus, 12);
-    expect(cardTotal(adj.emps, "VIC") - cardTotal(base.emps, "VIC")).toBeCloseTo(-50, 8);
+    expect(cardTotal(adj.emps, "NSW") - cardTotal(base.emps, "NSW")).toBeCloseTo(-50, 8);
+  });
+
+  it("a VIC site manager's is inert — stored, imported, or left behind", () => {
+    // The 24 Aug 2026 split, enforced where the money is decided. This is the
+    // regression that put six VIC site managers back to their fixed bonus: an
+    // amount typed into one during the ~35 minutes they were editable in
+    // production was still being paid, while the cell showed a dash.
+    const base = run();
+    const adj = run({ C: { daEdit: 100 } }); // C is VIC in the main fixture
+    expect(adj.byId.C.finalBonus).toBeCloseTo(200, 10);
+    expect(adj.byId.C.finalBonus).toBeCloseTo(base.byId.C.finalBonus, 12);
+    expect(adj.byId.C.daEdit).toBe(0);
+    // and a lock on one is inert too — isLockable refuses them as well
+    const frozen = run({ C: { locked: true, lockedFinal: 50 } });
+    expect(frozen.byId.C.locked).toBe(false);
+    expect(frozen.byId.C.finalBonus).toBeCloseTo(200, 10);
+    // nobody else moves either way: the fixed 200 comes off the top as always
+    expect(frozen.pool.vicScale).toBeCloseTo(base.pool.vicScale, 12);
   });
 });
 
@@ -854,26 +903,26 @@ describe("Potential Bonus reconciles with After IPM", () => {
  * `locked`, so the flag was set and the figure kept moving. C is the fixture's
  * site manager (fixed at 200, VIC); these pin the lock actually biting.
  */
-describe("a locked site manager really freezes (24 Aug 2026)", () => {
+describe("a locked NSW site manager really freezes (24 Aug 2026)", () => {
   it("pays the frozen figure, not the live one", () => {
-    const { byId } = run({ C: { locked: true, lockedFinal: 50 } });
+    const { byId } = runSm({ C: { locked: true, lockedFinal: 50 } });
     expect(byId.C.finalBonus).toBeCloseTo(50, 10);
     // calcBonus still reports what they WOULD draw, as for any locked row
     expect(byId.C.calcBonus).toBeCloseTo(200, 10);
   });
 
   it("a discretionary amount cannot move a frozen site manager", () => {
-    const { byId } = run({ C: { locked: true, lockedFinal: 50, daEdit: 500 } });
+    const { byId } = runSm({ C: { locked: true, lockedFinal: 50, daEdit: 500 } });
     expect(byId.C.finalBonus).toBeCloseTo(50, 10);
   });
 
   it("only the frozen figure comes off the pool, so the others get the rest", () => {
-    const base = run();
+    const base = runSm();
     // Freezing C at 150 instead of their live 200 releases 50 into VIC. Not
     // lower: freeing much more would leave the pool under-subscribed, the
     // scale would clamp at 1 (FY26 methodology) and the remainder would go
     // unspent, which is a different behaviour from the redistribution here.
-    const frozen = run({ C: { locked: true, lockedFinal: 150 } });
+    const frozen = runSm({ C: { locked: true, lockedFinal: 150 } });
     expect(frozen.pool.vicScale).toBeGreaterThan(base.pool.vicScale);
     expect(frozen.byId.A.finalBonus).toBeGreaterThan(base.byId.A.finalBonus);
     expect(frozen.byId.B.finalBonus).toBeGreaterThan(base.byId.B.finalBonus);
@@ -884,24 +933,24 @@ describe("a locked site manager really freezes (24 Aug 2026)", () => {
   it("freezing one far below their live figure under-subscribes the pool", () => {
     // the companion to the above: C frozen at 50 releases 150, more than the
     // others can absorb at scale 1, so 30 is deliberately left unspent
-    const { emps, pool } = run({ C: { locked: true, lockedFinal: 50 } });
+    const { emps, pool } = runSm({ C: { locked: true, lockedFinal: 50 } });
     expect(pool.vicScale).toBe(1);
     expect(totalVicAlloc(emps, pool)).toBeCloseTo(970, 8);
   });
 
   it("getVicAlloc/getNswAlloc price the frozen draw, not the fixed bonus", () => {
-    const { byId, pool } = run({ C: { locked: true, lockedFinal: 50 } });
+    const { byId, pool } = runSm({ C: { locked: true, lockedFinal: 50 } });
     expect(getVicAlloc(byId.C, pool)).toBeCloseTo(50, 10);
     expect(getNswAlloc(byId.C, pool)).toBeCloseTo(0, 10);
   });
 
   it("a frozen site manager has no discretionary headroom", () => {
-    const { emps, byId } = run({ C: { locked: true, lockedFinal: 50 } });
+    const { emps, byId } = runSm({ C: { locked: true, lockedFinal: 50 } });
     expect(getMaxDA(byId.C, emps, CAPS)).toBe(0);
   });
 
   it("an unlocked site manager is untouched by any of this", () => {
-    const base = run();
+    const base = runSm();
     expect(base.byId.C.finalBonus).toBeCloseTo(200, 10);
     expect(getVicAlloc(base.byId.C, base.pool)).toBeCloseTo(200, 10);
   });
