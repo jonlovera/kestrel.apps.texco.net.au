@@ -56,23 +56,22 @@ function assertMatches(
 describe("golden: baseline", () => {
   it("has the anchored known values", () => {
     // Independent anchors, hardcoded — not read from the golden file.
-    // Re-anchored for the 25 August 2026 reversal back to DA-on-top, which
-    // restores the figures this file held BEFORE the 24 August pool-funded
-    // reform, to the last bit: the one source DA of 3000 leaves the pools
-    // alone (vicScale is 0.6717823483284814 again) and is paid on top, so the
-    // group total is gCap + 3000. See lib/calc.ts's module header. The frozen
-    // "no-da" scenario below is unchanged by either move, which is what
-    // proves both are bit-identical when no DA exists.
+    // Re-anchored again for the 25 August 2026 decision to pay NSW in full
+    // (lib/calc.ts's NSW_FULL_ENTITLEMENT): nswScale is pinned at 1, so every
+    // row drawing on NSW is paid its whole After-IPM entitlement and the NSW
+    // draw goes $244,928.85 over that cap. VIC is deliberately untouched —
+    // vicScale is the same 0.6717823483284814 this file has held since the
+    // DA-on-top reversal, and totalVicAlloc is bit-identical.
     expect(golden.baseline.vicScale).toBe(0.6717823483284814);
-    expect(golden.baseline.nswScale).toBe(0.7820525079336984);
-    expect(golden.baseline.totalFinal).toBe(2621822.7499999995);
+    expect(golden.baseline.nswScale).toBe(1);
+    expect(golden.baseline.totalFinal).toBe(2866751.5958);
     expect(golden.baseline.rows.length).toBe(155);
   });
 
   it("every derived figure matches bit-for-bit", () => {
     const { pool } = run({});
     expect(pool.vicScale).toBe(0.6717823483284814);
-    expect(pool.nswScale).toBe(0.7820525079336984);
+    expect(pool.nswScale).toBe(1);
     assertMatches({}, golden.baseline);
   });
 });

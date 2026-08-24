@@ -18,11 +18,11 @@ describe("applyParams", () => {
     const emps = applyOverrides(eff.emp, {});
     const pool = computeScalesAndBonuses(emps, eff);
     // Anchors match lib/calc-golden.test.ts (re-anchored for the 25 August
-    // 2026 reversal back to DA-on-top: the one source DA of 3000 leaves the
-    // pools alone and is paid on top, so the total is gCap + 3000).
+    // 2026 decision to pay NSW in full: nswScale is pinned at 1, VIC's is
+    // untouched).
     expect(pool.vicScale).toBe(0.6717823483284814);
-    expect(pool.nswScale).toBe(0.7820525079336984);
-    expect(emps.reduce((s, e) => s + e.finalBonus, 0)).toBe(2621822.7499999995);
+    expect(pool.nswScale).toBe(1);
+    expect(emps.reduce((s, e) => s + e.finalBonus, 0)).toBe(2866751.5958);
   });
 
   it("a 0.5 modifier exactly halves every derived after-IPM figure", () => {

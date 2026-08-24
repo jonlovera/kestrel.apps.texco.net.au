@@ -98,15 +98,21 @@ describe("baseline (no edits, no locks)", () => {
   it("computes the expected scales", () => {
     const { pool } = run();
     expect(pool.vicScale).toBeCloseTo(800 / 920, 10);
-    expect(pool.nswScale).toBeCloseTo(500 / 580, 10);
+    // NSW is pinned at 1 (25 Aug 2026, NSW_FULL_ENTITLEMENT) — it would
+    // otherwise be 500/580 here, the cap over a demand that exceeds it
+    expect(pool.nswScale).toBe(1);
     expect(pool.stateVicAvail).toBe(1000);
     expect(pool.stateNswAvail).toBe(500);
   });
 
-  it("allocations exactly fill both pool caps", () => {
+  it("VIC fills its cap exactly; NSW overspends its own by paying in full", () => {
     const { emps, pool } = run();
     expect(totalVicAlloc(emps, pool)).toBeCloseTo(1000, 8);
-    expect(totalNswAlloc(emps, pool)).toBeCloseTo(500, 8);
+    // D's 500 plus E's 80 of NSW work: the whole entitlement, cap or no cap.
+    // The overshoot is exactly the part the cap could not cover, and it is
+    // surfaced on the pool card rather than taken off anyone's bonus.
+    expect(totalNswAlloc(emps, pool)).toBeCloseTo(580, 8);
+    expect(totalNswAlloc(emps, pool) - CAPS.nCap).toBeCloseTo(80, 8);
   });
 
   it("site manager bonus is fixed at bipm, no scaling", () => {
@@ -205,9 +211,10 @@ describe("discretionary adjustments sit on top of the pool (owner decision, 25 A
     const totalBase = base.emps.reduce((s, e) => s + e.finalBonus, 0);
     const totalAdj = adj.emps.reduce((s, e) => s + e.finalBonus, 0);
     expect(totalAdj - totalBase).toBeCloseTo(100 - 40, 10);
-    // the pools themselves are still spent to the cent, DA excluded
+    // the pool draws themselves do not move with a DA (it is on top): VIC on
+    // its cap, NSW on its full entitlement
     expect(totalVicAlloc(adj.emps, adj.pool)).toBeCloseTo(1000, 8);
-    expect(totalNswAlloc(adj.emps, adj.pool)).toBeCloseTo(500, 8);
+    expect(totalNswAlloc(adj.emps, adj.pool)).toBeCloseTo(580, 8);
   });
 
   it("a second DA leaves the first recipient's figures exactly where they were", () => {
@@ -445,9 +452,11 @@ describe("a stored over-cap adjustment overshoots the cap and shows it", () => {
     const crowded = run({ A: { daEdit: 10_000 } });
     // everyone else is over-cap by the overshoot, which is honestly "no room"
     expect(getMaxDA(crowded.byId.B, crowded.emps, CAPS)).toBeLessThan(0);
-    // the row that caused it can hold what it holds and no more, so the
-    // figure stays correctable rather than being dragged down (see clampDa)
-    expect(getMaxDA(crowded.byId.A, crowded.emps, CAPS)).toBe(0);
+    // the row that caused it is bounded by the group cap, which this fixture
+    // already exceeds by the 80 of NSW work its own cap cannot cover — so even
+    // backing out A's own amount leaves it short, and clampDa holds the stored
+    // figure rather than dragging it down
+    expect(getMaxDA(crowded.byId.A, crowded.emps, CAPS)).toBe(-80);
   });
 });
 
@@ -545,13 +554,13 @@ describe("getMaxDA is the room left under the caps", () => {
 
   it("the group cap binds when it is the tighter of the two", () => {
     // The fixture's own caps: VIC's card still has ~104 of room, but the group
-    // total sits exactly on gCap, so nothing can be granted at all. This is
-    // the real dataset's position (gCap === vCap + nCap, both pools spent):
-    // raising a state cap alone does not create room for a grant.
+    // total is already 80 PAST gCap — NSW pays its full entitlement and gCap
+    // is only vCap + nCap, so the 80 of NSW work the NSW cap cannot cover
+    // lands on the group. Nothing can be granted anywhere until gCap moves.
     const base = run();
     expect(Math.floor(1000 - cardTotal(base.emps, "VIC"))).toBe(104);
-    expect(cardTotal(base.emps)).toBeCloseTo(1500, 8);
-    expect(getMaxDA(base.byId.A, base.emps, CAPS)).toBe(0);
+    expect(cardTotal(base.emps)).toBeCloseTo(1580, 8);
+    expect(getMaxDA(base.byId.A, base.emps, CAPS)).toBe(-80);
     // lift the group cap alone and the state cap becomes the binding one
     const lifted: Caps = { ...CAPS, gCap: 10_000 };
     expect(getMaxDA(base.byId.A, base.emps, lifted)).toBe(104);
@@ -594,6 +603,70 @@ describe("edge guards", () => {
   });
 });
 
+/**
+ * NSW pays full entitlement (owner decision, 25 August 2026): the ask was
+ * literally "Calc bonus should be 1,074,487 — exactly equal to After IPM" on
+ * an NSW lead's tab. That holds when and only when nswScale is 1, so these
+ * pin the equality itself rather than the scale, and pin that VIC did not move
+ * to buy it. See NSW_FULL_ENTITLEMENT in lib/calc.ts.
+ */
+describe("NSW is paid in full: Calc bonus equals After IPM", () => {
+  it("every row drawing only on NSW gets its whole After-IPM figure", () => {
+    const { byId } = run();
+    expect(byId.D.calcBonus).toBeCloseTo(byId.D.bipmCalc, 10);
+    expect(byId.D.calcBonus).toBe(500);
+  });
+
+  it("a split row's NSW share is unscaled while its VIC share still scales", () => {
+    // E is 60 VIC / 40 NSW: the NSW slice is paid whole, the VIC slice is
+    // pro-rated exactly as before — the two halves of one bonus, priced by
+    // two different rules, which is what pinning one pool means
+    const { byId, pool } = run();
+    expect(byId.E.calcBonus).toBeCloseTo(200 * 0.6 * pool.vicScale + 200 * 0.4, 10);
+    expect(pool.vicScale).toBeCloseTo(800 / 920, 10);
+  });
+
+  it("the columns the owner was looking at now total the same for NSW", () => {
+    // "After IPM" and "Calc bonus", summed down an NSW-only tab
+    const { emps } = run();
+    const nsw = emps.filter((e) => e.st === "NSW");
+    const afterIpm = nsw.reduce((s, e) => s + e.bipmCalc, 0);
+    const calc = nsw.reduce((s, e) => s + e.calcBonus, 0);
+    expect(nsw.length).toBeGreaterThan(0);
+    expect(calc).toBeCloseTo(afterIpm, 8);
+  });
+
+  it("holds on the real dataset, row by row, for all 54 NSW people", () => {
+    const real = JSON.parse(
+      readFileSync(join(__dirname, "..", "data", "bonus.json"), "utf-8")
+    ) as { emp: Employee[]; vCap: number; nCap: number; gCap: number };
+    const emps = applyOverrides(real.emp, {});
+    computeScalesAndBonuses(emps, real);
+    const nsw = emps.filter((e) => e.st === "NSW" && e.np === 1);
+    expect(nsw.length).toBeGreaterThan(40);
+    for (const e of nsw) expect(e.calcBonus).toBeCloseTo(e.bipmCalc, 6);
+    const afterIpm = nsw.reduce((s, e) => s + e.bipmCalc, 0);
+    expect(nsw.reduce((s, e) => s + e.calcBonus, 0)).toBeCloseTo(afterIpm, 6);
+  });
+
+  it("no VIC-only row moved to pay for it", () => {
+    // the guard on blast radius: a pure-VIC row's figure is a function of
+    // vicScale alone, and vicScale is not in this decision
+    const { byId } = run();
+    expect(byId.A.calcBonus).toBeCloseTo(200 * (800 / 920), 10);
+    expect(byId.B.calcBonus).toBeCloseTo(600 * (800 / 920), 10);
+    expect(byId.C.finalBonus).toBe(200); // the site manager, fixed as ever
+  });
+
+  it("a lower NSW cap no longer changes anyone's NSW figure", () => {
+    // the cap has stopped constraining NSW through scaling — stated as a test
+    // because it is the cost of the decision, not an accident
+    const emps = applyOverrides(FIXTURE, {});
+    computeScalesAndBonuses(emps, { vCap: 1000, nCap: 1, gCap: 1001 });
+    expect(emps.find((e) => e.id === "D")!.calcBonus).toBe(500);
+  });
+});
+
 describe("real-data regression (data/bonus.json)", () => {
   // Originally computed with an independent Python implementation of the
   // prototype's algorithm. Re-anchored for the 25 August 2026 reversal back to
@@ -608,15 +681,18 @@ describe("real-data regression (data/bonus.json)", () => {
   it("reproduces the baseline scales and group total exactly", () => {
     const emps = applyOverrides(data.emp, {});
     const pool = computeScalesAndBonuses(emps, data);
+    // VIC is untouched by the NSW pin, to the last bit — that is the whole
+    // point of pinning only the payout scale (see NSW_FULL_ENTITLEMENT)
     expect(pool.vicScale).toBeCloseTo(0.6717823483284814, 12);
-    expect(pool.nswScale).toBeCloseTo(0.7820525079336984, 12);
+    expect(pool.nswScale).toBe(1);
     const totFinal = emps.reduce((s, e) => s + e.finalBonus, 0);
-    expect(totFinal).toBeCloseTo(2621822.75, 6);
-    // the pools are spent to the cent; the group total exceeds gCap by exactly
-    // the one stored discretionary amount, which is what "on top" means
-    expect(totFinal - data.gCap).toBeCloseTo(3000, 6);
+    expect(totFinal).toBeCloseTo(2866751.5958, 4);
     expect(totalVicAlloc(emps, pool)).toBeCloseTo(1580414.5, 6);
-    expect(totalNswAlloc(emps, pool)).toBeCloseTo(1038408.25, 6);
+    // NSW now draws its full entitlement, $244,928.85 above the cap it used to
+    // be scaled into — on THIS dataset's original caps, which are lower than
+    // the live ones
+    expect(totalNswAlloc(emps, pool)).toBeCloseTo(1283337.0958, 4);
+    expect(totalNswAlloc(emps, pool) - data.nCap).toBeCloseTo(244928.8458, 4);
   });
 
   it("leaves no room for a grant until the caps are raised", () => {

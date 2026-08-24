@@ -168,6 +168,35 @@ function clampScale(x: number): number {
 }
 
 /**
+ * NSW PAYS FULL ENTITLEMENT (owner decision, 25 August 2026, taken while
+ * looking at an NSW lead's tab where "Calc bonus" summed $36,020 below "After
+ * IPM"): the NSW scale is pinned at 1, so an NSW calc bonus is always exactly
+ * that row's After IPM figure and nobody is pro-rated down.
+ *
+ * Why it was below: the NSW cap does not fund only NSW-home people. Anyone
+ * whose cost splits — a Shared Services role, or a VIC employee doing a
+ * portion of NSW work — draws their np share from it, $184,243 of it in the
+ * 21 August 2026 capture. So the NSW tab summed $1,074,487 against a
+ * $1,194,970 cap and looked to have room, while the pool itself owed
+ * $1,230,990 and was genuinely oversubscribed, scaling everyone to 0.9594.
+ * The alternative fix was to raise nCap to $1,234,562 (the point where the
+ * scale clamps at 1 on its own); pinning it was the decision taken instead.
+ *
+ * What this costs, stated plainly: the NSW cap no longer constrains NSW
+ * payouts through scaling. The pool draw can exceed nCap — the pool card
+ * shows that as an over-cap figure, which is now expected rather than a fault
+ * — and it will keep doing so as IPM or package figures rise, with no
+ * automatic correction. Flip this to false to restore cap-driven scaling;
+ * nothing else needs to change, and the VIC side is untouched either way.
+ *
+ * Deliberately NOT applied to vicScaleNoLocks/nswScaleNoLocks (pass 0 below).
+ * Those weight how a blended locked row's frozen amount is attributed between
+ * the two pools; changing them would move VIC's scale, and no VIC figure
+ * should move because of an NSW decision.
+ */
+const NSW_FULL_ENTITLEMENT: boolean = true;
+
+/**
  * The shape both editability rules read. Deliberately not `Employee`: the
  * browser holds a DisplayRow and the server an Employee, and both satisfy
  * this, so the rule has exactly one definition rather than one per caller.
@@ -394,10 +423,14 @@ export function computeScalesAndBonuses(
     empBipmVpUnlocked !== 0
       ? clampScale((stateVicAvail - empLockedVp - daVp) / empBipmVpUnlocked)
       : 1;
-  const nswScale =
+  const nswScaleFromCap =
     empBipmNpUnlocked !== 0
       ? clampScale((stateNswAvail - empLockedNp - daNp) / empBipmNpUnlocked)
       : 1;
+  // Pinned at 1 since 25 Aug 2026 — see NSW_FULL_ENTITLEMENT. The cap-derived
+  // figure is kept named rather than deleted: this is one flag away from being
+  // live again, and the arithmetic is the same arithmetic VIC still uses.
+  const nswScale = NSW_FULL_ENTITLEMENT ? 1 : nswScaleFromCap;
 
   emps.forEach((e) => {
     if (e.sm) {
