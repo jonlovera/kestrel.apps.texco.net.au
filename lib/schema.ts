@@ -61,23 +61,6 @@ export const BonusDataSchema = z.object({
    * about. Defaulted so a dataset stored before this existed keeps parsing.
    */
   excludedIds: z.array(z.string()).default([]),
-  /**
-   * Whether a discretionary amount is funded FROM the capped pool (so it moves
-   * the pool scale and every other unlocked row's bonus reflows) or sits ON
-   * TOP of it (the default: the money it frees is simply room left under the
-   * cap and nobody else moves). The "Always redistribute" tick on the
-   * dashboard. Lives on the dataset for the same reason the caps do — an
-   * import replaces `emp` and carries the rest forward — and, crucially,
-   * because it changes the figures: the browser, /api/state's validation and
-   * every user have to agree on which funding model is in force.
-   *
-   * Optional, and absent means off: a dataset stored before this existed, and
-   * every deployment that has not been ticked, keeps today's behaviour exactly.
-   * Left optional on the OUTPUT type too (rather than `.default(false)`) so
-   * every existing fixture and caller that builds a dataset literal still
-   * type-checks — the engine reads it as `=== true`.
-   */
-  redistribute: z.boolean().optional(),
 });
 
 export type Employee = z.infer<typeof EmployeeSchema>;
@@ -94,6 +77,27 @@ export const EmployeeOverrideSchema = z.object({
   // no floor: a discretionary adjustment may be negative (a deliberate
   // manual reduction that frees pool money back to the other unlocked rows)
   daEdit: z.number().optional(),
+  /**
+   * Whether THIS row's discretionary amount is funded FROM the capped pool —
+   * deducted before anyone is scaled, so every other row's scaled portion
+   * reflows — or sits ON TOP of the pool, adding to the total and moving
+   * nobody through the scale.
+   *
+   * Absent means on top: the default, what every override stored before this
+   * existed keeps, and what the frozen goldens are computed under. Optional on
+   * the output type too, so existing fixtures and documents keep type-checking
+   * — the engine reads it as `=== true`.
+   *
+   * It lives here, on the override document, rather than on EmployeeSchema
+   * because it is an EDITING decision: source data is replaced wholesale by
+   * every import, and this has to survive one the way daEdit and locked do.
+   *
+   * Note what it does NOT mean. An unflagged row is not immune to other
+   * people's grants — a flagged grant lowers the state scale, which lowers the
+   * scaled portion of EVERY row, flagged or not. This flag decides only where
+   * THIS row's own discretionary money comes from.
+   */
+  daPooled: z.boolean().optional(),
   locked: z.boolean().optional(),
   /** finalBonus frozen at the moment the row was locked */
   lockedFinal: z.number().optional(),

@@ -163,7 +163,21 @@ export async function POST(req: Request) {
     // to. An NSW site manager's IS adjustable (24 Aug 2026) — it rides on top of
     // their fixed bonus — but a VIC site manager's is not, so the VIC fixed
     // bonuses stay untouchable. isDaEditable holds that rule.
-    if (!isDaEditable(rowRule(emp))) delete clean.daEdit;
+    if (!isDaEditable(rowRule(emp))) {
+      delete clean.daEdit;
+      // No amount means no funding decision either.
+      delete clean.daPooled;
+    } else if (emp.sm) {
+      // A site manager sits outside the state pool: their fixed bonus is not
+      // scaled, so there is no pool for their amount to come out of and the
+      // engine ignores the flag. Stripped rather than stored, so the document
+      // never records a decision that has no effect.
+      delete clean.daPooled;
+    }
+    // A stored `false` is the default said twice. Dropping it keeps the history
+    // and snapshot diffs free of no-op entries, exactly as the lockedFinal
+    // housekeeping below does.
+    if (clean.daPooled === false) delete clean.daPooled;
     // daEdit is deliberately not floored: an adjustment may be negative
     // (owner decision, kept through every change of funding model — a negative
     // DA lowers the recipient's final and its pool's total with it)
@@ -216,6 +230,7 @@ export async function POST(req: Request) {
   // The ceiling is re-derived from the document being saved, so several grants
   // in one save are judged against each other rather than each in isolation:
   // each one eats the room the next one would have had.
+  const fullAccess = scope.rule.type === "full";
   const nextRows = applyOverrides(data.emp, sanitised);
   const nextPool = computeScalesAndBonuses(nextRows, data);
   for (const grant of impact.grants) {
@@ -229,7 +244,13 @@ export async function POST(req: Request) {
     );
     return noStore(
       NextResponse.json(
-        { error: overHeadroomMessage(grant, ceiling), ceiling, empId: grant.empId },
+        {
+          error: overHeadroomMessage(grant, ceiling, fullAccess),
+          // The figure itself goes only to an admin. The dashboard derives its
+          // own ceiling from the payload it was sent, so a lead loses nothing.
+          ...(fullAccess ? { ceiling } : {}),
+          empId: grant.empId,
+        },
         { status: 422 }
       )
     );
@@ -320,12 +341,28 @@ function overPoolMessage(over: number, wasOver: number): string {
 }
 
 /**
- * The hard limit's refusal. Names the ceiling, because that is the one figure
- * that lets someone fix it without guessing.
+ * The hard limit's refusal.
+ *
+ * Names the ceiling for an admin, because that is the one figure that lets
+ * someone fix it without guessing. WITHHELD from a state lead, and that is a
+ * privacy boundary rather than tidiness: for a pool-funded row the ceiling is
+ * the state pool's own remaining room, and a lead is deliberately never sent
+ * vCap, nCap, gCap or any whole-state total (lib/scope-core.ts strips them and
+ * lib/scope-core.test.ts asserts it). Quoting the figure in an error string
+ * would hand over exactly what the payload withholds. The audit line keeps the
+ * exact number, where only an admin reads it.
  */
-function overHeadroomMessage(grant: DaGrant, ceiling: number): string {
+function overHeadroomMessage(
+  grant: DaGrant,
+  ceiling: number,
+  fullAccess: boolean
+): string {
+  const opener = `Not saved: ${fmt(grant.to)} for ${grant.name} would take the pool past its cap.`;
+  if (!fullAccess) {
+    return `${opener} Reduce it and save again, or ask an administrator how much room is left.`;
+  }
   const room = fmt(Math.max(0, Math.floor(ceiling)));
-  return `Not saved: ${fmt(grant.to)} for ${grant.name} would take the pool past its cap. At most ${room} can be granted before the pool reaches its cap. Reduce it to ${room} or less and save again.`;
+  return `${opener} At most ${room} can be granted before the pool reaches its cap. Reduce it to ${room} or less and save again.`;
 }
 
 /**

@@ -51,24 +51,33 @@
  * lock time, and that whole frozen figure is deducted from the pool through
  * the locked branch — locking a row is what puts its DA inside the pool.
  *
- * REDISTRIBUTE TICK (owner decision, 24 August 2026): both funding models are
- * now available, chosen by `Caps.redistribute` — the "Always redistribute"
- * tick at the top of the dashboard, persisted on Params so the browser, the
- * server's /api/state validation and every user agree on which one is live.
- *  - ABSENT or false (the default, and every dataset stored before the tick
- *    existed): everything above holds unchanged. Proven bit-identical by the
+ * PER-ROW FUNDING FLAG (owner decision, 24 August 2026, superseding the
+ * scheme-wide tick that briefly preceded it): both funding models are
+ * available and each ROW chooses, via `daPooled` on its override.
+ *  - ABSENT or false (the default, and every override stored before the flag
+ *    existed): everything above holds unchanged for that row. With no row
+ *    flagged the output is bit-identical to the on-top model — proven by the
  *    frozen goldens, which must not move.
- *  - true: the pre-25-August pool-funded model, restored. The unlocked rows'
- *    DA draw is deducted from each state pool BEFORE anyone is scaled, so a
- *    grant lowers every other unlocked row and a reduction hands that money
- *    back to the team. calcBonus then INCLUDES the DA and finalBonus is
- *    calcBonus alone, so the "Calc bonus + Discretionary = Final" identity
- *    deliberately does not hold — that identity is what the on-top model
- *    bought. getMaxDA switches to the state-pool bound (the cap-measured one
- *    reads as zero when the scale already pins the total at the cap), and
- *    getVicAlloc/getNswAlloc count the DA as part of the draw.
- * Site managers sit outside the state pool under either model, so the tick
- * does not reach them.
+ *  - true: that row's amount is funded FROM the pool. It is deducted from its
+ *    state pool BEFORE anyone is scaled, so flagging a grant lowers every
+ *    other row's scaled portion and un-flagging one hands that money back.
+ *    calcBonus then INCLUDES the amount and finalBonus is calcBonus alone, so
+ *    "Calc bonus + Discretionary = Final" deliberately does not hold on a
+ *    flagged row (it still does on every unflagged one). getMaxDA switches to
+ *    the state-pool bound for that row — the cap-measured bound reads as ~zero
+ *    once the scale pins the spend at the cap — and getVicAlloc/getNswAlloc
+ *    count its amount as part of the draw.
+ *
+ * Two things the flag does NOT mean, both easy to assume and both wrong:
+ *  - An unflagged row is not immune. Its own amount is on top, but its SCALED
+ *    portion falls with everyone else's when another row's grant is flagged.
+ *  - It has no effect on a pool whose scale is pinned. While
+ *    NSW_FULL_ENTITLEMENT holds nswScale at 1, flagging a row that draws only
+ *    on NSW folds its amount into calcBonus but reduces nobody, because there
+ *    is no scale left to move. Redistribution is effectively VIC-only, and
+ *    partial for a blended row via its vp share.
+ * Site managers sit outside the state pool under either mode, so the flag does
+ * not reach them.
  */
 import type { Employee, Overrides } from "./schema";
 
@@ -77,6 +86,8 @@ export interface CalcEmployee extends Employee {
   bpEdit: number;
   ipmEdit: number;
   daEdit: number;
+  /** true when this row's daEdit is funded from the pool rather than on top */
+  daPooled: boolean;
   locked: boolean;
   /** company performance modifier, derived once from the source figures */
   cpm: number;
@@ -91,15 +102,6 @@ export interface Caps {
   vCap: number;
   nCap: number;
   gCap: number;
-  /**
-   * The "Always redistribute" tick — see the DISCRETIONARY UPDATE note in the
-   * module header. Optional and falsy-by-default so the on-top model stays the
-   * behaviour of every existing caller and every stored dataset; it rides on
-   * Caps rather than a separate argument because every caller already threads
-   * the dataset in here, so there is exactly one place the two models can be
-   * chosen and no call site can accidentally pick a different one.
-   */
-  redistribute?: boolean;
 }
 
 /**
@@ -126,9 +128,9 @@ export interface PoolAgg {
   empLockedVp: number;
   empLockedNp: number;
   /**
-   * The unlocked rows' discretionary draw on each state, weighted by vp/np.
-   * Zero under the on-top model (a DA draws on no pool there); populated when
-   * `redistribute` is on, where it is what the scale has to absorb.
+   * The FLAGGED unlocked rows' discretionary draw on each state, weighted by
+   * vp/np — what the scale has to absorb. An unflagged row contributes nothing
+   * here: its amount sits on top of the pool and is not funded by it.
    */
   empDaVpUnlocked: number;
   empDaNpUnlocked: number;
@@ -145,12 +147,6 @@ export interface PoolState {
   stateVicAvail: number;
   stateNswAvail: number;
   poolAgg: PoolAgg;
-  /**
-   * Which funding model produced these figures — carried through so the
-   * allocation helpers below, which only ever receive a PoolState, cannot
-   * measure a pool draw under the wrong model.
-   */
-  redistribute: boolean;
 }
 
 /**
@@ -281,6 +277,10 @@ export function applyOverrides(
       bpEdit: ov.bpEdit ?? e.bp,
       ipmEdit: ov.ipmEdit ?? e.ipm,
       daEdit: ov.daEdit ?? e.da,
+      // Absent means on top — the default. There is deliberately no source-data
+      // fallback here (unlike daEdit's `?? e.da`): an import brings amounts,
+      // never a funding decision.
+      daPooled: ov.daPooled === true,
       locked: ov.locked ?? false,
       cpm,
       preIpm,
@@ -302,7 +302,6 @@ export function computeScalesAndBonuses(
   caps: Caps,
   shared: SharedAgg = ZERO_SHARED
 ): PoolState {
-  const redistribute = caps.redistribute === true;
   emps.forEach((e) => {
     e.preIpm = e.pkg * e.bpEdit * e.cpm;
     e.bipmCalc = e.preIpm * e.ipmEdit;
@@ -375,11 +374,14 @@ export function computeScalesAndBonuses(
     } else {
       empBipmVpUnlocked += e.bipmCalc * e.vp;
       empBipmNpUnlocked += e.bipmCalc * e.np;
-      // Only drawn on below when `redistribute` is on; under the on-top model
-      // these are measured but deliberately never deducted, so the aggregate
-      // is honest and the two models differ in one place instead of two.
-      empDaVpUnlocked += e.daEdit * e.vp;
-      empDaNpUnlocked += e.daEdit * e.np;
+      // Only a FLAGGED row's amount is funded by the pool, so only it is
+      // deducted below. An unflagged row's amount sits on top and contributes
+      // nothing here — which is why these aggregates ARE the deduction, with
+      // no second condition at the point of use.
+      if (e.daPooled) {
+        empDaVpUnlocked += e.daEdit * e.vp;
+        empDaNpUnlocked += e.daEdit * e.np;
+      }
     }
   });
 
@@ -411,21 +413,26 @@ export function computeScalesAndBonuses(
   // is left as "pool remaining" (FY26 methodology update; previously
   // uncapped).
   //
-  // This is THE line the "Always redistribute" tick moves. With it off,
-  // discretionary amounts are not deducted here at all — they sit on top of
-  // the pool and move no scale, so a grant shaves nobody. With it on, the
-  // unlocked rows' discretionary draw comes out of the state pool before
-  // anyone is scaled, so granting one lowers every other unlocked row's bonus
-  // and reducing one hands that money back to the team.
-  const daVp = redistribute ? empDaVpUnlocked : 0;
-  const daNp = redistribute ? empDaNpUnlocked : 0;
+  // Where the per-row funding flag bites. A FLAGGED row's discretionary draw
+  // comes out of the state pool BEFORE anyone is scaled, so flagging a grant
+  // lowers every other row's scaled portion and un-flagging one hands that
+  // money back. Unflagged amounts never entered these aggregates, so they move
+  // no scale and shave nobody — that is what "on top" means.
+  //
+  // Note the consequence in a mixed population: an unflagged row is NOT
+  // immune. Its OWN amount is on top, but its scaled portion falls with
+  // everyone else's when somebody else's grant is flagged.
   const vicScale =
     empBipmVpUnlocked !== 0
-      ? clampScale((stateVicAvail - empLockedVp - daVp) / empBipmVpUnlocked)
+      ? clampScale(
+          (stateVicAvail - empLockedVp - empDaVpUnlocked) / empBipmVpUnlocked
+        )
       : 1;
   const nswScaleFromCap =
     empBipmNpUnlocked !== 0
-      ? clampScale((stateNswAvail - empLockedNp - daNp) / empBipmNpUnlocked)
+      ? clampScale(
+          (stateNswAvail - empLockedNp - empDaNpUnlocked) / empBipmNpUnlocked
+        )
       : 1;
   // Pinned at 1 since 25 Aug 2026 — see NSW_FULL_ENTITLEMENT. The cap-derived
   // figure is kept named rather than deleted: this is one flag away from being
@@ -436,29 +443,30 @@ export function computeScalesAndBonuses(
     if (e.sm) {
       // The fixed bonus never scales; a discretionary amount rides on top of
       // it, keeping the dashboard identity Calc bonus + Discretionary = Final.
-      // A site manager sits outside the state pool either way, so the
-      // redistribute tick does not reach them — the pool-funded model treated
-      // them exactly the same.
+      // A site manager sits outside the state pool either way, so the funding
+      // flag does not reach them — their fixed bonus is not scaled, so there
+      // is no pool for their amount to come out of.
       e.calcBonus = e.bipmCalc;
       // A locked site manager keeps the figure frozen at lock time, exactly as
       // a locked pooled row does — this assignment is what used to make the
       // lock flag a no-op for them.
       if (!e.locked) e.finalBonus = e.bipmCalc + e.daEdit;
     } else if (!e.locked) {
-      // Under the pool-funded model the DA is INSIDE calcBonus (it was paid
-      // for by the scale above), so Final is calcBonus alone and the
-      // dashboard's "Calc bonus + Discretionary = Final" identity is expected
-      // not to hold — that identity is what the on-top model bought.
+      // A flagged row's amount is INSIDE calcBonus — the scale above already
+      // paid for it — so Final is calcBonus alone, and the dashboard identity
+      // "Calc bonus + Discretionary = Final" deliberately does not hold on
+      // that row. It still holds on every unflagged row, which is the whole
+      // point of leaving on-top as the default.
       e.calcBonus =
         e.bipmCalc * e.vp * vicScale +
         e.bipmCalc * e.np * nswScale +
-        (redistribute ? e.daEdit : 0);
-      e.finalBonus = redistribute ? e.calcBonus : e.calcBonus + e.daEdit;
+        (e.daPooled ? e.daEdit : 0);
+      e.finalBonus = e.daPooled ? e.calcBonus : e.calcBonus + e.daEdit;
     } else {
       e.calcBonus =
         e.bipmCalc * e.vp * vicScale +
         e.bipmCalc * e.np * nswScale +
-        (redistribute ? e.daEdit : 0);
+        (e.daPooled ? e.daEdit : 0);
       // finalBonus stays frozen at its locked value
     }
   });
@@ -469,7 +477,6 @@ export function computeScalesAndBonuses(
     stateVicAvail,
     stateNswAvail,
     poolAgg: { empLockedVp, empLockedNp, empDaVpUnlocked, empDaNpUnlocked },
-    redistribute,
   };
 }
 
@@ -509,13 +516,11 @@ export function getMaxDA(
 ): number {
   if (e.locked) return 0;
   if (e.vp + e.np === 0) return Infinity;
-  // Under the pool-funded model the cap-measured bound below is meaningless:
-  // the scale already pins Σ final at the cap, so "room left under the cap"
-  // reads as zero and every grant would be refused. The real bound there is
-  // the state pool's own remaining room, net of the locked draw and every
-  // OTHER unlocked row's discretionary draw, divided by this row's weight —
-  // the pre-25-August formula, restored verbatim.
-  if (caps.redistribute === true) {
+  // A flagged row is self-funding, so the cap-measured bound below is the
+  // wrong one for it: the scale already pins the pool spend at the cap, so
+  // "room left under the cap" reads as ~zero and every grant would be refused.
+  // Its real bound is the state pool's own remaining room.
+  if (e.daPooled) {
     if (!pool) return Infinity;
     const { poolAgg, stateVicAvail, stateNswAvail } = pool;
     const otherDaVp = poolAgg.empDaVpUnlocked - e.daEdit * e.vp;
@@ -524,10 +529,49 @@ export function getMaxDA(
     const nswRoom = stateNswAvail - poolAgg.empLockedNp - otherDaNp;
     let maxDa = Infinity;
     if (e.vp > 0) maxDa = Math.min(maxDa, vicRoom / e.vp);
-    if (e.np > 0) maxDa = Math.min(maxDa, nswRoom / e.np);
-    if (isNaN(maxDa) || !isFinite(maxDa)) return 0;
-    return Math.max(0, Math.floor(maxDa));
+    if (e.np > 0) {
+      // Owner decision, 24 August 2026: the flag must never become a cap
+      // override. While NSW_FULL_ENTITLEMENT pins nswScale at 1, nothing on the
+      // NSW side is funded by anyone — the deduction above is applied to
+      // nswScaleFromCap and then thrown away — so an "NSW pool-funded" amount
+      // lands on the NSW and group totals exactly as an on-top one would. It is
+      // therefore bounded by the CAPS, not by the pool. Bounding it by nswRoom
+      // instead would let a flagged NSW row spend $878k against a group cap
+      // already exceeded, take money from nobody, and look like the feature
+      // working. The VIC side keeps the pool bound, where it is genuinely
+      // self-funding.
+      maxDa = Math.min(
+        maxDa,
+        NSW_FULL_ENTITLEMENT ? capRoom(e, emps, caps) / e.np : nswRoom / e.np
+      );
+    }
+    if (isNaN(maxDa)) return 0;
+    // NOT floored at 0: a negative is the honest "no room at all" that the
+    // on-top branch already returns, and callers hold the stored figure rather
+    // than dragging it down. Flooring here is what would hide an exceeded cap.
+    return Math.floor(maxDa);
   }
+  return Math.floor(capRoom(e, emps, caps));
+}
+
+/**
+ * Room left under the caps for one row, measured EXACTLY the way the
+ * dashboard's pool cards measure their totals: Σ finalBonus grouped by HOME
+ * STATE against that state's cap, and Σ finalBonus over everyone against the
+ * group cap, whichever binds first. Shared Services has no state cap of its
+ * own, so only the group bound applies there.
+ *
+ * The row's own amount is added back in, so this is "the most this field may
+ * hold", not "the most it may go up by".
+ *
+ * Shared by both getMaxDA branches: it is the whole bound for an on-top row,
+ * and the NSW-weighted half of the bound for a flagged one (see there).
+ */
+function capRoom(
+  e: CalcEmployee,
+  emps: readonly CalcEmployee[],
+  caps: Caps
+): number {
   let groupTotal = 0;
   let homeTotal = 0;
   for (const r of emps) {
@@ -542,14 +586,15 @@ export function getMaxDA(
   if (stateCap !== null) {
     room = Math.min(room, stateCap - (homeTotal - e.daEdit));
   }
-  return Math.floor(room);
+  return room;
 }
 
 /**
- * VIC pool allocation of one employee. Pool money only when a DA sits on top;
- * when `redistribute` is on the DA was funded by the scale above, so it is
- * part of the draw and has to be counted here — leaving it out would make the
- * pool cards under-report by exactly the net DA.
+ * VIC pool allocation of one employee. An unflagged row's discretionary amount
+ * sits on top and is no part of the pool draw; a FLAGGED row's was funded by
+ * the scale above, so it is part of the draw and has to be counted here —
+ * leaving it out would make the pool cards under-report by exactly that row's
+ * amount.
  */
 export function getVicAlloc(e: CalcEmployee, pool: PoolState): number {
   // `locked` is tested FIRST, site manager or not: a frozen row draws its
@@ -559,7 +604,7 @@ export function getVicAlloc(e: CalcEmployee, pool: PoolState): number {
   if (e.sm) return e.bipmCalc * e.vp;
   return (
     e.bipmCalc * e.vp * pool.vicScale +
-    (pool.redistribute ? e.daEdit * e.vp : 0)
+    (e.daPooled ? e.daEdit * e.vp : 0)
   );
 }
 
@@ -570,7 +615,7 @@ export function getNswAlloc(e: CalcEmployee, pool: PoolState): number {
   if (e.sm) return e.bipmCalc * e.np;
   return (
     e.bipmCalc * e.np * pool.nswScale +
-    (pool.redistribute ? e.daEdit * e.np : 0)
+    (e.daPooled ? e.daEdit * e.np : 0)
   );
 }
 

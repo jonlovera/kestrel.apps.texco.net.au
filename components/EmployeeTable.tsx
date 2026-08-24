@@ -38,6 +38,8 @@ export interface TableHandlers {
   updateDatasetFigure: (id: string, current: number, raw: string) => void;
   updateSplit: (id: string, field: "vp" | "np", current: number, raw: string) => void;
   toggleLock: (id: string) => void;
+  /** flips whether this row's discretionary amount is funded from the pool */
+  toggleDaPooled: (id: string) => void;
   renameColumn: (key: string, label: string) => void;
   /** opens the per-person edit modal (state change, remove from model) */
   editEmployee: (id: string) => void;
@@ -357,6 +359,46 @@ export default function EmployeeTable({
       case "final":
         return <span className="font-bold">{show(c, r.final!)}</span>;
 
+      case "daPooled": {
+        // Same eligibility as the Discretionary cell itself: a row that cannot
+        // hold an amount has no funding decision to make.
+        if (!isDaEditable(r))
+          return (
+            <span
+              title="Not adjustable, so there is no discretionary amount to fund"
+              className="cursor-help text-sm"
+            >
+              —
+            </span>
+          );
+        if (r.locked)
+          return (
+            <span
+              title="Frozen at lock time — unlock to change how it is funded"
+              className="cursor-help text-sm"
+            >
+              {r.daPooled ? "◉" : "○"}
+            </span>
+          );
+        return (
+          <button
+            type="button"
+            onClick={() => handlers.toggleDaPooled(r.id)}
+            title={
+              r.daPooled
+                ? "Funded FROM the pool: this amount comes out of everyone else's scaled bonus. Click to put it on top instead."
+                : "On TOP of the pool: this amount adds to the total and takes nothing from anyone. Click to fund it from the pool instead."
+            }
+            className={`h-7 w-7 border-[1.5px] text-sm transition-colors ${
+              r.daPooled
+                ? "border-brand-orange bg-brand-orange text-white"
+                : "border-neutral-300 bg-transparent hover:border-brand-orange"
+            }`}
+          >
+            {r.daPooled ? "◉" : "○"}
+          </button>
+        );
+      }
       case "lock": {
         // NSW site managers became lockable on 24 Aug 2026; VIC ones stay out,
         // along with anyone drawing from no pool (isLockable holds both rules).

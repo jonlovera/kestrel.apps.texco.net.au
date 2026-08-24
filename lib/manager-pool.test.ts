@@ -280,6 +280,37 @@ describe("poolBreach", () => {
     expect(p.remaining).toBeCloseTo(0, 8);
   });
 
+  /**
+   * The documented hole (lib/manager-pool.ts's header): a pool-funded amount is
+   * budget-neutral across the scope, so a lead's own gate does not bound it.
+   * Hand-checkable on this fixture — vCap 1000, A demands 400, B demands 600,
+   * scale exactly 1.
+   *
+   * On top, 200 to A:      A 600, B 600 → allocated 1200, pool 1000, remaining -200 → refused.
+   * Pool-funded, 200 to A: scale (1000-200)/1000 = 0.8, so A 320+200 = 520 and
+   *                        B 480 → allocated 1000, pool 1000, remaining 0 → allowed.
+   */
+  it("an on-top amount over the pool is refused", () => {
+    const next = { A: { daEdit: 200 } };
+    const p = managerPool(lead, data, next);
+    expect(p.allocated).toBeCloseTo(1200, 8);
+    expect(p.remaining).toBeCloseTo(-200, 8);
+    expect(poolBreach(lead, data, next, {})).not.toBeNull();
+  });
+
+  it("the same amount funded FROM the pool is not refused — the gate cannot see it", () => {
+    const next = { A: { daEdit: 200, daPooled: true } };
+    const p = managerPool(lead, data, next);
+    // remaining does NOT fall by the amount: B paid for it inside the scope
+    expect(p.allocated).toBeCloseTo(1000, 8);
+    expect(p.remaining).toBeCloseTo(0, 8);
+    expect(poolBreach(lead, data, next, {})).toBeNull();
+    // and B, who granted nothing, is the one who paid
+    const rows = applyOverrides(data.emp, next);
+    computeScalesAndBonuses(rows, data);
+    expect(rows.find((r) => r.id === "B")!.finalBonus).toBeCloseTo(480, 8);
+  });
+
   it("a whole-state lead's pool is the state cap, not what their rows demand", () => {
     // raise the cap and the lead's budget rises with it, though nobody's
     // entitlement moved — the whole point of the change

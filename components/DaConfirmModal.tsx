@@ -68,8 +68,9 @@ export default function DaConfirmModal({
             Confirm {impact.grants.length === 1 ? "this discretionary change" : "these discretionary changes"}
           </div>
           <p className="mt-1 text-[12px] text-brand-70">
-            A discretionary amount adds to the pool total on top of the
-            calculated bonuses. It cannot take a pool past its cap. Here is
+            Each discretionary amount is either funded FROM the pool — other
+            bonuses fall to pay for it — or added ON TOP of it, which raises the
+            pool total instead. Neither can take a pool past its cap. Here is
             where this leaves them.
           </p>
         </div>
@@ -94,6 +95,25 @@ export default function DaConfirmModal({
                   <span className="ml-2 text-[11px] text-brand-70">
                     ({g.amount > 0 ? "+" : ""}
                     {fmt(g.amount)})
+                  </span>
+                  {/* Which model this row is on, and whether that is what
+                      changed — a flip with an unchanged amount reads as
+                      "+$0" above, so without this the line looks like a
+                      no-op when it has just moved everyone else's money. */}
+                  <span
+                    className={`ml-2 px-1 text-[10px] font-bold uppercase ${
+                      g.pooledTo
+                        ? "bg-brand-orange text-white"
+                        : "border border-neutral-300 text-brand-70"
+                    }`}
+                  >
+                    {g.fundingChanged
+                      ? g.pooledTo
+                        ? "now from pool"
+                        : "now on top"
+                      : g.pooledTo
+                        ? "from pool"
+                        : "on top"}
                   </span>
                 </span>
               </li>
@@ -126,18 +146,30 @@ export default function DaConfirmModal({
               da-impact.ts counts the rows that actually dropped, so this
               cannot claim nobody moved while the engine is moving people. */}
           {impact.reducedCount > 0 ? (
-            <p className="mt-2 text-[11px] font-bold text-brand-orange">
-              This is funded from the pool, so it comes out of other people:{" "}
-              {impact.reducedCount}{" "}
-              {impact.reducedCount === 1 ? "person's bonus" : "people's bonuses"}{" "}
-              {impact.reducedCount === 1 ? "falls" : "fall"} by{" "}
-              {fmt(impact.totalReduction)} in total ({fmt(impact.averageReduction)}{" "}
-              on average, {fmt(impact.largestReduction)} at most).
-            </p>
+            <>
+              <p className="mt-2 text-[11px] font-bold text-brand-orange">
+                Funded from the pool, so it comes out of other people:{" "}
+                {impact.reducedCount}{" "}
+                {impact.reducedCount === 1
+                  ? "person's bonus"
+                  : "people's bonuses"}{" "}
+                {impact.reducedCount === 1 ? "falls" : "fall"} by{" "}
+                {fmt(impact.totalReduction)} in total (
+                {fmt(impact.averageReduction)} on average,{" "}
+                {fmt(impact.largestReduction)} at most).
+              </p>
+              <p className="mt-1 text-[11px] text-brand-70">
+                An &ldquo;on top&rdquo; amount is not protected from this. A
+                pool-funded amount lowers the state&apos;s scale, so the
+                calculated part of every unlocked bonus falls — the on-top rows
+                included, and the recipient&apos;s own too, which is why they
+                gain less than the full amount.
+              </p>
+            </>
           ) : (
             <p className="mt-2 text-[11px] text-brand-70">
-              Nobody else&apos;s bonus changes — a discretionary amount is not
-              taken from the other allocations.
+              Nobody else&apos;s bonus changes — these amounts sit on top of the
+              pool, not inside it.
             </p>
           )}
 

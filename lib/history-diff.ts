@@ -59,6 +59,24 @@ export function overrideChanges(
       }
     }
 
+    // How a discretionary amount is funded, which moves everyone else's scaled
+    // portion — as material as the amount itself, so it gets its own line
+    // rather than being folded into the Discretionary one above.
+    const wasPooled = p.daPooled ?? false;
+    const isPooled = n.daPooled ?? false;
+    if (wasPooled !== isPooled) {
+      changes.push({
+        empId: e.id,
+        kind: "edit",
+        field: "daPooled",
+        from: wasPooled ? "funded from pool" : "on top of pool",
+        to: isPooled ? "funded from pool" : "on top of pool",
+        summary: isPooled
+          ? `Discretionary for ${name} is now funded from the pool (other bonuses reflow)`
+          : `Discretionary for ${name} now sits on top of the pool (nobody else moves)`,
+      });
+    }
+
     const wasLocked = p.locked ?? false;
     const isLocked = n.locked ?? false;
     if (wasLocked !== isLocked) {

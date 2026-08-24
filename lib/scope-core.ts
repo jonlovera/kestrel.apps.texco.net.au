@@ -112,6 +112,7 @@ export function buildPayloadCore(
       cat: e.cat,
       sm: e.sm,
       locked: e.locked,
+      daPooled: e.daPooled,
       inPool: e.vp > 0 || e.np > 0,
     };
     if (fields.has("elig")) row.elig = e.elig;
@@ -182,9 +183,6 @@ export function buildPayloadCore(
     },
     showStateColumn,
     managerPool,
-    // the funding model, not a cap: a lead needs to know whether a grant they
-    // make comes out of their team's bonuses (see ReadonlyPayload)
-    redistribute: data.redistribute === true,
     cats: uniq(allowed.map((e) => e.cat)),
     depts: uniq(allowed.map((e) => e.dept)),
     mgrs: uniq(allowed.map((e) => e.mgr)),

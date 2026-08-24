@@ -130,6 +130,17 @@ export interface DaGrant {
   amount: number;
   /** the ceiling that applied when the grant was made, for the audit record */
   headroom: number;
+  /** how the amount was funded before this change */
+  pooledFrom: boolean;
+  /** how it is funded after it */
+  pooledTo: boolean;
+  /**
+   * True when the funding changed. A flag flip with the amount untouched is a
+   * material change with real impact on everyone else, so it counts as a grant
+   * and gets confirmed like one — `amount` is 0 in that case, which is why
+   * callers must not treat amount === 0 as "nothing happened".
+   */
+  fundingChanged: boolean;
 }
 
 /**
@@ -163,10 +174,12 @@ export interface DaImpact {
   /** the pools these grants move, and where they leave them */
   pools: DaPoolImpact[];
   /**
-   * How many unlocked bonuses (other than the recipients') go down. Structurally
-   * 0 while a discretionary amount sits on top of the pool — kept, measured
-   * rather than assumed, so the audit record and the API stay stable and a
-   * future funding change shows up here instead of silently.
+   * How many unlocked bonuses (other than the recipients') go down. Zero when
+   * every amount in the change sits on top of the pool; non-zero as soon as one
+   * is funded FROM it, because that moves the state scale under everyone.
+   * Always measured by running the engine twice, never assumed — which is why
+   * it started reporting real figures the moment the per-row flag landed,
+   * with no change to this module's logic.
    */
   reducedCount: number;
   /** average reduction across those bonuses */
@@ -212,7 +225,13 @@ export function daGrants(
   for (const row of run(emps, caps, next).rows) {
     const was = byId.get(row.id);
     if (!was) continue;
-    if (Math.abs(row.daEdit - was.daEdit) <= EPSILON) continue;
+    const amountChanged = Math.abs(row.daEdit - was.daEdit) > EPSILON;
+    // A funding flip counts even with the amount untouched: it moves everyone
+    // else's scaled portion, so it has to reach the confirmation step. Before
+    // the per-row flag existed only the amount could change, which is why this
+    // used to be a single comparison.
+    const fundingChanged = row.daPooled !== was.daPooled;
+    if (!amountChanged && !fundingChanged) continue;
     grants.push({
       empId: row.id,
       name: `${row.gn} ${row.sn}`,
@@ -220,6 +239,9 @@ export function daGrants(
       to: row.daEdit,
       amount: row.daEdit - was.daEdit,
       headroom: daHeadroom(was, before.rows, caps, before.pool),
+      pooledFrom: was.daPooled,
+      pooledTo: row.daPooled,
+      fundingChanged,
     });
   }
   return grants;
@@ -229,11 +251,18 @@ export function daGrants(
  * The full picture for the confirmation step: what is being granted, and where
  * it leaves each pool it touches.
  *
- * The reduction figures are still measured (recipients excluded — a recipient's
- * own bonus is what the grant moves, not collateral — and so are locked and
- * site-manager rows, whose bonuses cannot move at all). They come back 0 under
- * the on-top model; measuring rather than assuming that is what would make a
- * funding change visible here instead of silent.
+ * The reduction figures are measured, never assumed (recipients excluded — a
+ * recipient's own bonus is what the grant moves, not collateral — and so are
+ * locked and site-manager rows, whose bonuses cannot move at all). They come
+ * back 0 when every amount in the change sits on top of the pool, and report
+ * real figures as soon as one is funded from it. Measuring rather than assuming
+ * is what made the per-row funding flag visible here with no change to this
+ * function.
+ *
+ * Note that `recipients` is derived from `grants`, and a funding flip with an
+ * unchanged amount IS a grant (see daGrants) — so the row whose funding moved
+ * is correctly excluded from the collateral count rather than being reported as
+ * a victim of its own change.
  */
 export function daImpact(
   emps: Employee[],

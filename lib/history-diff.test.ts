@@ -79,3 +79,35 @@ describe("diffOverrides", () => {
     expect(entries).toHaveLength(3);
   });
 });
+
+describe("discretionary funding changes", () => {
+  it("records a flip in each direction, with the amount for context", () => {
+    const on = diff({ ABCDE: { daEdit: 500 } }, { ABCDE: { daEdit: 500, daPooled: true } });
+    expect(on).toHaveLength(1);
+    expect(on[0]).toMatchObject({
+      field: "daPooled",
+      from: "on top of pool",
+      to: "funded from pool",
+    });
+    expect(on[0].summary).toContain("funded from the pool");
+
+    const off = diff({ ABCDE: { daEdit: 500, daPooled: true } }, { ABCDE: { daEdit: 500 } });
+    expect(off).toHaveLength(1);
+    expect(off[0].to).toBe("on top of pool");
+  });
+
+  it("a flip and an amount change are two separate lines", () => {
+    const changes = diff(
+      { ABCDE: { daEdit: 500 } },
+      { ABCDE: { daEdit: 900, daPooled: true } }
+    );
+    expect(changes).toHaveLength(2);
+    expect(changes.map((c) => c.field).sort()).toEqual(["da", "daPooled"]);
+  });
+
+  it("a stored false is the default said twice, not a change", () => {
+    expect(
+      diff({ ABCDE: { daEdit: 500 } }, { ABCDE: { daEdit: 500, daPooled: false } })
+    ).toHaveLength(0);
+  });
+});

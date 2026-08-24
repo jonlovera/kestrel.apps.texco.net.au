@@ -183,13 +183,7 @@ export default function DashboardClient({
   const [params, setParams] = useState<Params>(
     isEditor
       ? payload.params
-      : {
-          vCap: 0,
-          nCap: 0,
-          gCap: 0,
-          companyModifier: 1,
-          redistribute: payload.redistribute,
-        }
+      : { vCap: 0, nCap: 0, gCap: 0, companyModifier: 1 }
   );
   /**
    * Pool caps are their own grant now (`canEditCaps` on a full-access rule),
@@ -941,6 +935,7 @@ export default function DashboardClient({
       cat: e.cat,
       sm: e.sm,
       locked: e.locked,
+      daPooled: e.daPooled,
       inPool: e.vp > 0 || e.np > 0,
       vp: e.vp,
       np: e.np,
@@ -995,6 +990,12 @@ export default function DashboardClient({
     // the model entirely is a different, heavier action than freezing their
     // bonus.
     const tools: TableColumn[] = [
+      // How a discretionary amount is funded rides the SAME grant as the amount
+      // (lib/write-scope.ts maps daPooled -> the "da" column), so the control
+      // appears exactly for the people who can set a figure in the first place.
+      ...(canEditFields.includes("da")
+        ? [{ key: "daPooled", label: "From pool", noSort: true }]
+        : []),
       ...(canLockAnything
         ? [{ key: "lock", label: "Lock", noSort: true }]
         : []),
@@ -1442,6 +1443,25 @@ export default function DashboardClient({
   }, [poolSummary, canEditCapsNow, dsBusy]);
 
   /** One human-readable line per contested figure in the conflict banner. */
+  /**
+   * Flip how one row's discretionary amount is funded.
+   *
+   * Mirrors toggleLock: one override field, committed through the same
+   * setOverride/dirty/save path, with no separate endpoint. The bound that
+   * applies to the amount changes with it — a flagged row is bounded by the
+   * state pool, an unflagged one by the caps — so the DA cell is remounted
+   * through daNonce, which is what makes the "max $X" badge re-derive.
+   */
+  function toggleDaPooled(id: string) {
+    if (viewReadOnly || !canEditFields.includes("da")) return;
+    const row = isEditor ? empById.get(id) : rowById.get(id);
+    if (!row || row.locked) return;
+    if (!isDaEditable(isEditor ? rowRule(row as CalcEmployee) : (row as DisplayRow)))
+      return;
+    setOverride(id, { daPooled: !(row.daPooled ?? false) });
+    setDaNonce((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }));
+  }
+
   function conflictLine(c: OverrideConflict): string {
     const name = isEditor
       ? (() => {
@@ -1450,7 +1470,9 @@ export default function DashboardClient({
       })()
       : (rowById.get(c.empId)?.name ?? c.empId);
     const label =
-      c.field === "lock"
+      c.field === "daPooled"
+        ? "Funded from pool"
+        : c.field === "lock"
         ? "Lock"
         : (columns.find((col) => col.key === (c.field === "daEdit" ? "da" : "ipm"))
           ?.label ?? (c.field === "daEdit" ? "Discretionary" : "IPM"));
@@ -1611,39 +1633,6 @@ export default function DashboardClient({
           )}
         </div>
       )}
-
-      {/* "Always redistribute" — the funding model for discretionary amounts.
-          Off (the default) a discretionary amount sits ON TOP of the pool: the
-          money a reduction frees is simply room left under the cap and nobody
-          else's bonus moves. On, it is funded FROM the pool, so granting one
-          lowers every other unlocked row and reducing one hands that money
-          back to the team. It takes the same grant a cap change does, because
-          it moves everyone's figure — everyone else sees it read-only, so it
-          is always visible which model produced the numbers on screen.
-
-          Shown to EVERY viewer, which is what "always visible" has to mean: a
-          lead deciding whether to grant 5,000 needs to know whether it comes
-          out of their own team's bonuses, and that is exactly what this tick
-          decides. The checkbox is disabled for anyone without the caps grant
-          (canEditCapsNow is false for every non-editor), so for them the strip
-          is a statement about the numbers rather than a control. */}
-      <div className="flex items-center justify-center gap-2 border-b border-neutral-100 bg-neutral-50 px-6 py-1.5 text-[11px]">
-        <label className="inline-flex items-center gap-1.5 font-bold">
-          <input
-            type="checkbox"
-            className="h-3.5 w-3.5"
-            checked={params.redistribute === true}
-            disabled={!canEditCapsNow || dsBusy}
-            onChange={(e) => updateParams({ redistribute: e.target.checked })}
-          />
-          Always redistribute
-        </label>
-        <span className="text-brand-70">
-          {params.redistribute
-            ? "a discretionary amount is funded from the pool — changing one reflows everyone else's bonus"
-            : "a discretionary amount sits on top of the pool — changing one frees money into the pool without moving anyone else"}
-        </span>
-      </div>
 
       {/* Widened from 1600px so the build-up columns have real room once
           expanded — the table's own horizontal scroll (EmployeeTable.tsx)
@@ -1963,6 +1952,7 @@ export default function DashboardClient({
                 updateDatasetFigure,
                 updateSplit,
                 toggleLock,
+                toggleDaPooled,
                 renameColumn,
                 editEmployee: setEditingId,
               }}

@@ -20,20 +20,6 @@ export const ParamsSchema = z.object({
   nCap: z.number().positive().max(50_000_000),
   gCap: z.number().positive().max(100_000_000),
   companyModifier: z.number().min(0.1).max(2),
-  /**
-   * "Always redistribute" — whether a discretionary amount is funded FROM the
-   * capped pool (so it moves the pool scale and every other unlocked row
-   * reflows) or sits ON TOP of it (absent/false: the money a reduction frees
-   * is just room left under the cap, and nobody else moves). See the
-   * DISCRETIONARY UPDATE note in lib/calc.ts.
-   *
-   * It lives on Params rather than the dataset because applyParams is already
-   * the one place caps reach both the server pipeline and the dashboard's live
-   * recalc — so the browser, /api/state's validation and every user cannot
-   * disagree about which funding model is in force. Optional, absent = off, so
-   * every stored params document keeps today's behaviour.
-   */
-  redistribute: z.boolean().optional(),
 });
 export type Params = z.infer<typeof ParamsSchema>;
 
@@ -78,6 +64,5 @@ export function applyParams(data: Dataset, params: Params): Dataset {
     vCap: params.vCap,
     nCap: params.nCap,
     gCap: params.gCap,
-    redistribute: params.redistribute,
   };
 }

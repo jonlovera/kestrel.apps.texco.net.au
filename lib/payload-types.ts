@@ -27,6 +27,14 @@ export interface ScopedRow {
   cat: string;
   sm: 0 | 1;
   locked: boolean;
+  /**
+   * Whether this row's discretionary amount is funded from the pool rather than
+   * sitting on top of it. Sent to read-only viewers too: the figures they are
+   * looking at mean different things depending on it ("if this is funded from
+   * the pool, my team paid for it"), so it has to be on screen rather than
+   * inferable only by an admin. Not a cap, so it leaks no figure.
+   */
+  daPooled: boolean;
   /** whether the row participates in any pool (drives the DA '—' rendering) */
   inPool: boolean;
   elig?: number;
@@ -103,15 +111,6 @@ export interface ReadonlyPayload {
    * regardless of how small a slice of that state they were accountable for.
    */
   managerPool: ManagerPool;
-  /**
-   * Which funding model produced these figures — the "Always redistribute"
-   * tick (lib/calc.ts's Caps.redistribute). Sent to read-only viewers on
-   * purpose, and it is the one params field they get: a lead cannot change it,
-   * but they are looking at bonuses whose meaning depends on it ("if I grant
-   * 5,000, does someone else lose it?"), so the answer has to be on screen
-   * rather than inferable only by an admin. Not a cap, so it leaks no figure.
-   */
-  redistribute: boolean;
   cats: string[];
   depts: string[];
   mgrs: string[];
