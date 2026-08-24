@@ -1254,7 +1254,7 @@ export default function DashboardClient({
     // what-if (the preview is debounced) can no longer freeze the wrong total.
     if (!canLockAnything) return;
     const row = rowById.get(id);
-    if (!row || row.sm || !row.inPool) return;
+    if (!row || !isLockable(row)) return;
     if (row.final === undefined) {
       // The lock control is shown (isLockable passes) but there is no figure on
       // screen to freeze, because this scope cannot see Final. Silently doing
@@ -1613,6 +1613,51 @@ export default function DashboardClient({
     });
   }
 
+  /**
+   * Bulk lock/unlock over the rows currently visible in the table.
+   *
+   * Uses the same eligibility rule as single-row toggleLock, so NSW site
+   * managers are included while VIC site managers stay excluded.
+   */
+  const visibleLockable = useMemo(
+    () => visibleRows.filter((r) => isLockable(r)),
+    [visibleRows]
+  );
+  const allVisibleLocked =
+    visibleLockable.length > 0 && visibleLockable.every((r) => r.locked);
+
+  function toggleLockAllVisible() {
+    if (!canLockAnything || viewReadOnly) return;
+    if (visibleLockable.length === 0) {
+      setNotice("No lockable rows in the current view.");
+      return;
+    }
+
+    const lock = !allVisibleLocked;
+    setOverrides((prev) => {
+      const next: Overrides = { ...prev };
+      let skipped = 0;
+      for (const row of visibleLockable) {
+        if (lock) {
+          const frozen = isEditor ? empById.get(row.id)?.finalBonus : row.final;
+          if (frozen === undefined) {
+            skipped += 1;
+            continue;
+          }
+          next[row.id] = { ...next[row.id], locked: true, lockedFinal: frozen };
+        } else {
+          next[row.id] = { ...next[row.id], locked: false, lockedFinal: undefined };
+        }
+      }
+      if (skipped > 0) {
+        setNotice(
+          `${skipped} row${skipped === 1 ? "" : "s"} couldn't be locked from this view because Final isn't visible.`
+        );
+      }
+      return next;
+    });
+  }
+
   /** One human-readable line per contested figure in the conflict banner. */
 
   function conflictLine(c: OverrideConflict): string {
@@ -1844,6 +1889,21 @@ export default function DashboardClient({
                 buildupOpen={buildupOpen}
                 onToggleBuildup={toggleBuildup}
               />
+              {canLockAnything && (
+                <button
+                  type="button"
+                  onClick={toggleLockAllVisible}
+                  disabled={dsBusy || saveStatus === "saving" || visibleLockable.length === 0}
+                  title={
+                    allVisibleLocked
+                      ? "Unlock every lockable row currently visible"
+                      : "Lock every lockable row currently visible"
+                  }
+                  className="border border-brand-orange/50 px-3 py-1.5 text-[11px] font-semibold tracking-wide text-brand-orange-soft transition-colors hover:bg-brand-orange hover:text-white disabled:opacity-40"
+                >
+                  {allVisibleLocked ? "Unlock all" : "Lock all"}
+                </button>
+              )}
               {/* The only way anything is ever redistributed. Appears only with
                   a selection, so the action and what it will act on are never
                   more than a glance apart. */}
