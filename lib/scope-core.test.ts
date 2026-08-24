@@ -137,6 +137,37 @@ describe("a read-only payload carries a save baseline scoped like everything els
   });
 });
 
+/**
+ * The funding model is the one params field a read-only viewer gets, and it is
+ * deliberate: a lead deciding on a grant needs to know whether it comes out of
+ * their own team's bonuses. The caps stay out (see the tests below).
+ */
+describe("a read-only payload names which funding model produced the figures", () => {
+  it("carries the redistribute flag, both ways", () => {
+    const on = buildPayloadCore({ ...data, redistribute: true }, {}, vicScopeNoPkg, user);
+    const off = buildPayloadCore({ ...data, redistribute: false }, {}, vicScopeNoPkg, user);
+    if (on.mode !== "readonly" || off.mode !== "readonly") throw new Error("expected readonly");
+    expect(on.redistribute).toBe(true);
+    expect(off.redistribute).toBe(false);
+  });
+
+  it("treats an unset flag as off, the on-top default", () => {
+    const payload = buildPayloadCore(data, {}, vicScopeNoPkg, user);
+    if (payload.mode !== "readonly") throw new Error("expected readonly");
+    expect(data.redistribute).toBeUndefined();
+    expect(payload.redistribute).toBe(false);
+  });
+
+  it("sending it leaks no cap", () => {
+    const json = JSON.stringify(
+      buildPayloadCore({ ...data, redistribute: true }, {}, vicScopeNoPkg, user)
+    );
+    expect(json).not.toContain('"gCap"');
+    expect(json).not.toContain('"vCap"');
+    expect(json).not.toContain('"nCap"');
+  });
+});
+
 describe("a lead sees their own pool and nothing wider", () => {
   const vic = buildPayloadCore(data, {}, vicScopeNoPkg, user);
   if (vic.mode !== "readonly") throw new Error("expected readonly");

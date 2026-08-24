@@ -103,6 +103,15 @@ export interface ReadonlyPayload {
    * regardless of how small a slice of that state they were accountable for.
    */
   managerPool: ManagerPool;
+  /**
+   * Which funding model produced these figures — the "Always redistribute"
+   * tick (lib/calc.ts's Caps.redistribute). Sent to read-only viewers on
+   * purpose, and it is the one params field they get: a lead cannot change it,
+   * but they are looking at bonuses whose meaning depends on it ("if I grant
+   * 5,000, does someone else lose it?"), so the answer has to be on screen
+   * rather than inferable only by an admin. Not a cap, so it leaks no figure.
+   */
+  redistribute: boolean;
   cats: string[];
   depts: string[];
   mgrs: string[];

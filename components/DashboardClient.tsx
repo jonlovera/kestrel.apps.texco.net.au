@@ -176,8 +176,20 @@ export default function DashboardClient({
       ? payload.copy
       : { ...payload.copy, poolTitles: DEFAULT_COPY.poolTitles }
   );
+  // A read-only viewer gets no caps — deliberately, they are not theirs to see
+  // — but they DO get the funding model, which the strip below reports to
+  // everyone. Everything else in the stub is a placeholder this view never
+  // renders.
   const [params, setParams] = useState<Params>(
-    isEditor ? payload.params : { vCap: 0, nCap: 0, gCap: 0, companyModifier: 1 }
+    isEditor
+      ? payload.params
+      : {
+          vCap: 0,
+          nCap: 0,
+          gCap: 0,
+          companyModifier: 1,
+          redistribute: payload.redistribute,
+        }
   );
   /**
    * Pool caps are their own grant now (`canEditCaps` on a full-access rule),
@@ -1607,26 +1619,31 @@ export default function DashboardClient({
           lowers every other unlocked row and reducing one hands that money
           back to the team. It takes the same grant a cap change does, because
           it moves everyone's figure — everyone else sees it read-only, so it
-          is always visible which model produced the numbers on screen. */}
-      {isEditor && (
-        <div className="flex items-center justify-center gap-2 border-b border-neutral-100 bg-neutral-50 px-6 py-1.5 text-[11px]">
-          <label className="inline-flex items-center gap-1.5 font-bold">
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5"
-              checked={params.redistribute === true}
-              disabled={!canEditCapsNow || dsBusy}
-              onChange={(e) => updateParams({ redistribute: e.target.checked })}
-            />
-            Always redistribute
-          </label>
-          <span className="text-brand-70">
-            {params.redistribute
-              ? "a discretionary amount is funded from the pool — changing one reflows everyone else's bonus"
-              : "a discretionary amount sits on top of the pool — changing one frees money into the pool without moving anyone else"}
-          </span>
-        </div>
-      )}
+          is always visible which model produced the numbers on screen.
+
+          Shown to EVERY viewer, which is what "always visible" has to mean: a
+          lead deciding whether to grant 5,000 needs to know whether it comes
+          out of their own team's bonuses, and that is exactly what this tick
+          decides. The checkbox is disabled for anyone without the caps grant
+          (canEditCapsNow is false for every non-editor), so for them the strip
+          is a statement about the numbers rather than a control. */}
+      <div className="flex items-center justify-center gap-2 border-b border-neutral-100 bg-neutral-50 px-6 py-1.5 text-[11px]">
+        <label className="inline-flex items-center gap-1.5 font-bold">
+          <input
+            type="checkbox"
+            className="h-3.5 w-3.5"
+            checked={params.redistribute === true}
+            disabled={!canEditCapsNow || dsBusy}
+            onChange={(e) => updateParams({ redistribute: e.target.checked })}
+          />
+          Always redistribute
+        </label>
+        <span className="text-brand-70">
+          {params.redistribute
+            ? "a discretionary amount is funded from the pool — changing one reflows everyone else's bonus"
+            : "a discretionary amount sits on top of the pool — changing one frees money into the pool without moving anyone else"}
+        </span>
+      </div>
 
       {/* Widened from 1600px so the build-up columns have real room once
           expanded — the table's own horizontal scroll (EmployeeTable.tsx)
