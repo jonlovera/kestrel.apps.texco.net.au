@@ -3,7 +3,7 @@
 export function fmt(v: number | null | undefined): string {
   if (v == null || isNaN(v)) return "$0";
   const n = Math.round(v);
-  if (n < 0) return "($" + Math.abs(n).toLocaleString("en-AU") + ")";
+  if (n < 0) return "–$" + Math.abs(n).toLocaleString("en-AU");
   return "$" + n.toLocaleString("en-AU");
 }
 
@@ -31,7 +31,7 @@ export function fmtValue(
   const opts = { minimumFractionDigits: decimals, maximumFractionDigits: decimals };
   if (format === "currency") {
     const abs = Math.abs(v).toLocaleString("en-AU", opts);
-    return v < 0 ? `($${abs})` : `$${abs}`;
+    return v < 0 ? `–$${abs}` : `$${abs}`;
   }
   if (format === "percent") {
     return (v * 100).toLocaleString("en-AU", opts) + "%";
