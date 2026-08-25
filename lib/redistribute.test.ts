@@ -38,6 +38,12 @@ describe("who takes part", () => {
     // VIC ones are not (lib/calc.ts)
     const picked = new Set(["in", "locked", "noPool", "vicSm", "nswSm"]);
     expect(eligible(rows, picked).map((r) => r.id)).toEqual(["in", "nswSm"]);
+    // an admin holding the VIC site managers grant (26 Aug 2026) may include them
+    expect(eligible(rows, picked, { vicSiteManagers: true }).map((r) => r.id)).toEqual([
+      "in",
+      "vicSm",
+      "nswSm",
+    ]);
   });
 
   it("a selection that names nobody eligible writes nothing", () => {

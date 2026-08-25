@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { NUMERIC_FIELDS, type NumericField } from "@/lib/access-types";
-import { isDaEditable, isLockable } from "@/lib/calc";
+import { isDaEditable, isIpmEditable, isLockable, type AdjustAllowance } from "@/lib/calc";
 import { signatureRouteFor, signatoriesFor } from "@/lib/letter-blocks";
 import type { DisplayRow } from "@/lib/payload-types";
 import type { ColumnFormat } from "@/lib/columns";
@@ -74,6 +74,12 @@ interface Props {
   /** drives the header checkbox: every listed, selectable row is ticked */
   allVisibleSelected: boolean;
   totals: Partial<Record<NumericField, number>>;
+  /**
+   * What this viewer may adjust beyond the scheme's default rule — today
+   * whether the VIC site managers' Lock, IPM and Discretionary cells are live
+   * (lib/calc.ts's AdjustAllowance). NO_ALLOWANCE for a lead.
+   */
+  allow: AdjustAllowance;
   /** admin, not viewing as someone — governs the header double-click-to-rename affordance only */
   canRenameColumns: boolean;
   busy: boolean;
@@ -182,6 +188,7 @@ export default function EmployeeTable({
   columns,
   rows,
   totals,
+  allow,
   canSelect,
   isSelected,
   canSelectRow,
@@ -233,7 +240,7 @@ export default function EmployeeTable({
     if ((NUMERIC_FIELDS as readonly string[]).includes(c.key) && !isRevealed(r.id)) {
       // Nothing to hide where there is no adjustable figure in the first
       // place — a VIC site manager or a row drawing from no pool.
-      if (c.key === "da" && !isDaEditable(r))
+      if (c.key === "da" && !isDaEditable(r, allow))
         return <span className="text-neutral-300">—</span>;
       // Nothing to hide on a whole-pool row — there is no split to reveal.
       if ((c.key === "vp" || c.key === "np") && !hasSplit(r))
@@ -290,6 +297,18 @@ export default function EmployeeTable({
         // column by mistake.
         return show(c, r.bp!);
       case "ipm": {
+        // A site manager's IPM re-prices their fixed bonus on save
+        // (lib/reprice.ts), so it is gated like their lock: NSW yes, VIC only
+        // for an admin holding the grant. Everyone else in a pool may edit it.
+        if (!isIpmEditable(r, allow))
+          return (
+            <span
+              title="Site Manager on the VIC pool — fixed bonus; adjustable only by an admin holding the VIC site managers grant"
+              className="cursor-help text-neutral-400"
+            >
+              {show(c, r.ipm!)}
+            </span>
+          );
         if (!c.editable || r.locked) return show(c, r.ipm!);
         return (
           <input
@@ -347,12 +366,12 @@ export default function EmployeeTable({
         // A VIC site manager's fixed bonus is deliberately not adjustable, an
         // NSW one's is (isDaEditable) — so this dash is the rule showing, not
         // a missing figure.
-        if (!isDaEditable(r))
+        if (!isDaEditable(r, allow))
           return (
             <span
               title={
                 r.sm
-                  ? "Site Manager on the VIC pool — fixed bonus, not adjustable"
+                  ? "Site Manager on the VIC pool — fixed bonus; adjustable only by an admin holding the VIC site managers grant"
                   : "Not in a bonus pool, so there is nothing to adjust"
               }
               className="cursor-help text-neutral-300"
@@ -409,12 +428,12 @@ export default function EmployeeTable({
       case "lock": {
         // NSW site managers became lockable on 24 Aug 2026; VIC ones stay out,
         // along with anyone drawing from no pool (isLockable holds both rules).
-        if (!isLockable(r))
+        if (!isLockable(r, allow))
           return (
             <span
               title={
                 r.sm
-                  ? "Site Manager on the VIC pool — fixed bonus, not subject to redistribution"
+                  ? "Site Manager on the VIC pool — fixed bonus; lockable only by an admin holding the VIC site managers grant"
                   : "Not in a bonus pool, so there is nothing to lock"
               }
               className="cursor-help text-sm"

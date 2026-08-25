@@ -10,6 +10,7 @@ import {
   getMaxDA,
   inStateHomeTotal,
   isCarveFunded,
+  isIpmEditable,
   deriveCpm,
   isDaEditable,
   rowRule,
@@ -473,22 +474,26 @@ describe("an NSW site manager's discretionary rides on the fixed bonus (24 Aug 2
     expect(cardTotal(adj.emps, "NSW") - cardTotal(base.emps, "NSW")).toBeCloseTo(-50, 8);
   });
 
-  it("a VIC site manager's is inert — stored, imported, or left behind", () => {
-    // The 24 Aug 2026 split, enforced where the money is decided. This is the
-    // regression that put six VIC site managers back to their fixed bonus: an
-    // amount typed into one during the ~35 minutes they were editable in
-    // production was still being paid, while the cell showed a dash.
+  it("a VIC site manager's stored amount and lock ARE paid — the boundary is the write, not the engine (26 Aug 2026)", () => {
+    // Until 26 Aug 2026 the engine dropped these itself, against a figure
+    // stranded by a rule change. Now a VIC site manager can only carry one if
+    // an admin holding the grant wrote it, and /api/state's gate 2
+    // (lib/scheme-gate.ts) reverts anyone else's attempt to the stored value —
+    // so what is stored is what is paid, whoever is looking.
     const base = run();
-    const adj = run({ C: { daEdit: 100 } }); // C is VIC in the main fixture
-    expect(adj.byId.C.finalBonus).toBeCloseTo(200, 10);
-    expect(adj.byId.C.finalBonus).toBeCloseTo(base.byId.C.finalBonus, 12);
-    expect(adj.byId.C.daEdit).toBe(0);
-    // and a lock on one is inert too — isLockable refuses them as well
-    const frozen = run({ C: { locked: true, lockedFinal: 50 } });
-    expect(frozen.byId.C.locked).toBe(false);
+    const adj = run({ C: { daEdit: 100 } }); // C is a VIC site manager
+    expect(adj.byId.C.daEdit).toBe(100);
+    expect(adj.byId.C.finalBonus).toBeCloseTo(300, 10);
+    // on top of the pool, as for everyone: the scale does not move
+    expect(adj.pool.vicScale).toBeCloseTo(base.pool.vicScale, 12);
+    // a lock is honoured too, and moves no money on its own
+    const frozen = run({ C: { locked: true } });
+    expect(frozen.byId.C.locked).toBe(true);
     expect(frozen.byId.C.finalBonus).toBeCloseTo(200, 10);
-    // nobody else moves either way: the fixed 200 comes off the top as always
-    expect(frozen.pool.vicScale).toBeCloseTo(base.pool.vicScale, 12);
+    // a row drawing from no pool is still stripped: there is nothing to pay it against
+    const none = run({ F: { daEdit: 100, locked: true } });
+    expect(none.byId.F.daEdit).toBe(0);
+    expect(none.byId.F.locked).toBe(false);
   });
 });
 
@@ -1144,6 +1149,15 @@ describe("isLockable", () => {
     expect(isLockable({ sm: 1, st: "VIC", inPool: true })).toBe(false);
   });
 
+  it("a VIC site manager IS, for a caller holding the grant (26 Aug 2026) — and nothing else changes", () => {
+    const grant = { vicSiteManagers: true };
+    expect(isLockable({ sm: 1, st: "VIC", inPool: true }, grant)).toBe(true);
+    expect(isLockable({ sm: 1, st: "NSW", inPool: true }, grant)).toBe(true);
+    expect(isLockable({ sm: 1, st: "SHARED", inPool: true }, grant)).toBe(false);
+    expect(isLockable({ sm: 1, st: "VIC", inPool: false }, grant)).toBe(false);
+    expect(isLockable({ sm: 0, st: "VIC", inPool: true }, grant)).toBe(true);
+  });
+
   it("a row drawing from no pool is not", () => {
     expect(isLockable({ sm: 0, st: "VIC", inPool: false })).toBe(false);
   });
@@ -1168,6 +1182,13 @@ describe("isDaEditable", () => {
     expect(isDaEditable({ sm: 1, st: "VIC", inPool: true })).toBe(false);
   });
 
+  it("…unless the caller holds the VIC site managers grant (26 Aug 2026)", () => {
+    const grant = { vicSiteManagers: true };
+    expect(isDaEditable({ sm: 1, st: "VIC", inPool: true }, grant)).toBe(true);
+    expect(isDaEditable({ sm: 1, st: "SHARED", inPool: true }, grant)).toBe(false);
+    expect(isDaEditable({ sm: 1, st: "VIC", inPool: false }, grant)).toBe(false);
+  });
+
   it("a Shared Services site manager's is not either — 'only NSW' read strictly", () => {
     expect(isDaEditable({ sm: 1, st: "SHARED", inPool: true })).toBe(false);
   });
@@ -1189,12 +1210,39 @@ describe("isDaEditable", () => {
     for (const st of ["VIC", "NSW", "SHARED"] as const) {
       for (const sm of [0, 1] as const) {
         for (const inPool of [true, false]) {
-          expect(isDaEditable({ sm, st, inPool })).toBe(
-            isLockable({ sm, st, inPool })
-          );
+          for (const allow of [{ vicSiteManagers: false }, { vicSiteManagers: true }]) {
+            expect(isDaEditable({ sm, st, inPool }, allow)).toBe(
+              isLockable({ sm, st, inPool }, allow)
+            );
+          }
         }
       }
     }
+  });
+});
+
+/**
+ * IPM is editable for anyone in a pool — it only moves the advisory figure —
+ * except for a SITE MANAGER, whose IPM re-prices their fixed bonus on save
+ * (lib/reprice.ts) and is therefore gated exactly like their lock.
+ */
+describe("isIpmEditable", () => {
+  const grant = { vicSiteManagers: true };
+  it("anyone in a pool who is not a site manager, whatever the allowance", () => {
+    for (const st of ["VIC", "NSW", "SHARED"] as const) {
+      expect(isIpmEditable({ sm: 0, st, inPool: true })).toBe(true);
+      expect(isIpmEditable({ sm: 0, st, inPool: true }, grant)).toBe(true);
+    }
+  });
+  it("a site manager follows the lock rule: NSW yes, VIC only with the grant", () => {
+    expect(isIpmEditable({ sm: 1, st: "NSW", inPool: true })).toBe(true);
+    expect(isIpmEditable({ sm: 1, st: "VIC", inPool: true })).toBe(false);
+    expect(isIpmEditable({ sm: 1, st: "VIC", inPool: true }, grant)).toBe(true);
+    expect(isIpmEditable({ sm: 1, st: "SHARED", inPool: true }, grant)).toBe(false);
+  });
+  it("a row drawing from no pool has no IPM to speak of", () => {
+    expect(isIpmEditable({ sm: 0, st: "VIC", inPool: false })).toBe(false);
+    expect(isIpmEditable({ sm: 1, st: "NSW", inPool: false }, grant)).toBe(false);
   });
 });
 

@@ -15,7 +15,14 @@ import {
   type Overrides,
   type Dataset,
 } from "./schema";
-import { applyOverrides, computeScalesAndBonuses, isLockable, rowRule } from "./calc";
+import {
+  applyOverrides,
+  computeScalesAndBonuses,
+  isLockable,
+  rowRule,
+  NO_ALLOWANCE,
+  type AdjustAllowance,
+} from "./calc";
 import type { CalcEmployee } from "./calc";
 import { deriveFacets, isSplit } from "./dataset-edit";
 import { isModelWorkbook, readModelWorkbook } from "./import-model";
@@ -442,10 +449,11 @@ export function seedImportedBases(
  */
 export function filterImportedLocks(
   emp: Employee[],
-  lockedAmounts: Record<string, number>
+  lockedAmounts: Record<string, number>,
+  allow: AdjustAllowance = NO_ALLOWANCE
 ): [string, number][] {
   const lockable = new Set(
-    emp.filter((e) => isLockable(rowRule(e))).map((e) => e.id)
+    emp.filter((e) => isLockable(rowRule(e), allow)).map((e) => e.id)
   );
   return Object.entries(lockedAmounts).filter(([id]) => lockable.has(id));
 }

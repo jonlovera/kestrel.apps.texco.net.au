@@ -205,19 +205,42 @@ export interface RowRule {
 }
 
 /**
- * The rule underneath both predicates below: a row must draw from a pool at
- * all, and a site manager must be on the NSW pool.
+ * What a caller is additionally permitted to touch, beyond the scheme's
+ * default rule. Today one thing: the VIC site managers, by an explicit grant
+ * on a full-access rule (`canEditVicSiteManagers`, lib/access-rules.ts —
+ * owner decision, 26 August 2026). Derived from a Scope by
+ * lib/write-scope.ts's adjustAllowance; the engine itself passes
+ * ENGINE_ALLOWANCE, because stored data has already been through the gate.
+ */
+export interface AdjustAllowance {
+  vicSiteManagers: boolean;
+}
+export const NO_ALLOWANCE: AdjustAllowance = { vicSiteManagers: false };
+/**
+ * What the ENGINE honours when it reads the stored overrides: everything the
+ * scheme can ever permit. The boundary is the write — /api/state's gate 2
+ * (lib/scheme-gate.ts) reverts an unauthorised change to the stored value, so
+ * a figure on a VIC site manager is there because someone holding the grant
+ * put it there, and the payout must follow it whoever is looking.
+ */
+export const ENGINE_ALLOWANCE: AdjustAllowance = { vicSiteManagers: true };
+
+/**
+ * The rule underneath the predicates below: a row must draw from a pool at
+ * all, and a site manager must be on the NSW pool — unless the caller holds
+ * the VIC site managers grant.
  *
  * The site-manager split is an owner decision (24 August 2026): NSW site
  * managers are adjustable — a discretionary amount rides on top of their fixed
  * bonus, and their bonus can be frozen — while VIC site managers are left
- * alone entirely, so those 16 fixed bonuses stay untouchable. A site manager
- * outside both states (none today) is excluded, the conservative reading of
- * "only NSW".
+ * alone by default, so those 16 fixed bonuses stay untouchable to anyone not
+ * explicitly granted them (26 August 2026: the grant exists, full-access
+ * admins only). A site manager outside both states (none today) is excluded,
+ * the conservative reading of "only NSW".
  */
-function isAdjustable(e: RowRule): boolean {
+function isAdjustable(e: RowRule, allow: AdjustAllowance = NO_ALLOWANCE): boolean {
   if (!e.inPool) return false;
-  if (e.sm) return e.st === "NSW";
+  if (e.sm) return e.st === "NSW" || (e.st === "VIC" && allow.vicSiteManagers);
   return true;
 }
 
@@ -230,8 +253,8 @@ function isAdjustable(e: RowRule): boolean {
  * figure (see computeScalesAndBonuses). Before that the engine ignored the
  * flag outright, which is why they were barred from carrying it.
  */
-export function isLockable(e: RowRule): boolean {
-  return isAdjustable(e);
+export function isLockable(e: RowRule, allow: AdjustAllowance = NO_ALLOWANCE): boolean {
+  return isAdjustable(e, allow);
 }
 
 /**
@@ -242,8 +265,21 @@ export function isLockable(e: RowRule): boolean {
  * site manager could be neither, then briefly could be adjusted but not
  * locked. Change one without checking the other at your peril.
  */
-export function isDaEditable(e: RowRule): boolean {
-  return isAdjustable(e);
+export function isDaEditable(e: RowRule, allow: AdjustAllowance = NO_ALLOWANCE): boolean {
+  return isAdjustable(e, allow);
+}
+
+/**
+ * Whether a row's IPM may be edited. For anyone in a pool it may — IPM moves
+ * the advisory Calc bonus and, since payouts became stored figures (25 August
+ * 2026), nothing else. A SITE MANAGER is the exception: their IPM RE-PRICES
+ * their fixed bonus on save (lib/reprice.ts, owner decision 26 August 2026),
+ * so it moves real money and is gated exactly like their lock and
+ * discretionary — NSW yes, VIC only with the grant.
+ */
+export function isIpmEditable(e: RowRule, allow: AdjustAllowance = NO_ALLOWANCE): boolean {
+  if (e.sm) return isAdjustable(e, allow);
+  return e.inPool;
 }
 
 /** RowRule for an Employee-shaped row, whose pool exposure is vp/np. */
@@ -303,17 +339,19 @@ export function applyOverrides(
   return emps.map((e) => {
     const { preIpm, cpm } = deriveCpm(e);
     const ov = overrides[e.id] ?? {};
-    // The same two rules /api/state's gate 2, the table and the import enforce,
-    // applied here as well — because this is the function that decides what is
-    // PAID. Without them a figure stranded by a rule change keeps being paid:
-    // for ~35 minutes on 24 Aug 2026 every site manager's discretionary cell
-    // was editable in production, and after b8b22a1 restricted that to NSW the
-    // amounts typed into VIC site managers were still being paid while their
-    // cell rendered a dash — invisible, and unreachable from the row. Tolerant
-    // at the load site, strict on save: the same shape as dropInvalidRules
-    // (lib/access-rules.ts) and dropRetiredFields (lib/columns.ts).
+    // The scheme's rule applied here as well — because this is the function
+    // that decides what is PAID — but with ENGINE_ALLOWANCE: everything the
+    // scheme can permit. A row drawing from no pool still gets nothing (there
+    // is no pool for a lock or an amount to mean anything against). A VIC site
+    // manager's stored lock/amount IS honoured, since 26 Aug 2026: it can only
+    // be there because an admin holding the grant wrote it, and /api/state's
+    // gate 2 (lib/scheme-gate.ts) reverts anyone else's attempt to the stored
+    // value rather than deleting it — so the "stranded figure" this used to
+    // guard against (24 Aug 2026, amounts typed into VIC site managers paid
+    // while their cell rendered a dash) cannot arise: the cell that renders a
+    // dash is one whose figure nobody could have written.
     const rule = rowRule(e);
-    const locked = isLockable(rule) ? ov.locked ?? false : false;
+    const locked = isLockable(rule, ENGINE_ALLOWANCE) ? ov.locked ?? false : false;
     return {
       ...e,
       bpEdit: ov.bpEdit ?? e.bp,
@@ -321,15 +359,14 @@ export function applyOverrides(
       // Covers the source-data fallback too, which the save gate cannot reach:
       // an imported `da` on a row that may not carry one would otherwise be
       // paid with no override and no history entry behind it.
-      daEdit: isDaEditable(rule) ? ov.daEdit ?? e.da : 0,
+      daEdit: isDaEditable(rule, ENGINE_ALLOWANCE) ? ov.daEdit ?? e.da : 0,
       locked,
       baseAmount: ov.baseAmount,
       // Gated by the same rule as `locked` and `daEdit` above: a row the scheme
       // will not let anyone freeze must not be PAID a frozen figure either.
-      // Without this, a `lockedFinal` stranded on a VIC site manager by the
-      // 24 Aug 2026 NSW-only split would come back to life as their payout base
-      // — undoing 6060a90, which stopped exactly that.
-      lockedFinal: isLockable(rule) ? ov.lockedFinal : undefined,
+      // (A `lockedFinal` is only ever read as a fallback for a row with no
+      // baseAmount, and every live row has one — lib/schema.ts.)
+      lockedFinal: isLockable(rule, ENGINE_ALLOWANCE) ? ov.lockedFinal : undefined,
       cpm,
       preIpm,
       bipmCalc: 0,

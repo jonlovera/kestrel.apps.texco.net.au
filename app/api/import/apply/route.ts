@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { adjustAllowance } from "@/lib/write-scope";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireWriter } from "@/lib/api-guard";
@@ -50,7 +51,7 @@ const ApplySchema = z.object({
 export async function POST(req: Request) {
   const guard = await requireWriter("import-apply");
   if ("response" in guard) return guard.response;
-  const { email } = guard;
+  const { email, scope } = guard;
 
   let body: z.infer<typeof ApplySchema>;
   try {
@@ -103,7 +104,13 @@ export async function POST(req: Request) {
   // (lib/schema.ts). Backing the row's own discretionary amount out of it keeps
   // the total exactly what the sheet says. The lock itself is now just the
   // boolean — it carries no figure.
-  const importedLocks = filterImportedLocks(candidate.emp, body.lockedAmounts);
+  // The importer's own allowance decides whether a sheet lock on a VIC site
+  // manager is honoured — the same grant /api/state applies to a typed one.
+  const importedLocks = filterImportedLocks(
+    candidate.emp,
+    body.lockedAmounts,
+    adjustAllowance(scope)
+  );
   const skippedLocks = Object.keys(body.lockedAmounts).filter(
     (id) => survivingIds.has(id) && !importedLocks.some(([kept]) => kept === id)
   ).length;

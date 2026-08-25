@@ -161,6 +161,14 @@ export interface EditorPayload {
    */
   canEditCaps: boolean;
   /**
+   * Whether this admin may lock/unlock and adjust the VIC site managers — its
+   * own grant, not implied by full access (lib/write-scope.ts's
+   * canAdjustVicSiteManagers). /api/state decides again on every write; this
+   * only governs whether those sixteen rows' Lock, IPM and Discretionary cells
+   * render as controls.
+   */
+  canEditVicSiteManagers: boolean;
+  /**
    * Whether this admin may download a locked person's remuneration letter —
    * its own grant, and deliberately NOT implied by full access, for the same
    * reason `canEditCaps` is not. /api/letter decides again on every request.

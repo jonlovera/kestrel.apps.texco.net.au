@@ -14,7 +14,7 @@ import { ruleMatches } from "./access-rules";
 import {
   editableColumns,
   canLockRows,
-  canDownloadLetters,
+  canDownloadLetters, canAdjustVicSiteManagers,
   scopeOverridesView,
 } from "./write-scope";
 import { NUMERIC_FIELDS } from "./access-types";
@@ -88,6 +88,7 @@ export function buildPayloadCore(
       },
       caps: { vCap: data.vCap, nCap: data.nCap, gCap: data.gCap },
       canEditCaps: scope.rule.canEditCaps,
+      canEditVicSiteManagers: canAdjustVicSiteManagers(scope),
       canDownloadLetter: canDownloadLetters(scope),
       cats: data.cats,
       depts: data.depts,

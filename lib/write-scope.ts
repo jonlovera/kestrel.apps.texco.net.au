@@ -32,6 +32,7 @@
  */
 import type { Overrides } from "./schema";
 import type { Scope } from "./access";
+import type { AdjustAllowance } from "./calc";
 import { ruleMatches, type ScopableEmployee } from "./access-rules";
 
 /**
@@ -125,6 +126,22 @@ export function canLockRows(scope: Scope): boolean {
  */
 export function canDownloadLetters(scope: Scope): boolean {
   return scope.rule.canDownloadLetter;
+}
+
+/**
+ * Whether this scope may lock/unlock and adjust the VIC site managers — its
+ * own grant on a full-access rule (`canEditVicSiteManagers`), never implied by
+ * full access and never available to a lead. Same shape as
+ * lib/params-apply.ts's canChangeCaps, and for the same reason: one place the
+ * decision lives, so the write gate, the import and the dashboard agree.
+ */
+export function canAdjustVicSiteManagers(scope: Scope): boolean {
+  return scope.rule.type === "full" && scope.rule.canEditVicSiteManagers === true;
+}
+
+/** The scheme allowance a Scope earns — what lib/calc.ts's row rules take. */
+export function adjustAllowance(scope: Scope): AdjustAllowance {
+  return { vicSiteManagers: canAdjustVicSiteManagers(scope) };
 }
 
 /** Whose rows this scope may change. */

@@ -363,6 +363,13 @@ describe("filterImportedLocks", () => {
   it("keeps nothing when the sheet carries no locks", () => {
     expect(filterImportedLocks([mk("A")], {})).toEqual([]);
   });
+
+  it("honours a sheet lock on a VIC site manager for an importer holding the grant (26 Aug 2026)", () => {
+    const emp = [mk("SM", { sm: 1 }), mk("NOPOOL", { vp: 0, np: 0 })];
+    expect(filterImportedLocks(emp, { SM: 2000, NOPOOL: 3000 }, { vicSiteManagers: true })).toEqual([
+      ["SM", 2000],
+    ]);
+  });
 });
 
 /**

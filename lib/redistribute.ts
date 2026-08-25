@@ -33,7 +33,9 @@
  *
  * Pure, no I/O, no server-only imports, so the suite tests it directly.
  */
-import { isDaEditable, type RowRule } from "./calc";
+import { isDaEditable,
+  NO_ALLOWANCE,
+  type AdjustAllowance, type RowRule } from "./calc";
 
 /**
  * The shape this needs from a row — RowRule plus four fields.
@@ -79,10 +81,11 @@ function weightOf(r: Redistributable): number {
  */
 export function eligible<T extends Redistributable>(
   rows: readonly T[],
-  selected: ReadonlySet<string>
+  selected: ReadonlySet<string>,
+  allow: AdjustAllowance = NO_ALLOWANCE
 ): T[] {
   return rows.filter(
-    (r) => selected.has(r.id) && !r.locked && isDaEditable(r)
+    (r) => selected.has(r.id) && !r.locked && isDaEditable(r, allow)
   );
 }
 

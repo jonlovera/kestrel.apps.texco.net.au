@@ -6,13 +6,12 @@ import { OverridesSchema, type Overrides } from "@/lib/schema";
 import { z } from "zod";
 import { diffOverrides } from "@/lib/history-diff";
 import { takeSnapshot } from "@/lib/snapshots";
-import { sanitiseOverrideWrite, scopeOverridesView } from "@/lib/write-scope";
+import { sanitiseOverrideWrite, scopeOverridesView, adjustAllowance } from "@/lib/write-scope";
+import { applySchemeRules } from "@/lib/scheme-gate";
+import { repriceSiteManagers } from "@/lib/reprice";
 import {
   applyOverrides,
   computeScalesAndBonuses,
-  isDaEditable,
-  isLockable,
-  rowRule,
   type CapBound,
 } from "@/lib/calc";
 import { poolBreach } from "@/lib/manager-pool";
@@ -151,34 +150,24 @@ export async function POST(req: Request) {
 
   // Gate 2: the scheme's rules, applied to the merged result rather than to
   // what arrived — a lead's save carries the whole stored document forward.
-  const sanitised: Overrides = {};
-  for (const [id, ov] of Object.entries(scoped)) {
-    const emp = known.get(id);
-    if (!emp) continue;
-    const clean: Overrides[string] = { ...ov };
-    if (clean.ipmEdit !== undefined) clean.ipmEdit = Math.max(0, clean.ipmEdit);
-    if (clean.bpEdit !== undefined) clean.bpEdit = Math.max(0, clean.bpEdit);
-    if (!isLockable(rowRule(emp))) {
-      // a row drawing from no pool has nothing to lock, and a VIC site
-      // manager's fixed bonus is deliberately left alone
-      delete clean.locked;
-    }
-    // A row drawing from no pool has no pool for a discretionary amount to add
-    // to. An NSW site manager's IS adjustable (24 Aug 2026) — it rides on top of
-    // their fixed bonus — but a VIC site manager's is not, so the VIC fixed
-    // bonuses stay untouchable. isDaEditable holds that rule.
-    if (!isDaEditable(rowRule(emp))) delete clean.daEdit;
-    // daEdit is deliberately not floored: an adjustment may be negative
-    // (owner decision, kept through every change of funding model — a negative
-    // DA lowers the recipient's final and its pool's total with it)
-    // `lockedFinal` is deliberately NOT cleared when a row is unlocked any
-    // more. For the rows frozen before 25 Aug 2026 it is the stored base their
-    // payout is built from (lib/calc.ts), so deleting it on unlock would drop
-    // the row back to its advisory figure — the very jump this all fixes. It is
-    // no longer writable by anyone either (WRITABLE_BY_ADMIN), so the stored
-    // value simply survives every save.
-    if (Object.keys(clean).length > 0) sanitised[id] = clean;
+  // lib/scheme-gate.ts: a row drawing from no pool loses its lock/amount; a
+  // site manager this writer may not adjust (VIC, without the grant) is put
+  // back to the STORED value rather than cleared, so one admin's save can
+  // never wipe what another, holding the grant, set.
+  const allow = adjustAllowance(scope);
+  const gated = applySchemeRules(scoped, previous, known, allow);
+  if (gated.reverted.length > 0) {
+    console.log(
+      `[audit] state-write SCHEME-REVERT email=${email} ${gated.reverted
+        .map((r) => `${r.empId}:${r.fields.join("+")}`)
+        .join(" ")} ts=${new Date().toISOString()}`
+    );
   }
+  // A site manager's IPM re-prices their fixed bonus (lib/reprice.ts, owner
+  // decision 26 Aug 2026) — before the pool gates, so they judge the priced
+  // figure, and recorded below as its own history entries.
+  const priced = repriceSiteManagers(data.emp, previous, gated.overrides);
+  const sanitised: Overrides = priced.overrides;
 
   // No lock normalization here any more, deliberately. Locking and unlocking
   // write one boolean and touch no amount: a payout is a stored figure that
@@ -287,6 +276,23 @@ export async function POST(req: Request) {
   await appendHistory(
     diffOverrides(data.emp, previous, sanitised, email, ts, viewingAs ?? undefined)
   );
+  // The re-prices, as their own entries: diffOverrides records the IPM move
+  // but not the payout it now carries with it for a site manager.
+  if (priced.changes.length > 0) {
+    await appendHistory(
+      priced.changes.map((c) => ({
+        ts,
+        actor: email,
+        kind: "edit" as const,
+        summary: `Re-priced ${c.name}'s fixed bonus: ${fmt(c.from)} → ${fmt(c.to)} (IPM ${Math.round(c.ipmFrom * 100)}% → ${Math.round(c.ipmTo * 100)}%)`,
+        empId: c.empId,
+        field: "baseAmount",
+        from: Math.round(c.from),
+        to: Math.round(c.to),
+        ...(viewingAs ? { viewingAs } : {}),
+      }))
+    );
+  }
   // The grant log. Separate from the figure-by-figure diff above because a
   // grant is a decision about other people's money, and the record has to hold
   // what bounded it and what it cost them — not just "da 0 → 50,000".

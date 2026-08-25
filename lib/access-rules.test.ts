@@ -11,7 +11,7 @@ import {
   rewriteActAsReferences,
 } from "./access-rules";
 
-const full: AccessRule = { type: "full", canEditCaps: false, canActAs: [], canDownloadLetter: false };
+const full: AccessRule = { type: "full", canEditCaps: false, canEditVicSiteManagers: false, canActAs: [], canDownloadLetter: false };
 const vic: AccessRule = {
   type: "state",
   states: ["VIC"],
@@ -133,7 +133,7 @@ describe("describeEditing", () => {
   });
 
   it("full access is never read only", () => {
-    expect(describeEditing({ type: "full", canEditCaps: false, canActAs: [], canDownloadLetter: false })).toBe("can edit");
+    expect(describeEditing({ type: "full", canEditCaps: false, canEditVicSiteManagers: false, canActAs: [], canDownloadLetter: false })).toBe("can edit");
   });
 });
 
@@ -229,9 +229,18 @@ describe("the canActAs delegation", () => {
       describeRule({ ...vic, canActAs: ["jglick@texco.net.au"], canDownloadLetter: false })
     ).toBe("VIC / can set Discretionary; can act for jglick@texco.net.au");
     expect(
-      describeRule({ type: "full", canEditCaps: false, canActAs: ["jglick@texco.net.au"], canDownloadLetter: false })
+      describeRule({ type: "full", canEditCaps: false, canEditVicSiteManagers: false, canActAs: ["jglick@texco.net.au"], canDownloadLetter: false })
     ).toBe("full access; can act for jglick@texco.net.au");
     expect(describeRule(vic)).not.toContain("can act for");
+  });
+
+  it("describeRule names the VIC site managers grant — sixteen fixed bonuses hang off it", () => {
+    expect(
+      describeRule({ type: "full", canEditCaps: false, canEditVicSiteManagers: true, canActAs: [], canDownloadLetter: false })
+    ).toBe("full access; can adjust VIC site managers");
+    expect(
+      describeRule({ type: "full", canEditCaps: false, canEditVicSiteManagers: true, canActAs: ["jglick@texco.net.au"], canDownloadLetter: true })
+    ).toBe("full access; can adjust VIC site managers; can download letters; can act for jglick@texco.net.au");
   });
 
   it("rewriteActAsReferences moves a reference to a changed email", () => {

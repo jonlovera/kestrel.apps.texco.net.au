@@ -100,6 +100,12 @@ export default function AccessManager({
    */
   const [canEditCaps, setCanEditCaps] = useState(false);
   /**
+   * Full access only — whether this admin may lock/unlock and adjust the VIC
+   * site managers, whose fixed bonuses are otherwise untouchable. Its own
+   * grant for the same reason `canEditCaps` is; defaults to unticked.
+   */
+  const [canEditVicSiteManagers, setCanEditVicSiteManagers] = useState(false);
+  /**
    * Whether this person may download a locked employee's remuneration letter.
    * Offered on every rule type, full access included — unlike Can lock, an
    * admin does not get this for being an admin (lib/access-rules.ts explains
@@ -137,6 +143,9 @@ export default function AccessManager({
     );
     setCanLock(row.rule.type === "full" ? true : row.rule.canLock);
     setCanEditCaps(row.rule.type === "full" ? row.rule.canEditCaps : false);
+    setCanEditVicSiteManagers(
+      row.rule.type === "full" ? row.rule.canEditVicSiteManagers : false
+    );
     setCanDownloadLetter(row.rule.canDownloadLetter);
     setActAs([...row.rule.canActAs]);
     window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
@@ -192,7 +201,7 @@ export default function AccessManager({
     const canActAs = actAs.filter((e) => e !== email.trim().toLowerCase());
     const rule: GrantingRule =
       type === "full"
-        ? { type: "full", canEditCaps, canActAs, canDownloadLetter }
+        ? { type: "full", canEditCaps, canEditVicSiteManagers, canActAs, canDownloadLetter }
         : type === "state"
           ? {
               type: "state",
@@ -246,6 +255,7 @@ export default function AccessManager({
       return (
         "Everyone · all fields · can edit" +
         (rule.canEditCaps ? ", can edit pool caps" : "") +
+        (rule.canEditVicSiteManagers ? ", can adjust VIC site managers" : "") +
         acting
       );
     // describeEditing rather than a literal: this used to assert "can set IPM
@@ -620,6 +630,30 @@ export default function AccessManager({
                   Separate from full access itself — most admins won&apos;t
                   need this. Unticked by default even for a new full-access
                   grant.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {type === "full" && (
+            <div className="mb-4">
+              <div className="mb-1 text-[11px] font-semibold tracking-wide text-brand-70">
+                VIC site managers
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-1.5 text-[13px]">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-brand-orange"
+                    checked={canEditVicSiteManagers}
+                    onChange={() => setCanEditVicSiteManagers((v) => !v)}
+                  />
+                  Can lock/unlock and adjust VIC site managers
+                </label>
+                <span className="text-[12px] text-brand-70">
+                  Their fixed bonuses are otherwise untouchable (IPM,
+                  Discretionary and the lock). Unticked by default even for a
+                  new full-access grant.
                 </span>
               </div>
             </div>

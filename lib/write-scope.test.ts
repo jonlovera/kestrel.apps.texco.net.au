@@ -20,6 +20,8 @@ import {
   WRITABLE_BY_ADMIN,
   WRITABLE_BY_LEAD,
   canDownloadLetters,
+  canAdjustVicSiteManagers,
+  adjustAllowance,
 } from "./write-scope";
 
 const EMPLOYEES = [
@@ -37,7 +39,7 @@ const FIELDS = ["ipm", "da", "calc", "final"] as const;
 
 const admin: Scope = {
   email: "admin@texco.net.au",
-  rule: { type: "full", canEditCaps: false, canActAs: [], canDownloadLetter: false },
+  rule: { type: "full", canEditCaps: false, canEditVicSiteManagers: false, canActAs: [], canDownloadLetter: false },
   canEdit: true,
   visibleFields: [...FIELDS],
   label: "Full access",
@@ -538,6 +540,37 @@ describe("the canActAs default", () => {
   it("a stored full rule without canActAs parses the same way", () => {
     const stored = { type: "full", canEditCaps: true };
     expect(AccessRuleSchema.parse(stored)).toMatchObject({ canActAs: [], canDownloadLetter: false });
+  });
+
+  it("a stored full rule without canEditVicSiteManagers parses to 'not granted'", () => {
+    const stored = { type: "full", canEditCaps: true, canActAs: [], canDownloadLetter: false };
+    expect(AccessRuleSchema.parse(stored)).toMatchObject({ canEditVicSiteManagers: false });
+  });
+});
+
+/**
+ * The VIC site managers grant (26 Aug 2026): full access only, not implied by
+ * it, and the allowance the row rules read is derived from nothing else.
+ */
+describe("canAdjustVicSiteManagers / adjustAllowance", () => {
+  it("is false for a full-access admin who has not been granted it", () => {
+    expect(canAdjustVicSiteManagers(admin)).toBe(false);
+    expect(adjustAllowance(admin)).toEqual({ vicSiteManagers: false });
+  });
+
+  it("is true for a full-access admin who has", () => {
+    const granted: Scope = {
+      ...admin,
+      rule: { ...admin.rule, type: "full", canEditVicSiteManagers: true } as Scope["rule"],
+    };
+    expect(canAdjustVicSiteManagers(granted)).toBe(true);
+    expect(adjustAllowance(granted)).toEqual({ vicSiteManagers: true });
+  });
+
+  it("a lead never holds it, whatever else they may do", () => {
+    expect(canAdjustVicSiteManagers(vicLead)).toBe(false);
+    expect(canAdjustVicSiteManagers(subsetLead)).toBe(false);
+    expect(adjustAllowance(vicLead)).toEqual({ vicSiteManagers: false });
   });
 });
 

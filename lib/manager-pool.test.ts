@@ -297,7 +297,7 @@ describe("poolBreach", () => {
   };
   const admin: Scope = {
     email: "admin@texco.net.au",
-    rule: { type: "full", canEditCaps: true, canActAs: [], canDownloadLetter: false },
+    rule: { type: "full", canEditCaps: true, canEditVicSiteManagers: false, canActAs: [], canDownloadLetter: false },
     canEdit: true,
     visibleFields: ["da", "final"],
     label: "Admin",

@@ -57,6 +57,16 @@ const canLock = z.boolean().default(false);
 const canEditCaps = z.boolean().default(false);
 
 /**
+ * May lock/unlock, set IPM and grant a discretionary amount on the VIC site
+ * managers, whose fixed bonuses are otherwise untouchable (lib/calc.ts's
+ * isAdjustable, 24 August 2026). Its own grant on a full-access rule, not
+ * implied by full access, for the same reason `canEditCaps` is not — owner
+ * decision, 26 August 2026. Full rules only: a lead never holds it. Defaults
+ * to false so every stored rule keeps parsing.
+ */
+const canEditVicSiteManagers = z.boolean().default(false);
+
+/**
  * May download a person's remuneration letter once their bonus is locked.
  *
  * Granted on EVERY rule shape including `full`, which is the one place this
@@ -87,7 +97,13 @@ const canDownloadLetter = z.boolean().default(false);
 const canActAs = z.array(z.string()).default([]);
 
 export const AccessRuleSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("full"), canEditCaps, canActAs, canDownloadLetter }),
+  z.object({
+    type: z.literal("full"),
+    canEditCaps,
+    canEditVicSiteManagers,
+    canActAs,
+    canDownloadLetter,
+  }),
   z.object({
     type: z.literal("state"),
     states: z.array(z.enum(["VIC", "NSW", "SHARED"])).min(1),
@@ -168,7 +184,13 @@ export function describeRule(rule: AccessRule): string {
   // shape alone.
   const letters = rule.canDownloadLetter ? "; can download letters" : "";
   const extras = `${letters}${acting}`;
-  if (rule.type === "full") return `full access${extras}`;
+  // Same reasoning again: this grant reaches sixteen fixed bonuses nobody else
+  // can touch, so the record of who was given it must say so.
+  const vicSms =
+    rule.type === "full" && rule.canEditVicSiteManagers
+      ? "; can adjust VIC site managers"
+      : "";
+  if (rule.type === "full") return `full access${vicSms}${extras}`;
   // The history has to record what they may CHANGE, not just what they see:
   // a rule going read-only is the whole point of the entry.
   const editing = describeEditing(rule);

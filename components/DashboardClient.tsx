@@ -20,8 +20,11 @@ import {
   computeScalesAndBonuses,
   inStateHomeTotal,
   isDaEditable,
+  isIpmEditable,
   isLockable,
+  NO_ALLOWANCE,
   parsePercentInput,
+  type AdjustAllowance,
   rowRule,
   parseDaInput,
   poolCardTotals,
@@ -289,6 +292,19 @@ export default function DashboardClient({
    */
   const canEditCapsNow =
     isEditor && payload.canEditCaps && !viewingAs;
+  /**
+   * The same shape for the VIC site managers: their Lock, IPM and Discretionary
+   * are live only for an admin holding `canEditVicSiteManagers` (lib/calc.ts's
+   * AdjustAllowance). A lead never holds it. /api/state's gate 2 decides again
+   * on every write (lib/scheme-gate.ts); this only governs the controls.
+   */
+  const allow = useMemo<AdjustAllowance>(
+    () => ({
+      vicSiteManagers:
+        isEditor && payload.mode === "editor" && payload.canEditVicSiteManagers && !viewingAs,
+    }),
+    [isEditor, payload, viewingAs]
+  );
 
   // ── drop a spreadsheet anywhere to replace the roster ─────────────────────
   // An import replaces the dataset wholesale and re-versions the overrides, so
@@ -1268,15 +1284,15 @@ export default function DashboardClient({
     if (isEditor) {
       const emp = empById.get(id);
       if (!emp || emp.locked) return;
-      // VIC site managers are deliberately not adjustable; NSW ones are.
-      if (!isDaEditable(rowRule(emp))) return;
+      // NSW site managers are adjustable; VIC ones only with the grant.
+      if (!isDaEditable(rowRule(emp), allow)) return;
       const ceiling = pool ? daHeadroom(emp, emps, boundCaps) : Infinity;
       const held = clampDa(num, emp.daEdit, ceiling);
       num = held.value;
       if (held.clamped) heldName = `${emp.gn} ${emp.sn}`;
     } else {
       const row = rowById.get(id);
-      if (!row || row.locked || !isDaEditable(row)) return;
+      if (!row || row.locked || !isDaEditable(row, NO_ALLOWANCE)) return;
       const { current, ceiling } = leadDaBounds(row, overridesRef.current);
       const held = clampDa(num, current, ceiling);
       num = held.value;
@@ -1314,14 +1330,14 @@ export default function DashboardClient({
         const emp = empById.get(id);
         if (!emp || emp.locked) return null;
         // no ceiling badge on a cell that isn't adjustable in the first place
-        if (!isDaEditable(rowRule(emp))) return null;
+        if (!isDaEditable(rowRule(emp), allow)) return null;
         return show(daHeadroom(emp, emps, boundCaps));
       }
       const row = rowById.get(id);
-      if (!row || row.locked || !isDaEditable(row)) return null;
+      if (!row || row.locked || !isDaEditable(row, NO_ALLOWANCE)) return null;
       return show(leadDaBounds(row, overrides).ceiling);
     },
-    [isEditor, pool, empById, emps, boundCaps, rowById, leadDaBounds, overrides]
+    [isEditor, pool, empById, emps, boundCaps, rowById, leadDaBounds, overrides, allow]
   );
 
   /**
@@ -1395,12 +1411,15 @@ export default function DashboardClient({
   }
 
   /**
-   * IPM is the one figure a site manager's own bonus does still move with
-   * (`lib/calc.ts`: their finalBonus is pkg × bpEdit × cpm × ipmEdit, just
-   * never pro-rated against the pool) — so unlike Discretionary, this is not
-   * blocked for `sm` rows. Locked rows are blocked: their bonus is already
-   * frozen, so editing IPM would only move the unseen "Calc bonus" figure,
-   * not anything actually paid.
+   * A payout is a stored figure (lib/schema.ts's baseAmount), so for the pooled
+   * population an IPM edit moves the advisory Calc bonus and nothing paid. A
+   * SITE MANAGER is different: their fixed bonus IS pkg × bp × cpm × IPM, so
+   * the save re-prices it (lib/reprice.ts, owner decision 26 Aug 2026) — and
+   * the same figure is set on the local document here so Final moves as you
+   * type. The wire strips `baseAmount` (it is not client-writable); the
+   * server's own re-price is what lands. Gated like their lock: NSW site
+   * managers yes, VIC only with the grant (isIpmEditable). Locked rows are
+   * blocked: their bonus is frozen.
    */
   function updateIPM(id: string, current: number, raw: string) {
     const next = parsePercentInput(raw);
@@ -1408,9 +1427,15 @@ export default function DashboardClient({
     if (isEditor) {
       const emp = empById.get(id);
       if (!emp || emp.locked) return;
+      if (!isIpmEditable(rowRule(emp), allow)) return;
+      if (emp.sm) {
+        setOverride(id, { ipmEdit: next, baseAmount: emp.preIpm * next });
+        return;
+      }
     } else {
       const row = rowById.get(id);
       if (!row || row.locked) return;
+      if (!isIpmEditable(row, NO_ALLOWANCE)) return;
     }
     setOverride(id, { ipmEdit: next });
   }
@@ -1448,7 +1473,7 @@ export default function DashboardClient({
   function toggleLock(id: string) {
     if (isEditor) {
       const emp = empById.get(id);
-      if (!emp || !isLockable(rowRule(emp))) return;
+      if (!emp || !isLockable(rowRule(emp), allow)) return;
       // One boolean, and nothing else. A payout is a stored figure that this
       // flag does not feed (lib/calc.ts), so there is no amount to capture on
       // the way in or restore on the way out — which is what makes locking and
@@ -1463,7 +1488,7 @@ export default function DashboardClient({
     // column was outside the scope.)
     if (!canLockAnything) return;
     const row = rowById.get(id);
-    if (!row || !isLockable(row)) return;
+    if (!row || !isLockable(row, NO_ALLOWANCE)) return;
     setOverride(id, { locked: !row.locked });
   }
 
@@ -1894,9 +1919,9 @@ export default function DashboardClient({
     }));
     // every row is a candidate here; the filter is what we are after
     return new Set(
-      eligible(rows, new Set(rows.map((r) => r.id))).map((r) => r.id)
+      eligible(rows, new Set(rows.map((r) => r.id)), allow).map((r) => r.id)
     );
-  }, [allRows, viewReadOnly, canEditFields, isEditor, activeTab]);
+  }, [allRows, viewReadOnly, canEditFields, isEditor, activeTab, allow]);
 
   const canShowSelection =
     !viewReadOnly &&
@@ -1942,11 +1967,12 @@ export default function DashboardClient({
    * Bulk lock/unlock over the rows currently visible in the table.
    *
    * Uses the same eligibility rule as single-row toggleLock, so NSW site
-   * managers are included while VIC site managers stay excluded.
+   * managers are included while VIC site managers are only for an admin
+   * holding the grant.
    */
   const visibleLockable = useMemo(
-    () => visibleRows.filter((r) => isLockable(r)),
-    [visibleRows]
+    () => visibleRows.filter((r) => isLockable(r, allow)),
+    [visibleRows, allow]
   );
   const allVisibleLocked =
     visibleLockable.length > 0 && visibleLockable.every((r) => r.locked);
@@ -2463,6 +2489,7 @@ export default function DashboardClient({
               columns={visibleColumns}
               rows={visibleRows}
               totals={totals}
+              allow={allow}
               canRenameColumns={configuring}
               busy={dsBusy}
               showAll={showAll}
