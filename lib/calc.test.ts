@@ -113,11 +113,11 @@ const FIXTURE_NSW_SM: Employee[] = FIXTURE.map((e) =>
   e.id === "C" ? { ...e, st: "NSW" as const } : e
 );
 
-function runSm(overrides: Overrides = {}) {
+function runSm(overrides: Overrides = {}, caps: Caps = CAPS) {
   const emps = applyOverrides(FIXTURE_NSW_SM, overrides);
-  const pool = computeScalesAndBonuses(emps, CAPS);
+  const pool = computeScalesAndBonuses(emps, caps);
   const byId = Object.fromEntries(emps.map((e) => [e.id, e]));
-  return { emps, pool, byId };
+  return { emps, pool, byId, caps };
 }
 
 describe("baseline (no edits, no locks)", () => {
@@ -546,12 +546,24 @@ describe("getMaxDA is the room left under the caps", () => {
     expect(max(roomy(), "C")).toBe(99_000);
   });
 
-  it("a locked row has none, and a row drawing from no pool has no bound", () => {
+  it("a locked row is bounded by the caps like any other, and a no-pool row not at all", () => {
+    // This used to answer 0 for a locked row, whatever the caps had left. That
+    // refused a real grant: with $145,904 of VIC room, changing an
+    // already-locked row's amount came back "at most $0 can be granted",
+    // because the row was locked before the save and after it. A payout is a
+    // stored figure the lock does not touch, so the caps are the only bound.
     const r = roomy({ B: { locked: true, lockedFinal: 500 } });
-    expect(max(r, "B")).toBe(0); // frozen: there is nothing to grant
+    expect(max(r, "B")).toBeGreaterThan(90_000);
     expect(max(r, "F")).toBe(Infinity); // no pool, so no cap to overrun
-    // B's lock released 100 of card space, which the others may now hold
     expect(max(r, "A")).toBe(99_100);
+  });
+
+  it("bounds a row identically however its lock moves in the save", () => {
+    // the regression in one line: locking, unlocking and leaving it alone all
+    // measure the same room, because none of them moves an amount
+    const unlocked = roomy();
+    const locking = roomy({ A: { locked: true } });
+    expect(max(locking, "A")).toBe(max(unlocked, "A"));
   });
 
   it("the group cap binds when it is the tighter of the two", () => {
@@ -605,10 +617,14 @@ describe("getMaxDA under CapBound 'state' (what bounds a scoped lead)", () => {
     expect(getMaxDA(base.byId.E, base.emps, CAPS, "state")).toBe(Infinity);
   });
 
-  it("keeps every other rule: a locked row has none, a no-pool row has no bound", () => {
+  it("keeps every other rule: a no-pool row has no bound, a locked row has the cap's", () => {
     const r = run({ B: { locked: true, lockedFinal: 500 } });
-    expect(getMaxDA(r.byId.B, r.emps, CAPS, "state")).toBe(0);
     expect(getMaxDA(r.byId.F, r.emps, CAPS, "state")).toBe(Infinity);
+    // the lock is not a bound under either CapBound — only the caps are, so a
+    // locked row gets whatever its state card has left, exactly as A does
+    expect(getMaxDA(r.byId.B, r.emps, CAPS, "state")).toBe(
+      getMaxDA(r.byId.A, r.emps, CAPS, "state")
+    );
   });
 
   it("still refuses once the state's OWN card is full", () => {
@@ -938,9 +954,19 @@ describe("a locked NSW site manager freezes payout without reallocating others",
     expect(getNswAlloc(byId.C, pool)).toBeCloseTo(0, 10);
   });
 
-  it("a frozen site manager has no discretionary headroom", () => {
+  it("a frozen site manager is bounded by the caps, not by the lock", () => {
+    // -50 rather than 0: this fixture's group total is 50 past gCap, so the
+    // honest answer is that there is no room — and it is the CAP saying so, not
+    // the lock. A locked row used to be told 0 whatever the caps had left.
     const { emps, byId } = runSm({ C: { locked: true, lockedFinal: 50 } });
-    expect(getMaxDA(byId.C, emps, CAPS)).toBe(0);
+    expect(getMaxDA(byId.C, emps, CAPS)).toBe(-50);
+    // with room, the same frozen row has real headroom
+    const roomy = runSm({ C: { locked: true, lockedFinal: 50 } }, {
+      vCap: 100_000,
+      nCap: 100_000,
+      gCap: 200_000,
+    });
+    expect(getMaxDA(roomy.byId.C, roomy.emps, roomy.caps)).toBeGreaterThan(0);
   });
 
   it("an unlocked site manager is untouched by any of this", () => {

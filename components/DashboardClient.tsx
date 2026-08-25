@@ -27,11 +27,10 @@ import {
   type CalcEmployee,
   type PoolState,
 } from "@/lib/calc";
-import { clampDa, daHeadroom, type DaImpact } from "@/lib/da-impact";
+import { clampDa, daHeadroom } from "@/lib/da-impact";
 import { redistribute, eligible, type Redistributable } from "@/lib/redistribute";
 import { letterUnavailableReason } from "@/lib/letter-blocks";
 import { fmt } from "@/lib/fmt";
-import DaConfirmModal from "./DaConfirmModal";
 import { TexcoX, TexcoWordmark } from "./TexcoBrand";
 import { PoolCard } from "./PoolCard";
 import { PoolStrip, type PoolSummary } from "./PoolStrip";
@@ -347,11 +346,6 @@ export default function DashboardClient({
    * own mid-typing helps nobody, so that surfaces as a banner instead and the
    * person opens it when they're ready.
    */
-  const [daConfirm, setDaConfirm] = useState<{
-    impact: DaImpact;
-    doc: Overrides;
-    open: boolean;
-  } | null>(null);
   /**
    * The server's refusal when a save would put this manager further above
    * their pool (/api/state gate 3). Held rather than thrown: the work stays on
@@ -368,14 +362,6 @@ export default function DashboardClient({
     null
   );
   const blockedMsg = blocked && blocked.doc === overrides ? blocked.msg : null;
-  /**
-   * The confirmation only speaks for the document it was measured on, so any
-   * further edit retires it — the same derivation `blockedMsg` uses, and for the
-   * same reason. Saving again fetches fresh figures rather than confirming
-   * yesterday's ones.
-   */
-  const daConfirmLive =
-    daConfirm && daConfirm.doc === overrides ? daConfirm : null;
 
   // Refs kept current so the long-lived timers and unload handlers below
   // always see fresh state without re-registering. conflictRef and
@@ -462,7 +448,7 @@ export default function DashboardClient({
   async function save(
     source: "manual" | "auto" = "manual",
     docOverride?: Overrides,
-    opts?: { confirmDa?: boolean; redistributed?: boolean }
+    opts?: { redistributed?: boolean }
   ): Promise<boolean> {
     // Belt-and-braces: the Save button is not rendered in a read-only view,
     // and requireScopedWriter would refuse anyway. Neither is a reason to
@@ -490,11 +476,8 @@ export default function DashboardClient({
           // if the view has meanwhile ended, so a lapsed cookie can never
           // turn this document into a write against the actor's own scope
           ...(viewingAs ? { viewFor: viewingAs } : {}),
-          // only ever true straight off the confirmation modal's button
-          ...(opts?.confirmDa ? { confirmDa: true } : {}),
-          // Off the ref rather than the call: the button set it, but the save
-          // that actually carries the figures is the one after the confirmation
-          // modal — or an autosave that knows nothing about either.
+          // Off the ref rather than the call: the button sets it, and an
+          // autosave that knows nothing about it must not claim it.
           ...(redistributedRef.current || opts?.redistributed
             ? { redistributed: true }
             : {}),
@@ -529,19 +512,6 @@ export default function DashboardClient({
           setConflict(conflictRef.current);
           setSaveStatus("idle");
         }
-        return false;
-      }
-      if (res.status === 428) {
-        // Discretionary grants need saying yes to first. Not an error and not a
-        // block: the work stays on screen and stays dirty, and the person is
-        // shown who pays before it goes anywhere. A manual save opens the
-        // dialogue straight away; an autosave leaves a banner instead.
-        const body = await res.json().catch(() => ({}) as Record<string, unknown>);
-        const impact = body.impact as DaImpact | undefined;
-        if (impact) {
-          setDaConfirm({ impact, doc: sent, open: source === "manual" });
-        }
-        setSaveStatus("idle");
         return false;
       }
       if (res.status === 422) {
@@ -630,18 +600,6 @@ export default function DashboardClient({
     } finally {
       setExporting(false);
     }
-  }
-
-  /**
-   * "Confirm and save": re-send the very document the server measured, this
-   * time carrying the consent. The server re-derives the impact and writes the
-   * grant log, so what gets recorded is what was actually agreed to.
-   */
-  function confirmDaGrants() {
-    const pending = daConfirmLive;
-    if (!pending) return;
-    setDaConfirm(null);
-    void save("manual", pending.doc, { confirmDa: true });
   }
 
   /** The conflict banner's buttons: settle every contested figure one way. */
@@ -1726,10 +1684,9 @@ export default function DashboardClient({
   }
 
   /**
-   * The Redistribute button. Same computation as the automatic pass; the only
-   * difference is that this one is deliberate, so it goes through the normal
-   * save and lets gate 5's confirmation modal name what it did. An automatic
-   * pass rides along with the edit that caused it and stays silent.
+   * The Redistribute button — the ONLY thing that writes amounts. There used to
+   * be an "automatic pass" riding along with whatever edit caused it; that went
+   * in 5d8b6dd, and nothing has moved an amount behind the user's back since.
    */
   function redistributeNow() {
     if (viewReadOnly || !canEditFields.includes("da")) return;
@@ -2244,28 +2201,6 @@ export default function DashboardClient({
               </div>
             )}
 
-            {/* An autosave found discretionary grants waiting on a yes. The
-                dialogue is not thrown up mid-typing; this is the way back to
-                it. */}
-            {daConfirmLive && !daConfirmLive.open && (
-              <div className="mb-4 flex items-start justify-between gap-4 border-2 border-brand-orange/60 bg-white px-4 py-2 text-[13px] font-semibold">
-                <span>
-                  {daConfirmLive.impact.grants.length === 1
-                    ? "A discretionary change is waiting on your confirmation before it can be saved."
-                    : `${daConfirmLive.impact.grants.length} discretionary changes are waiting on your confirmation before they can be saved.`}
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setDaConfirm((c) => (c ? { ...c, open: true } : c))
-                  }
-                  className="shrink-0 text-[11px] tracking-wide underline"
-                >
-                  Review and confirm
-                </button>
-              </div>
-            )}
-
             {notice && !conflict && (
               <div className="mb-4 flex items-start justify-between gap-4 border-2 border-brand-orange/60 bg-white px-4 py-2 text-[13px] font-semibold">
                 <span>{notice}</span>
@@ -2536,20 +2471,6 @@ export default function DashboardClient({
         />
       )}
 
-      {/* The last thing between a discretionary grant and the pool caps it
-          spends. Cancelling closes it and leaves the work dirty; nothing is
-          recorded until the button is pressed. */}
-      {daConfirmLive?.open && (
-        <DaConfirmModal
-          impact={daConfirmLive.impact}
-          poolTitles={copy.poolTitles}
-          busy={saveStatus === "saving"}
-          onConfirm={confirmDaGrants}
-          onCancel={() =>
-            setDaConfirm((c) => (c ? { ...c, open: false } : c))
-          }
-        />
-      )}
     </div>
   );
 }

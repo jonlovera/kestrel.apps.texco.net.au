@@ -493,7 +493,15 @@ export function getMaxDA(
   caps: Caps,
   bound: CapBound = "both"
 ): number {
-  if (e.locked) return 0;
+  // No lock branch here, deliberately. This used to return 0 for a locked row,
+  // from when a locked row's payout came from a different source and topping it
+  // up meant something. A payout is now an ordinary stored figure that the lock
+  // flag does not touch, so a flat 0 protected nothing and refused real grants:
+  // with $145,904 of VIC room left, changing an already-locked row's amount was
+  // refused as "at most $0 can be granted", because the row was locked before
+  // the save and after it. The caps are the only real bound. What the lock
+  // protects is the payout from being RECALCULATED, and nothing recalculates it;
+  // a deliberate edit is what the history's grant entries record.
   if (e.vp + e.np === 0) return Infinity;
   return Math.floor(capRoom(e, emps, caps, bound));
 }

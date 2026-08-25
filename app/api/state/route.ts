@@ -8,13 +8,14 @@ import { diffOverrides } from "@/lib/history-diff";
 import { takeSnapshot } from "@/lib/snapshots";
 import { sanitiseOverrideWrite, scopeOverridesView } from "@/lib/write-scope";
 import {
+  applyOverrides,
+  computeScalesAndBonuses,
   isDaEditable,
   isLockable,
   rowRule,
   type CapBound,
 } from "@/lib/calc";
 import { poolBreach } from "@/lib/manager-pool";
-import { rowsForGrantJudgement } from "@/lib/lock-freeze";
 import {
   EPSILON as DA_EPSILON,
   daHeadroom,
@@ -54,13 +55,11 @@ export const dynamic = "force-dynamic";
  *      and shown it on the field; this gate is the guarantee, judging only the
  *      amounts THIS save changes, so an inherited over-cap figure stays
  *      correctable. Refused, never trimmed — same principle as gate 3.
- *   5. confirmation — a grant is a decision about money nobody else approved,
- *      so it is never committed silently. A save carrying changed
- *      discretionary amounts is refused with 428 and the impact figures (what
- *      is being granted and where it leaves each pool against its cap) until
- *      the client sends `confirmDa` with the person's explicit consent. The
- *      confirmation is enforced here rather than in the browser so an
- *      autosave, a tab-close flush or a direct API call cannot bypass it.
+ * There was a fifth gate: a grant was refused with 428 until the client
+ * confirmed it, having shown a modal naming who paid for it. Nobody pays for one
+ * — an amount sits on top of the pool — so the modal's remaining content was a
+ * cap summary the pool cards already show, and it interrupted a $1 change. Gone
+ * as of 26 August 2026. The record did not depend on it: see below.
  *
  * Every grant that gets through is written to the history as its own `grant`
  * entry — who, what, when and the headroom that bounded it — recomputed
@@ -82,7 +81,6 @@ export async function POST(req: Request) {
   let clientVersion: number;
   let source: "manual" | "auto";
   let viewFor: string | undefined;
-  let confirmDa: boolean;
   let redistributed: boolean;
   try {
     const body = z
@@ -97,15 +95,10 @@ export async function POST(req: Request) {
         // it is saving for. Checked below.
         viewFor: z.string().optional(),
         // The person's explicit consent to the discretionary grants in this
-        // document, after being shown who pays for them (gate 5). Absent by
-        // default, so nothing is ever committed by omission.
-        confirmDa: z.boolean().optional().default(false),
         /**
          * Set when the amounts in this document came from the Redistribute
          * button (lib/redistribute.ts). A label only: it collapses the grant log
-         * into one entry for the run instead of one per person. It grants no
-         * exemption — gate 5 below still requires `confirmDa`, so a
-         * redistribution is confirmed exactly like a hand-typed grant.
+         * into one entry for the run instead of one per person.
          */
         redistributed: z.boolean().optional().default(false),
       })
@@ -114,7 +107,6 @@ export async function POST(req: Request) {
     clientVersion = body.version;
     source = body.source;
     viewFor = body.viewFor;
-    confirmDa = body.confirmDa;
     redistributed = body.redistributed;
   } catch {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
@@ -234,12 +226,14 @@ export async function POST(req: Request) {
   // gate 3, which is measured against the pool their header actually shows.
   const fullAccess = scope.rule.type === "full";
   const bound: CapBound = fullAccess ? "both" : "state";
+  // Priced once, from the document being saved. There is no lock special-case
+  // any more: getMaxDA bounds every row by the caps whatever its lock says, so
+  // the elaborate "release this save's new lock for the measurement" pass this
+  // used to need is gone with it.
+  const judged = applyOverrides(data.emp, sanitised);
+  computeScalesAndBonuses(judged, data);
   for (const grant of impact.grants) {
-    // A lock this save is creating is released for the measurement — see
-    // rowsForGrantJudgement. Judging the row with its own new lock applied
-    // reported no headroom and refused the grant outright.
-    const judged = rowsForGrantJudgement(data, sanitised, previous, grant.empId);
-    const row = judged.find((e) => e.id === grant.empId);
+    const row = judged.find((e: { id: string }) => e.id === grant.empId);
     if (!row) continue;
     const ceiling = daHeadroom(row, judged, data, bound);
     if (!Number.isFinite(ceiling)) continue;
@@ -259,16 +253,12 @@ export async function POST(req: Request) {
     );
   }
 
-  // Gate 5: explicit confirmation. A grant spends pool money on top of the
-  // calculated bonuses, so the person making it has to see what it does to the
-  // pool and say yes. Refused rather than recorded, which is what stops an
-  // autosave or a tab-close flush committing one on their behalf.
-  if (impact.grants.length > 0 && !confirmDa) {
-    console.log(
-      `[audit] state-write NEEDS-CONFIRM email=${email} grants=${impact.grants.length} granted=${impact.granted.toFixed(2)} pools=${impact.pools.map((p) => p.key).join(",")} ts=${new Date().toISOString()}`
-    );
-    return noStore(NextResponse.json({ error: "Confirmation required", impact }, { status: 428 }));
-  }
+  // No confirmation step. There was one: a grant was refused with 428 until the
+  // client sent `confirmDa`, having shown a modal naming who paid for it. Under
+  // the on-top model nobody pays for it — the modal's remaining content was a
+  // cap summary the pool cards already show, and it interrupted a $1 change. The
+  // record is unaffected: every grant still gets its own history entry below,
+  // with the amount and the room that bounded it.
 
   // Snapshot, then save with optimistic concurrency: a stale version means
   // someone else saved since this client loaded — 409, never silently clobber.

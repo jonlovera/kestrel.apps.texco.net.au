@@ -108,8 +108,10 @@ describe("daHeadroom", () => {
     // share of the cap, and the room left is the same 300.
     const { rows } = pooled({ C: { locked: true, lockedFinal: 400 } });
     expect(daHeadroom(row(rows, "A"), rows, data)).toBe(300);
-    // and a frozen row has no headroom of its own — nothing to grant
-    expect(daHeadroom(row(rows, "C"), rows, data)).toBe(0);
+    // and the frozen row itself gets the same 300: the lock is not a bound.
+    // It used to answer 0 here, which is what refused a real grant on an
+    // already-locked row while the cap still had room.
+    expect(daHeadroom(row(rows, "C"), rows, data)).toBe(300);
   });
 
   it("counts a site manager's fixed bonus against the cap too", () => {
