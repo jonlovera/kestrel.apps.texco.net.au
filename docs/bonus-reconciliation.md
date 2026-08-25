@@ -190,3 +190,201 @@ Because the engine deducts nothing, the code as designed has no double-deduction
 5. **Which population should the Shared Services card show:** the signed-off 308,046 (corporate + part-split), the live corporate-only 307,613, or something else?
 6. **The app's total payouts (2,945,168) exceed the signed-off Cap Bonuses (2,836,288) by 108,880** due to overrides made since sign-off. Does the sign-off need refreshing, or should some overrides be unwound?
 7. **Cent precision:** the VIC cap is now stored as 1,593,574 even (the $0.32 was lost in the 07:38 correction). Restore full precision when fixing the NSW cap?
+
+
+---
+
+## 9. Stage 4 — employee-level reconciliation (25 August 2026, live data)
+
+**Source.** Read-only pull of the live Neon store at 25 Aug 2026 ~10:30 UTC (`kestrel:data:fy26` v19, `kestrel:overrides:fy26` v158, `kestrel:params:fy26` as corrected at 09:42 UTC, and all 726 `kestrel:history:fy26` entries), run through the app's own `applyParams → applyOverrides → computeScalesAndBonuses → poolCardTotals`, joined to `'EBS Group - FY26'` of `FY26 EBS Model (1).xlsx` on `Employee ID` = app `id`. **146 of 146 rows join; none unmatched.** Every card figure on the dashboard reproduces to the cent: VIC Remaining −16,636.16, NSW Remaining +30,323.43, Group 2,945,167.82, part-split 90,049.83 / 23,959.39.
+
+Stages 1–3 of the reconciliation plan have shipped since sections 1–8 were written: the cards derive their headline from the total cap through the carve-outs (`lib/fy26-caps.ts`), the params route warns on `|vCap + nCap − gCap| > 1`, the NSW total cap has been corrected, and the carve-outs travel on `Caps` so client clamp and server gates net them identically. Commit `e3088f1` bound each state at `totalCap − sharedServices` ("Option A", which is what the −16,636 in the dashboard screenshot measures); the working tree since binds at the **full state pool** (`statePoolOf`, one identity for headline, lead pool, clamp and gate 4), under which the same data reads **VIC −104,273 / NSW +5,084**. Both readings are bridged below; the per-employee findings are identical under either. Engine scale at this data: `vicScale = 0.78715325`, `nswScale = 1`.
+
+### 9.1 Where VIC's overage comes from (−16,636 under Option A; −104,273 at the state pool)
+
+The signed-off sheet spends VIC **to the cent**, so any dollar added to VIC-home goes red:
+
+| Sheet, what VIC funds | |
+|---|---:|
+| Pure-VIC rows (69 people, `VIC % = 100`) Σ FINAL FY26 BONUS | 1,343,396.63 (= sheet `J6` "VIC pool") |
+| Part-split staff (4), share funded **from VIC** (`Locked → VIC`, AW) | 87,636.51 (= `F9` "split state" 87,637) |
+| **Total charged to VIC** | **1,431,033.14** vs `totalCap − SS` 1,431,033.32 → **$0.18 of room at sign-off**; equivalently pure-VIC 1,343,396.63 vs the state pool 1,343,396.32 → **−0.31** |
+
+The app's VIC-home total (1,447,669.16) differs from that in two ways:
+
+| Component | Sheet | App | Δ |
+|---|---:|---:|---:|
+| Pure-VIC rows (69) | 1,343,396.63 | 1,333,659.94 | **−9,736.69** |
+| Part-split four, charged to VIC | 87,636.51 (VIC-funded share only) | 114,009.22 (full payouts, `st = "VIC"` since 24 Aug) | **+26,372.71** |
+| → of which the sheet funds from **NSW** | 25,239.33 | 0 | +25,239.33 |
+| → of which post-sign-off movement on those four | | | +1,133.37 (Clements' lock 47,932.60 → 49,065.00 is +1,132.40) |
+| **Remaining, Option A** (`totalCap − SS` = 1,431,033) | +0.18 | **−16,636.16** | |
+| **Remaining, state pool** (`totalCap − SS − split` = 1,343,396) | −0.31 | **−104,272.84** | |
+
+Bridges (cents aside — `vCap` lost its 32¢ on 25 Aug, see 9.5): Option A **0.18 + 9,736.69 − 26,372.71 = −16,635.84**. State pool: the pool is *defined* net of the part-split staff, so it charges VIC nothing for them while the app charges their full 114,009.22 → **−0.31 + 9,736.69 − 114,009.22 = −104,272.84**.
+
+**Reading.** The 69 VIC employees are collectively **9,737 under** their signed-off amounts. Under either identity the red card is the 24 Aug move of Clements, Fairclough, Wali and Porter to `st = "VIC"` (log 1295–1301, dgibson 03:14 UTC): their whole payouts now sit on VIC's ledger. Under Option A that over-charges VIC by the 25,239 the sheet funds from NSW; under the state-pool identity it charges VIC all 114,009 of payouts the sheet has already carved out of the pool — the double-count `lib/fy26-caps.ts` now describes as "absorbed". It need not be absorbed: it is a data artefact, see 9.6 (1).
+
+The mirror image on NSW confirms it: NSW rows are **+117,916.23** over sign-off and the sheet had 123,000.16 unspent (`O10`). At the state pool, NSW Remaining = 1,194,969.16 − 1,189,885.57 = **+5,084**; under Option A the 25,239 no longer charged to NSW lifts it to the 30,323 the screenshot showed.
+
+### 9.2 VIC-home rows — every variance, attributed
+
+Baseline for "who/when" is the 21 Aug 00:59 UTC import (log 682, dgibson) that set the signed-off caps and 35 locks; entries before it are listed only where nothing later touched the row. "as X" = an admin acting through **View as**.
+
+| Δ app − sheet | Employee | Id | App final | Sheet final | What moved it | Who / when (UTC) |
+|---:|---|---|---:|---:|---|---|
+| −28,777 | Richard Porter | RIPOR | 28,614.76 | 57,391.70 | Discretionary grant: DA 801 (sheet 0); IPM 40% (sheet 90%) | jbull, jlovera · 24 Aug 00:14 → 25 Aug 02:16 |
+| −10,088 | Paul Dwyer | PADWY | 19,369.64 | 29,458.00 | Unlocked in app (sheet locked): sheet lock 29,458.00 | ccassar (as jglick) · 21 Aug 01:11 |
+| −8,677 | Morgan Walker | MOMAR | 0.00 | 8,677.38 | IPM changed: IPM 0% (sheet 90%) | ccassar · 21 Aug 01:23 → 24 Aug 04:27 |
+| −8,492 | Martin Lipshut | MALIP | 36,253.90 | 44,746.07 | IPM changed: IPM 65% (sheet 90%) | ccassar, ccassar (as jglick) · 21 Aug 01:20 → 21 Aug 01:53 |
+| +7,348 | Paul Darby | PADAR | 67,658.05 | 60,309.92 | Discretionary grant: DA 1,895 (sheet 0) | jlovera, dgibson, jlovera (as ccassar) · 24 Aug 00:33 → 25 Aug 04:35 |
+| +6,992 | Lachlan Hill | LAHIL | 64,383.97 | 57,391.70 | Discretionary grant: DA 1,803 (sheet 0) | jlovera · 25 Aug 02:14 → 25 Aug 02:16 |
+| +6,992 | Jonathan Glick | JOGLI | 64,383.97 | 57,391.70 | Discretionary grant: DA 1,803 (sheet 0) | ccassar, jlovera · 24 Aug 04:27 → 25 Aug 04:04 |
+| +6,163 | Ayrton Solar | AYSOL | 56,745.24 | 50,582.52 | Locked in app (sheet unlocked): lock 56,745.24 | ccassar (as jglick) · 21 Aug 01:53 |
+| +6,163 | Andrew Jelbart | ANJEL | 56,745.24 | 50,582.52 | Locked in app (sheet unlocked): lock 56,745.24 | ccassar (as jglick), ccassar · 21 Aug 01:11 → 21 Aug 01:53 |
+| −6,002 | Scott Richards | SCRIC | 41,088.16 | 47,090.38 | IPM changed: IPM 70% (sheet 90%) | ccassar, ccassar (as jglick) · 21 Aug 01:23 → 21 Aug 01:53 |
+| −5,951 | Nicholas Preston | NIPRE | 40,740.17 | 46,691.55 | IPM changed: IPM 70% (sheet 90%) | ccassar, ccassar (as jglick) · 21 Aug 01:20 → 21 Aug 01:53 |
+| +5,762 | Brett Holst | BRHOL | 29,136.66 | 23,375.09 | IPM changed: IPM 100% (sheet 90%) | ccassar (as jglick) · 21 Aug 01:53 |
+| −5,730 | Stefan Howley | STHOW | 23,727.81 | 29,458.00 | Unlocked in app (sheet locked): sheet lock 29,458.00 | ccassar (as jglick) · 21 Aug 01:11 |
+| +5,689 | William Peterson | WIPET | 52,380.33 | 46,691.55 | Discretionary grant: DA 1,467 (sheet 0) | jbull, jlovera · 24 Aug 00:19 → 25 Aug 02:18 |
+| +4,735 | Neil Timms | NETIM | 43,601.63 | 38,866.39 | Discretionary grant: DA 1,221 (sheet 0) | ccassar, jlovera, dgibson · 21 Aug 01:23 → 25 Aug 04:03 |
+| −4,628 | Joshua Smith | JOSMI | 31,680.60 | 36,308.55 | IPM changed: IPM 70% (sheet 90%) | ccassar, ccassar (as jglick) · 21 Aug 01:20 → 21 Aug 01:53 |
+| +3,082 | Sam Cutts | SACUT | 28,373.05 | 25,291.26 | Discretionary grant: DA 795 (sheet 0) | jlovera · 25 Aug 04:17 |
+| +3,042 | Michael Franklin | MIFRA | 28,009.49 | 24,967.01 | Discretionary grant: DA 785 (sheet 0) | jlovera · 25 Aug 04:18 |
+| −2,976 | Stephanie Nash | STNAS | 20,369.63 | 23,345.78 | Discretionary grant: DA 570 (sheet 0); IPM 70% (sheet 90%) | ccassar, jlovera · 21 Aug 01:23 → 25 Aug 02:20 |
+| +2,765 | Kim Nguyen | KINGU | 25,462.54 | 22,697.28 | Discretionary grant: DA 713 (sheet 0) | jlovera · 25 Aug 04:18 → 25 Aug 04:19 |
+| +2,765 | Jacob Rockwell | JAROC | 25,462.54 | 22,697.28 | Discretionary grant: DA 713 (sheet 0) | jbull, jlovera · 24 Aug 00:19 → 25 Aug 04:19 |
+| +2,763 | Joshua Abell | JOABE | 17,840.37 | 15,077.48 | IPM changed: IPM 95% (sheet 90%) | ccassar, ccassar (as jglick) · 21 Aug 01:20 → 21 Aug 01:35 |
+| +2,674 | Luke Bettio | LUBET | 17,264.88 | 14,591.11 | IPM changed: IPM 95% (sheet 90%) | ccassar, ccassar (as jglick) · 21 Aug 01:20 → 21 Aug 01:35 |
+| +2,674 | Benjamin Watson | BEWAT | 17,264.88 | 14,591.11 | IPM changed: IPM 95% (sheet 90%) | ccassar, ccassar (as jglick) · 21 Aug 01:20 → 21 Aug 01:35 |
+| +2,674 | Thomas Haddon | TOHAD | 17,264.88 | 14,591.11 | IPM changed: IPM 95% (sheet 90%) | ccassar, ccassar (as jglick) · 21 Aug 01:17 → 21 Aug 01:35 |
+| −2,574 | Giuseppe Tassone | GITAS | 17,619.68 | 20,194.10 | Discretionary grant: DA 493 (sheet 0); IPM 70% (sheet 90%) | ccassar, jlovera · 21 Aug 01:14 → 25 Aug 03:57 |
+| −2,375 | Matthew Morris | MAMOR | 21,375.00 | 23,750.00 | IPM changed: IPM 90% (sheet 100%) | ccassar (as jglick), jlovera · 21 Aug 01:11 → 24 Aug 04:20 |
+| +2,316 | Timothy McSweeney | TIMCS | 23,484.00 | 21,167.89 | IPM changed: IPM 100% (sheet 90%) | ccassar (as jglick), jlovera · 21 Aug 01:11 → 24 Aug 04:20 |
+| +1,948 | Jamie Chartres | JACHA | 17,938.43 | 15,990.26 | Locked in app (sheet unlocked): lock 17,938.43 | ccassar (as jglick) · 21 Aug 01:53 |
+| +1,896 | Vern Hun Ng | VERNG | 17,460.11 | 15,563.85 | Discretionary grant: DA 489 (sheet 0) | jlovera · 25 Aug 02:29 |
+| +1,883 | Adam Bull | ADBUL | 17,446.61 | 15,563.85 | Locked in app (sheet unlocked): lock 17,446.61 | ccassar (as jglick) · 21 Aug 01:35 |
+| +1,718 | Nicholas Chan | NICHA | 15,823.07 | 14,104.74 | Discretionary grant: DA 443 (sheet 0) | jlovera · 25 Aug 02:29 |
+| −1,576 | Ayla Mesic | AYMES | 0.00 | 1,576.00 | IPM changed: IPM 0% (sheet 90%) | ccassar, ccassar (as jglick) · 21 Aug 01:14 → 21 Aug 01:32 |
+| −1,477 | Maie Cumbrae-Stewart | MACUM | 4,357.39 | 5,834.67 | IPM changed: IPM 60% (sheet 90%) | ccassar, ccassar (as jglick) · 21 Aug 01:17 → 21 Aug 01:32 |
+| −1,396 | Hamish Wild | HAWIL | 4,116.57 | 5,512.20 | IPM changed: IPM 60% (sheet 90%) | ccassar, ccassar (as jglick) · 21 Aug 01:14 → 21 Aug 01:32 |
+| −1,263 | Songlin Li | SOLI | 3,725.81 | 4,988.96 | IPM changed: IPM 60% (sheet 90%) | ccassar, ccassar (as jglick) · 21 Aug 01:14 → 21 Aug 01:32 |
+| +1,132 | Peter Clements | PECLE | 49,065.00 | 47,932.60 | Lock amount changed: lock 49,065.00 (sheet 47,932.60) | — · — |
+| +948 | Georgia Sibly | GESIB | 8,729.56 | 7,781.93 | Discretionary grant: DA 244 (sheet 0) | jlovera · 25 Aug 02:30 |
+| −714 | Michael Holland | MIHOL | 4,834.39 | 5,548.62 | IPM changed: IPM 70% (sheet 90%) | ccassar, ccassar (as jglick) · 21 Aug 01:17 → 21 Aug 01:32 |
+| +649 | Chengcheng Huang | CHHUA | 5,973.36 | 5,323.98 | Discretionary grant: DA 168 (sheet 0) | jlovera · 25 Aug 02:29 |
+| −453 | Paris Waters | PAWAT | 6,362.51 | 6,815.67 | IPM changed: IPM 75% (sheet 90%) | ccassar, ccassar (as jglick) · 21 Aug 01:17 → 21 Aug 01:32 |
+| −56 | Robert Hughes | ROHUG | 14,851.60 | 14,907.65 | Unlocked in app (sheet locked): sheet lock 14,907.65 | ccassar (as jglick) · 21 Aug 01:11 |
+| −52 | Corey Tucker | COTUC | 12,645.80 | 12,697.63 | Unlocked in app (sheet locked): sheet lock 12,697.63 | ccassar (as jglick) · 21 Aug 01:11 |
+| −50 | Mitchell Parker | MIPAR | 13,879.75 | 13,929.65 | IPM changed: IPM 80% (sheet 90%) | ccassar, ccassar (as jglick) · 21 Aug 01:17 → 21 Aug 01:35 |
+| −49 | Niklas Derungs | NIDER | 13,569.59 | 13,618.37 | IPM changed: IPM 80% (sheet 90%) | ccassar, ccassar (as jglick) · 21 Aug 01:17 → 21 Aug 01:35 |
+| −20 | Jonathan Grimwade | JOGRI | 5,537.60 | 5,557.50 | IPM changed: IPM 80% (sheet 90%) | ccassar (as jglick) · 21 Aug 01:32 |
+| +1 | Elizabeth Porter | ELPOR | 8,771.24 | 8,770.65 | Discretionary grant: DA −769 (sheet 0) | dgibson · 21 Aug 01:23 → 21 Aug 01:48 |
+| **−8,604** | **47 rows differ** (26 match) | | | | | |
+
+Grouped:
+
+| Cause | Rows | Σ Δ | Who |
+|---|---:|---:|---|
+| IPM changed (with locks) | 21 | −24,262 | ccassar 21 Aug 01:14–01:53 (VIC lead determinations, ~20–55 min after the import), jlovera 24 Aug (Morris, McSweeney) |
+| Locked in app, sheet unlocked | 4 | +16,156 | ccassar as jglick, 21 Aug 01:35–01:53 (Solar, Jelbart, Chartres, Bull) |
+| Unlocked in app, sheet locked | 4 | −15,926 | jlovera 20 Aug 07:22, then ccassar as jglick 21 Aug 01:11 (Dwyer, Howley, Hughes, Tucker) |
+| Discretionary grants | 17 | +14,296 | **jlovera, 25 Aug 02:11–04:35 UTC** (16 grants totalling 14,403; several recorded with "room under the caps at the time $0"), dgibson 21 Aug (E. Porter −769) |
+| Lock amount changed | 1 | +1,132 | Clements 47,932.60 → 49,065.00 — no lock entry in the log; came in with the 24 Aug state move / import |
+
+### 9.3 NSW-home rows — every variance, attributed
+
+| Δ app − sheet | Employee | Id | App final | Sheet final | What moved it | Who / when (UTC) |
+|---:|---|---|---:|---:|---|---|
+| +246,000 | Marcus Cooper | MACOO | 246,000.00 | 0.00 | Discretionary grant: DA 246,000 (sheet 0); IPM 100% (sheet 90%) | dgibson, jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 00:28 → 25 Aug 07:06 |
+| −21,850 | David Massoud | DAMAS | 0.00 | 21,850.00 | IPM changed: IPM 0% (sheet 100%) | jlovera (as sgriffin) · 24 Aug 07:45 → 24 Aug 23:45 |
+| −20,460 | Anne-Kristin Kahra | ANNKA | 61,378.77 | 81,838.36 | IPM changed: IPM 75% (sheet 100%) | jlovera (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:50 |
+| −18,412 | Dileen Kumar | DIKUM | 27,618.08 | 46,030.14 | IPM changed: IPM 60% (sheet 100%) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| −13,500 | Thomas McCreanor | THMCC | 76,500.00 | 90,000.00 | IPM changed: IPM 85% (sheet 100%) | dgibson, jlovera (as sgriffin) · 24 Aug 03:12 → 24 Aug 07:50 |
+| −12,000 | Patricia Albarracin | PAALB | 18,000.00 | 30,000.00 | IPM changed: IPM 60% (sheet 100%) | jlovera (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:50 |
+| −11,705 | Nicholas Baird | NIBAI | 17,557.40 | 29,262.33 | IPM changed: IPM 60% (sheet 100%) | jlovera (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:50 |
+| −11,496 | Kenneth Talbot | KETAL | 7,664.08 | 19,160.20 | IPM changed: IPM 40% (sheet 100%) | jlovera (as sgriffin) · 24 Aug 07:45 → 24 Aug 23:45 |
+| −10,335 | Santiago Luperdi | SALUP | 69,165.00 | 79,500.00 | IPM changed: IPM 87% (sheet 100%) | jlovera (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:50 |
+| +10,000 | Matthew Henwood | MAHEN | 10,000.00 | 0.00 | Discretionary grant: DA 10,000 (sheet 0); IPM 100% (sheet 90%) | jlovera (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:50 |
+| +10,000 | Jaimen Driene | JADRI | 10,000.00 | 0.00 | Discretionary grant: DA 10,000 (sheet 0); IPM 100% (sheet 90%) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| −9,327 | Luke Townsend | LUTOW | 62,422.50 | 71,750.00 | IPM changed: IPM 87% (sheet 100%) | jlovera (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:50 |
+| −8,850 | Scott Porth | SCPOR | 20,650.00 | 29,500.00 | IPM changed: IPM 70% (sheet 100%) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| −8,409 | Vinesh Rao | VIRAO | 19,622.05 | 28,031.51 | IPM changed: IPM 70% (sheet 100%) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| −8,100 | Michael Liu | MALIU | 18,900.00 | 27,000.00 | IPM changed: IPM 70% (sheet 100%) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| −7,200 | Jyoti Sharma | JYSHA | 64,800.00 | 72,000.00 | IPM changed: IPM 90% (sheet 100%) | jlovera (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:50 |
+| −6,843 | Jonathan Benjamin | JOBEN | 38,777.47 | 45,620.55 | IPM changed: IPM 85% (sheet 100%) | jlovera (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:50 |
+| −6,431 | Ana Martha Alves | ANAAL | 9,646.03 | 16,076.71 | IPM changed: IPM 60% (sheet 100%) | dgibson, jlovera (as sgriffin) · 24 Aug 00:43 → 24 Aug 07:50 |
+| −5,462 | Ben Smith | BESMI | 16,387.50 | 21,850.00 | IPM changed: IPM 75% (sheet 100%) | jlovera (as sgriffin) · 24 Aug 07:45 → 24 Aug 23:45 |
+| −5,075 | Erica Vicenzi Blanco | ERBLA | 15,226.03 | 20,301.37 | IPM changed: IPM 75% (sheet 100%) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| +5,000 | Marc Joshua | MAJOS | 15,202.05 | 10,202.05 | Discretionary grant: DA 5,000 (sheet 0) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| +5,000 | Novica Perendic | NOPER | 15,500.00 | 10,500.00 | Discretionary grant: DA 5,000 (sheet 0) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| +5,000 | Lee Brown | LEBRO | 14,500.00 | 9,500.00 | Discretionary grant: DA 5,000 (sheet 0) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| +5,000 | Matthew Hooper | MAHOO | 14,000.00 | 9,000.00 | Discretionary grant: DA 5,000 (sheet 0) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| +5,000 | Mitchell Shaw | MISHA | 13,750.00 | 8,750.00 | Discretionary grant: DA 5,000 (sheet 0) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| −5,000 | Matthew Carr | MACAR | 15,000.00 | 20,000.00 | IPM changed: IPM 75% (sheet 100%) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| −4,875 | Michael Jarevski | MIJAR | 27,625.00 | 32,500.00 | IPM changed: IPM 85% (sheet 100%) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:49 |
+| +4,847 | Riley Moss | RIMOS | 10,000.42 | 5,153.42 | Discretionary grant: DA 4,847 (sheet 0) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| −3,071 | Frances Zuza | FRYAN | 12,284.05 | 15,355.07 | IPM changed: IPM 80% (sheet 100%) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| +2,518 | Michael Briggs | MIBRI | 25,175.00 | 22,657.50 | IPM changed: IPM 100% (sheet 90%) | jlovera (as sgriffin) · 24 Aug 23:45 |
+| +2,500 | Ava-Rose Robertson | AVROB | 2,500.00 | 0.00 | Discretionary grant: DA 2,500 (sheet 0); IPM 100% (sheet 90%) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| +2,500 | Jacqueline Alves | JAALV | 2,500.00 | 0.00 | Discretionary grant: DA 2,500 (sheet 0); IPM 100% (sheet 90%) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| +2,500 | Mark Rubelj | MARUB | 2,500.00 | 0.00 | Discretionary grant: DA 2,500 (sheet 0); IPM 100% (sheet 90%) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| +2,500 | Thomas Hanzis | THHAN | 2,500.00 | 0.00 | Discretionary grant: DA 2,500 (sheet 0); IPM 100% (sheet 90%) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| +2,500 | Dhruval Amin | DHAMI | 2,500.00 | 0.00 | Discretionary grant: DA 2,500 (sheet 0); IPM 100% (sheet 90%) | jlovera, jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 04:20 → 24 Aug 07:51 |
+| +2,500 | Zachary Kalogerou | ZAKAL | 2,500.00 | 0.00 | Discretionary grant: DA 2,500 (sheet 0); IPM 100% (sheet 90%) | jlovera, jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 04:20 → 24 Aug 07:51 |
+| −2,014 | Benjamin Jenkins | BEJEN | 18,126.00 | 20,140.00 | IPM changed: IPM 90% (sheet 100%) | jlovera (as sgriffin) · 24 Aug 07:45 → 24 Aug 23:45 |
+| +2,000 | Luke Guilfoyle | LUGUI | 12,208.22 | 10,208.22 | Discretionary grant: DA 2,000 (sheet 0) | jlovera (as sgriffin) · 24 Aug 07:45 → 24 Aug 23:45 |
+| −1,600 | Luke Alker | LUALK | 14,400.00 | 16,000.00 | IPM changed: IPM 90% (sheet 100%) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| +1,326 | Katelyn Petracca | KAPET | 4,999.97 | 3,673.97 | Discretionary grant: DA 1,326 (sheet 0) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| +1,250 | Benjamin Forwood | BENFO | 25,000.00 | 23,750.00 | Discretionary grant: DA 1,250 (sheet 0) | jlovera (as sgriffin) · 24 Aug 07:45 → 24 Aug 23:45 |
+| +1,250 | Grant Griffin | GRGRI | 25,000.00 | 23,750.00 | Discretionary grant: DA 1,250 (sheet 0) | jlovera (as sgriffin) · 24 Aug 07:45 → 24 Aug 23:45 |
+| −1,200 | Christopher Duong | CHDUO | 10,800.00 | 12,000.00 | IPM changed: IPM 90% (sheet 100%) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| +1,192 | Carl Manalang | CAMAN | 5,000.22 | 3,808.22 | Discretionary grant: DA 1,192 (sheet 0) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| +500 | Ruben Cunniappen | RUCUN | 10,000.00 | 9,500.00 | Discretionary grant: DA 500 (sheet 0) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| +250 | Taylor Nicholls | TANIC | 10,000.00 | 9,750.00 | Discretionary grant: DA 250 (sheet 0) | jlovera (as sgriffin), dgibson (as sgriffin) · 24 Aug 07:45 → 24 Aug 07:51 |
+| **+117,916** | **46 rows differ** (6 match) | | | | | |
+
+**One event.** All 46 NSW variances trace to a single batch at **24 Aug 07:45 UTC by jlovera acting as sgriffin** (24 IPM reductions from 100%, 22 discretionary grants), locked at 07:49–07:51 by jlovera/dgibson as sgriffin and at 23:45 by jlovera as sgriffin. The sheet has every NSW row at IPM 100% with no discretionary — i.e. **the signed-off model predates the NSW lead's determinations**. Marcus Cooper's **+246,000** (sheet FINAL = 0) was entered, removed by dgibson-as-sgriffin at 09:47 ("reduced from $246,000 to $0"), re-entered at 23:46, and toggled four more times on 25 Aug 07:05–07:06 before settling at 246,000 locked. It is 2.3× the whole NSW drift and the single largest open item.
+
+Grouped: IPM reductions −200,699 across 24 rows; discretionary grants +318,615 across 22 rows (246,000 Cooper + 72,615 others).
+
+### 9.4 Shared Services rows
+
+| Δ app − sheet | Employee | Id | App final | Sheet final | What moved it | Who / when (UTC) |
+|---:|---|---|---:|---:|---|---|
+| −220 | Alan Bidychak | ALBID | 45,150.32 | 45,369.96 | Lock amount changed: lock 45,150.32 (sheet 45,369.96) | dgibson · 24 Aug 03:28 |
+| −214 | Deanne Gibson | DEGIB | 46,523.56 | 46,737.34 | Lock amount changed: lock 46,523.56 (sheet 46,737.34) | dgibson · 24 Aug 03:28 |
+| **−433** | **2 rows differ** (19 match) | | | | | |
+
+Both are dgibson on 24 Aug 03:28 UTC: the 5,000 discretionary each had carried was removed and the lock re-struck ~215 lower. Together −433.42 — which is exactly why the live shared figure is 307,613.08 against the pinned 308,047 (the other 0.50 is the F9/F10 rounding noted in 4.2).
+
+### 9.5 Part-split lines: 90,050 / 23,959 vs 87,637 / 25,239
+
+Same four people; the difference is method and amount, fully quantified at live data:
+
+| | VIC share | NSW share |
+|---|---:|---:|
+| Sheet: signed-off locked amounts (Σ 112,875.85), split at the **no-locks** scale `I13 = 0.71420` (`AW = AV·N·I13/(N·I13 + O·L13)`) | 87,636.51 | 25,239.33 |
+| App amounts (Σ 114,009.22) at the sheet's no-locks scale | 88,345.12 | 25,664.10 |
+| App: live amounts at the live **with-locks** `vicScale = 0.78715` (`lib/calc.ts` `fracVic`) | 90,049.83 | 23,959.39 |
+| **Scale effect** | **+1,704.71** | **−1,704.71** |
+| **Amount effect** (Clements +1,132.40 split ≈ 62/38; Fairclough/Wali/Porter cents) | **+708.61** | **+424.77** |
+| Total | +2,413.32 | −1,279.94 |
+
+(The sheet's own with-locks scale is `I11 = 0.72055`; the app's is 0.78715 because its lock set — Clint's 21 Aug locks, the NSW batch — is not the sheet's.)
+
+**Cents.** The 25 Aug 09:42 correction set `nCap = 1365714` and `vCap = 1593574` — whole dollars; 16¢ and 32¢ lost respectively. Re-paste `1593574.3239418203` and `1365714.1604075` when convenient. No conclusion above depends on it.
+
+### 9.6 Decision list for Dee
+
+1. **The four part-split staff's home state — the whole of the red card.** The sheet's state pools are defined *net* of these four (their locked amounts are the "split state" carve), so a pool-bound VIC must not also carry their payouts in its home total. With the tree now binding at the state pool, **moving Clements, Fairclough, Wali and Porter back to `st = "SHARED"` is a data-only change (the 24 Aug 03:14 moves, log 1295–1301, reversed through the employee edit modal) and reproduces the sheet's ledgers exactly at today's data: VIC Remaining +9,736, NSW Remaining +5,084.** No payout moves; the Shared Services card's part-split lines keep reporting their split. The alternative — keep `st = "VIC"` and accept VIC at −104,273 — books to VIC 114,009 the sheet has already taken out of VIC's pool.
+2. **Marcus Cooper +246,000** (locked, sheet FINAL 0). Confirm or unwind. If unwound, NSW's drift falls to −128,084 and its Remaining (state pool) to +251,084.
+3. **The NSW batch of 24 Aug 07:45** (Simon Griffin's determinations, entered via View-as): 24 IPM cuts −200,699 and 21 grants +72,615. These are absent from the signed-off model. Refresh the sign-off to include them, or treat the sheet as superseded for NSW.
+4. **Clint Cassar's VIC determinations of 21 Aug 01:14–01:53** (21 IPM changes, 4 new locks, 4 unlocks): net −8,603 vs the sheet before discretionary. Same question — the sheet was imported at 00:59 and these followed within the hour.
+5. **The 16 VIC discretionary grants of 25 Aug 02:11–04:35 UTC by jlovera (+14,403).** Several were accepted with "room under the caps at the time $0" and all are on rows that were locked–unlocked–granted–relocked within a minute. Confirm whether these are real awards or gate-4 test entries; if test, unwind them (VIC pure-row drift becomes −24,140).
+6. **Four sheet locks the app dropped** (Dwyer 29,458 → 19,370; Howley 29,458 → 23,728; Hughes; Tucker): unlocked 20 Aug by jlovera and again 21 Aug by ccassar-as-jglick after the import re-locked them. Intended?
+7. **Part-split split method** for the Shared Services card lines: adopt the sheet's no-locks scale in `poolCardTotals` (small code change: compute `(I5+I6+I8)/I12`-style no-locks scale in the engine output), or restate `F9`/`F10` on the with-locks method. Independent of (1).
+8. **Clements 49,065 vs 47,932.60** — no lock-amount entry exists in the log for the change; it arrived with the 24 Aug move. Confirm which figure stands.
+9. **Shared headline pin 308,047 vs live 307,613** (Bidychak/Gibson −433 on 24 Aug): un-pin once the population question (Q5 in §8) is settled.
+
+Recommendation on the VIC card specifically: nothing in (2)–(9) is needed to clear it — (1) alone does, with no code change and without moving a single payout.

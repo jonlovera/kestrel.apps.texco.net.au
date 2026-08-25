@@ -19,17 +19,27 @@
  * so that a one-constant change here is all it takes if Dee's answers flip
  * which carve binds.
  *
- * TWO identities live here, and they are not the same number:
+ * ONE identity, deliberately (owner decision, 25 August 2026, reversing that
+ * morning's "Option A"). The state pool is BOTH what the card headline shows
+ * and what a grant is refused against, so a lead's "Your pool CAP", the
+ * admin's "NSW State Cap", the discretionary-field clamp and /api/state's
+ * gate 4 are all the same number. There is no second, looser figure to drift
+ * from it — which is exactly what went wrong before: a NSW lead was shown a
+ * $1,220,209 budget while the card beside it headlined $1,194,970.
  *
- *  - `statePoolOf`: what the CARD HEADLINE shows — the full waterfall down to
- *    the state pool, so the build-up rows sum to the headline exactly.
- *  - `bindingStateCap`: what a GRANT IS REFUSED AGAINST (owner decision,
- *    25 Aug 2026, "Option A") — total cap less shared services ONLY. The four
- *    part-split staff were moved to `st = "VIC"` on 24 Aug, so their whole
- *    payouts already count in VIC's home total; also subtracting the
- *    split-state carve would charge them twice. Shared-services staff are
- *    `st = "SHARED"` and never in a home total, so carving SS out is exactly
- *    consistent with how capRoom measures.
+ * The cost the owner has accepted. Option A netted shared services ONLY,
+ * because the four part-split staff were moved to `st = "VIC"` on 24 Aug, so
+ * their whole payouts already count in VIC's home total and the split-state
+ * carve charges them a second time. That double-count is real and unchanged;
+ * it is now absorbed as a tighter VIC pool rather than paid for with a second
+ * identity. VIC's card consequently reads over its pool by around $104k on
+ * the 25 Aug 2026 population. The part-split methodology (the live 90,050 /
+ * 23,959 attribution against the typed 87,637 / 25,239) stays open with Dee —
+ * see docs/bonus-reconciliation.md §4.1. Settling it moves the constants
+ * below and nothing else.
+ *
+ * Shared-services staff are `st = "SHARED"` and never in a home total, so
+ * carving SS out stays exactly consistent with how capRoom measures.
  */
 
 export type CarveState = "VIC" | "NSW";
@@ -53,32 +63,35 @@ export const FY26_PUBLISHED = {
   groupCap: 2_959_288.48,
 } as const;
 
-/** The card headline: total cap less BOTH carve-outs. */
-export function statePoolOf(st: CarveState, totalCap: number): number {
+/** Everything carved off one state's total cap, as a single figure. */
+export function stateCarveOf(st: CarveState): number {
   const c = FY26_CARVE_OUTS[st];
-  return totalCap - c.sharedServices - c.splitState;
+  return c.sharedServices + c.splitState;
 }
 
 /**
- * The figure a state's payouts are bound by: total cap less shared services
- * (Option A — see the module docblock for why NOT the split-state carve too).
+ * The state pool: total cap less BOTH carve-outs. The card headline, a lead's
+ * pool, and the figure a grant is refused against — see the module docblock
+ * for why those are one number and not three.
  */
-export function bindingStateCap(st: CarveState, totalCap: number): number {
-  return totalCap - FY26_CARVE_OUTS[st].sharedServices;
+export function statePoolOf(st: CarveState, totalCap: number): number {
+  return totalCap - stateCarveOf(st);
 }
 
 /**
- * Attach the binding carve-outs to a caps object as optional DATA
- * (`vCarve` / `nCarve`), so lib/calc.ts's capRoom can net them without
- * knowing where they came from. Fields absent = carve 0 = the pre-FY26
- * behaviour, which is what every synthetic-cap test fixture relies on.
+ * Attach the carve-outs to a caps object as optional DATA (`vCarve` /
+ * `nCarve`), so lib/calc.ts's capRoom can net them without knowing where they
+ * came from. `cap - carve` is therefore statePoolOf by construction, which is
+ * what keeps the engine's bound and the cards one identity. Fields absent =
+ * carve 0 = the pre-FY26 behaviour, which is what every synthetic-cap test
+ * fixture relies on.
  */
 export function attachFy26Carves<T extends { vCap: number; nCap: number }>(
   caps: T
 ): T & { vCarve: number; nCarve: number } {
   return {
     ...caps,
-    vCarve: FY26_CARVE_OUTS.VIC.sharedServices,
-    nCarve: FY26_CARVE_OUTS.NSW.sharedServices,
+    vCarve: stateCarveOf("VIC"),
+    nCarve: stateCarveOf("NSW"),
   };
 }

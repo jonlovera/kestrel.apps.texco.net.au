@@ -29,6 +29,7 @@ import { ParamsSchema, applyParams } from "./params-apply";
 import type { Scope } from "./access";
 import { managerPool, managerPoolFrom, poolBreach } from "./manager-pool";
 import { applyOverrides, computeScalesAndBonuses, getMaxDA } from "./calc";
+import { FY26_PUBLISHED, attachFy26Carves, statePoolOf } from "./fy26-caps";
 
 const FIXTURE = join(__dirname, "..", "data", "prod-fixture.json");
 
@@ -419,6 +420,34 @@ describe("poolBreach", () => {
     check({ A: { daEdit: 200 } }, "A");
     check({ A: { daEdit: 200 } }, "B");
     check({ B: { locked: true, lockedFinal: 600 } }, "A");
+  });
+
+  it("a lead's pool IS the card headline under the real FY26 carves", () => {
+    // The 25 Aug 2026 regression: a NSW lead's header read $1,220,209 while the
+    // admin's card beside it headlined $1,194,970, because the carve attached
+    // to the caps netted shared services only. Both figures now come from
+    // statePoolOf, so the two views cannot quote different caps again.
+    const real: Dataset = {
+      ...data,
+      vCap: FY26_PUBLISHED.VIC.totalCap,
+      nCap: FY26_PUBLISHED.NSW.totalCap,
+      gCap: FY26_PUBLISHED.groupCap,
+    };
+    const carved = attachFy26Carves(real);
+    const nswLead: Scope = {
+      ...lead,
+      rule: { ...lead.rule, states: ["NSW"] } as typeof lead.rule,
+    };
+    expect(managerPool(lead, carved, {}).pool).toBeCloseTo(
+      statePoolOf("VIC", real.vCap),
+      8
+    );
+    expect(managerPool(nswLead, carved, {}).pool).toBeCloseTo(
+      statePoolOf("NSW", real.nCap),
+      8
+    );
+    // the anchors the stakeholder reads off the cards
+    expect(managerPool(nswLead, carved, {}).pool).toBeCloseTo(1_194_970.16, 2);
   });
 
   it("several states sum their caps", () => {

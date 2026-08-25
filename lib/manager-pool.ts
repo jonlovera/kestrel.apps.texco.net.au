@@ -144,12 +144,13 @@ function entitlement(rows: readonly CalcEmployee[]): number {
 /**
  * The budget for one grant shape (see the module header for why they differ).
  *
- * A whole-state grant gets that state's cap — NET of its carve-out when the
- * caps carry one (Caps.vCarve / nCarve), which is the same figure capRoom
- * bounds that state's rows by, so a lead's header and gate 4 stay one number.
- * Anything narrower gets the entitlement of the rows it actually holds. Shared
- * Services has no cap, so it contributes its rows' entitlement even inside a
- * state rule.
+ * A whole-state grant gets that state's cap — NET of its carve-outs when the
+ * caps carry them (Caps.vCarve / nCarve, which under FY26 hold shared services
+ * AND split state, so cap - carve is the state POOL the card headlines). That
+ * is the same figure capRoom bounds that state's rows by, so a lead's header,
+ * the admin's card and gate 4 stay one number. Anything narrower gets the
+ * entitlement of the rows it actually holds. Shared Services has no cap, so it
+ * contributes its rows' entitlement even inside a state rule.
  */
 function rulePool(
   rule: GrantingRule,

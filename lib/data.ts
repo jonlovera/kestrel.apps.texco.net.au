@@ -68,8 +68,9 @@ export async function getParams(): Promise<Params> {
  * carves only ever matter where a grant is bounded — capRoom, poolBreach's
  * rulePool, daImpact's cap reporting — and this is the one place every server
  * route that does any of that gets its dataset from, so attaching them here
- * is what makes /api/state's gates, a lead's header and the admin's client
- * clamp (DashboardClient, which attaches the same constants) one identity.
+ * is what makes /api/state's gates, a lead's header, the admin's pool cards
+ * and the admin's client clamp (DashboardClient, which attaches the same
+ * constants) one identity: the state pool.
  */
 export async function getEffectiveDataset(): Promise<Dataset> {
   const [data, params] = await Promise.all([getDataset(), loadParams()]);

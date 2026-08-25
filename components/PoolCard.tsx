@@ -15,6 +15,7 @@ export function PoolCard({
    * the one card whose value is a verdict rather than a measurement.
    */
   tone = "normal",
+  kind,
 }: {
   title: string;
   value: string;
@@ -36,6 +37,7 @@ export function PoolCard({
   /** The editable pool-cap line, for the cards that have one. */
   footer?: ReactNode;
   tone?: "normal" | "alert";
+  kind?: "manager" | "editor";
 }) {
   return (
     <div className="min-w-[280px] flex-1 border-t-4 border-brand-orange bg-white p-5 shadow-sm">
@@ -56,11 +58,10 @@ export function PoolCard({
         </div>
       )}
       <div
-        className={`text-lg font-bold tabular-nums ${
-          tone === "alert" ? "text-red-600" : "text-brand-95"
-        }`}
+        className={`text-lg font-bold tabular-nums ${tone === "alert" ? "text-red-600" : "text-brand-95"
+          }`}
       >
-        {value}
+        {!['Shared Services', 'Group total'].includes(title) && !kind ? `${title.replace(' pool', ' State')} Cap:` : ""} {value}
       </div>
       {lines && lines.length > 0 && (
         <div className="mt-2 space-y-1 border-t border-neutral-100 pt-2">

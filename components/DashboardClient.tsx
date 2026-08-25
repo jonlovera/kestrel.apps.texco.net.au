@@ -44,7 +44,6 @@ import AccountMenu from "./AccountMenu";
 import EditableText from "./EditableText";
 import {
   statePoolOf,
-  bindingStateCap,
   attachFy26Carves,
   FY26_CARVE_OUTS,
 } from "@/lib/fy26-caps";
@@ -1572,16 +1571,19 @@ export default function DashboardClient({
     // than four filters buried in a memo.
     const cards = poolCardTotals(emps, pool, params);
     // The cap footers below measure the UNREDUCED home-state totals against
-    // each state's BINDING cap — total cap less shared services
-    // (lib/fy26-caps.ts's bindingStateCap, owner decision 25 Aug 2026) — which
-    // is exactly what capRoom and /api/state's gate 4 enforce once the carves
-    // are attached (boundCaps above / getEffectiveDataset on the server). A
-    // "remaining" derived from any other pair would advertise room the save
-    // then refuses, or refuse room the save would allow.
+    // each state's POOL — total cap less BOTH carve-outs (lib/fy26-caps.ts's
+    // statePoolOf, owner decision 25 Aug 2026) — which is the SAME figure the
+    // card headlines, and exactly what capRoom and /api/state's gate 4 enforce
+    // once the carves are attached (boundCaps above / getEffectiveDataset on
+    // the server). One figure throughout, so a card's Remaining is room under
+    // the number printed above it, and a lead's "Your pool CAP" is that same
+    // number rather than a looser one.
     //
-    // Deliberately NOT the state-pool headline: the four part-split staff are
-    // VIC-home rows, so their whole payouts are already in vicHome, and netting
-    // the split-state carve as well would charge them twice.
+    // There used to be a second, looser bound here (shared services only), on
+    // the grounds that the four part-split staff are VIC-home rows whose whole
+    // payouts are already in vicHome, so the split-state carve charges them
+    // twice. That double-count is real and now absorbed as a tighter VIC pool —
+    // see lib/fy26-caps.ts for the reversal and what it costs.
     const vicHome = cards.vic + cards.vicOther;
     const nswHome = cards.nsw + cards.nswOther;
     const groupTotal = cards.group;
@@ -1602,8 +1604,8 @@ export default function DashboardClient({
     // Half-a-cent slack so float noise never paints a card red.
     const over = (value: number, cap: number) => value > cap + 0.005;
     const { vCap, nCap, gCap } = params;
-    const vicBinding = bindingStateCap("VIC", vCap);
-    const nswBinding = bindingStateCap("NSW", nCap);
+    const vicStatePool = statePoolOf("VIC", vCap);
+    const nswStatePool = statePoolOf("NSW", nCap);
     const t = copy.poolTitles;
 
     // Each state card's HEADLINE is the state pool of Dee Gibson's signed-off
@@ -1633,24 +1635,24 @@ export default function DashboardClient({
         {
           key: "vic",
           title: t.vic,
-          value: statePoolOf("VIC", vCap),
+          value: vicStatePool,
           buildUp: buildUp("VIC", vCap),
           cap: vCap,
-          remaining: vicBinding - vicHome,
-          over: over(vicHome, vicBinding),
+          remaining: vicStatePool - vicHome,
+          over: over(vicHome, vicStatePool),
         },
         {
           key: "nsw",
           title: t.nsw,
-          value: statePoolOf("NSW", nCap),
+          value: nswStatePool,
           buildUp: buildUp("NSW", nCap),
           cap: nCap,
-          remaining: nswBinding - nswHome,
-          over: over(nswHome, nswBinding),
+          remaining: nswStatePool - nswHome,
+          over: over(nswHome, nswStatePool),
         },
         {
           key: "shared",
-          title: "Shared Services (corporate split)",
+          title: "Shared Services",
           // PINNED_CARD_HEADLINES — display only; cards.shared is the derived figure
           value: PINNED_CARD_HEADLINES.shared,
           // The two lines are NOT a breakdown of the headline — they cover a
@@ -1691,6 +1693,7 @@ export default function DashboardClient({
           title={it.title}
           value={it.value}
           tone={it.alert ? "alert" : "normal"}
+          kind={poolSummary.kind}
         />
       ));
     }
@@ -1797,12 +1800,12 @@ export default function DashboardClient({
     let remaining: number;
     if (isEditor) {
       // Admin redistribution is state-tab scoped and spends that state's room
-      // under its BINDING cap — the same figure the card's Remaining shows and
-      // gate 4 enforces.
+      // under its POOL — the same figure the card headlines, its Remaining
+      // shows and gate 4 enforces.
       remaining =
         activeTab === "VIC"
-          ? bindingStateCap("VIC", params.vCap) - allocated
-          : bindingStateCap("NSW", params.nCap) - allocated;
+          ? statePoolOf("VIC", params.vCap) - allocated
+          : statePoolOf("NSW", params.nCap) - allocated;
     } else {
       if (!mgrPool) return null;
       remaining = canMeasure ? mgrPool.pool - allocated : mgrPool.remaining;
