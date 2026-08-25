@@ -42,11 +42,17 @@ import { ruleMatches, type ScopableEmployee } from "./access-rules";
 export const WRITABLE_BY_LEAD = ["daEdit", "ipmEdit"] as const;
 
 /**
- * Everything an admin may write. `locked`/`lockedFinal` have no column and no
- * visibility (see the comment on `writableFields`), so they're listed here
- * directly rather than derived from `editableFields`.
+ * Everything an admin may write. `locked` has no column and no visibility (see
+ * the comment on `writableFields`), so it is listed here directly rather than
+ * derived from `editableFields`.
+ *
+ * `lockedFinal` was removed on 25 August 2026. It is a stored payout base for
+ * the rows frozen before that date, no client computes or sends one any more,
+ * and leaving it writable would let a stale figure be pushed over a settled
+ * one. Absent from this list, sanitiseOverrideWrite keeps whatever is stored and
+ * rejects anything incoming.
  */
-export const WRITABLE_BY_ADMIN = ["daEdit", "ipmEdit", "locked", "lockedFinal"] as const;
+export const WRITABLE_BY_ADMIN = ["daEdit", "ipmEdit", "locked"] as const;
 
 export type WritableField = (typeof WRITABLE_BY_ADMIN)[number];
 
@@ -93,7 +99,9 @@ export function writableFields(scope: Scope): readonly WritableField[] {
     const column = COLUMN_FOR_FIELD[f];
     return !!column && granted.has(column) && visible.has(column);
   });
-  if (scope.rule.canLock) return [...fields, "locked", "lockedFinal"];
+  // The lock grant is one boolean now — a lead needs no amount to freeze a row,
+  // and `lockedFinal` is no longer writable by anyone (see WRITABLE_BY_ADMIN).
+  if (scope.rule.canLock) return [...fields, "locked"];
   return fields;
 }
 

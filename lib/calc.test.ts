@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Employee, Overrides } from "./schema";
 import {
@@ -1074,3 +1074,106 @@ describe("a discretionary amount always sits on top of the pool", () => {
     expect(nsw.by.get("D")!.finalBonus - base.by.get("D")!.finalBonus).toBeCloseTo(100, 6);
   });
 });
+
+/**
+ * THE LOCK CONTRACT (owner decision, 25 August 2026): locking or unlocking
+ * somebody changes no amount, anywhere.
+ *
+ * It used to change plenty. A payout was read as `locked ? lockedFinal :
+ * calc + discretionary`, so the flag chose between two figures that had drifted
+ * apart — 44 of the 49 locked rows in the production capture moved when
+ * unlocked, the worst by $15,529. A payout now has one source and the flag is
+ * not in the expression, which is what these pin.
+ */
+describe("locking and unlocking move no money", () => {
+  const finals = (overrides: Overrides) =>
+    new Map(run(overrides).emps.map((e) => [e.id, e.finalBonus]));
+
+  const unchanged = (a: Map<string, number>, b: Map<string, number>) => {
+    for (const [id, v] of a) expect(b.get(id)).toBeCloseTo(v, 10);
+  };
+
+  it("locking a row leaves every figure exactly where it was", () => {
+    unchanged(finals({}), finals({ B: { locked: true } }));
+  });
+
+  it("unlocking a row locked in this model leaves every figure alone", () => {
+    const locked = { B: { locked: true } };
+    unchanged(finals(locked), finals({ B: { locked: false } }));
+  });
+
+  it("a row frozen before the change keeps its stored payout through both", () => {
+    // B's stored 400 is its base: not what the engine would pay it today
+    // (521.74 at this scale), which is the whole point — the figure is stored,
+    // so the flag cannot switch it back to a derived one.
+    const frozen: Overrides = { B: { locked: true, lockedFinal: 400 } };
+    expect(run(frozen).byId.B.finalBonus).toBeCloseTo(400, 10);
+    const unlocked: Overrides = { B: { locked: false, lockedFinal: 400 } };
+    expect(run(unlocked).byId.B.finalBonus).toBeCloseTo(400, 10);
+    unchanged(finals(frozen), finals(unlocked));
+  });
+
+  it("keeps the discretionary amount separable on a frozen row", () => {
+    // stored payout 500 with 100 of it discretionary: base is 400, so Final is
+    // 500 either way and Calc + Discretionary still reconciles
+    const frozen: Overrides = { B: { locked: true, lockedFinal: 500, daEdit: 100 } };
+    expect(run(frozen).byId.B.finalBonus).toBeCloseTo(500, 10);
+    unchanged(finals(frozen), finals({ B: { locked: false, lockedFinal: 500, daEdit: 100 } }));
+  });
+
+  it("nobody else moves either, in either direction", () => {
+    const base = finals({});
+    for (const id of ["A", "B", "D", "E"]) {
+      const after = finals({ [id]: { locked: true } });
+      for (const [other, v] of base) {
+        if (other === id) continue;
+        expect(after.get(other)).toBeCloseTo(v, 10);
+      }
+    }
+  });
+
+  it("an IPM edit moves the advisory figure and not the payout", () => {
+    // the other half of the contract: amounts are stored, so recalculation is
+    // never a side effect of an edit
+    const frozen: Overrides = { B: { locked: true, lockedFinal: 400 } };
+    const edited: Overrides = { B: { locked: true, lockedFinal: 400, ipmEdit: 0.5 } };
+    expect(run(edited).byId.B.calcBonus).not.toBeCloseTo(run(frozen).byId.B.calcBonus, 2);
+    expect(run(edited).byId.B.finalBonus).toBeCloseTo(400, 10);
+  });
+});
+
+/**
+ * The same contract on the real thing: every locked row in the production
+ * capture, unlocked one at a time, must move nothing at all. This is the sweep
+ * that would have caught the reported bug — it fails on 44 rows before the fix.
+ */
+const PROD_FIXTURE = join(__dirname, "..", "data", "prod-fixture.json");
+describe.skipIf(!existsSync(PROD_FIXTURE))(
+  "the lock contract holds across the production capture",
+  () => {
+    const raw = JSON.parse(readFileSync(PROD_FIXTURE, "utf-8"));
+    const caps: Caps = {
+      vCap: raw.params.vCap,
+      nCap: raw.params.nCap,
+      gCap: raw.params.gCap,
+    };
+    const price = (doc: Overrides) => {
+      const emps = applyOverrides(raw.dataset.emp, doc);
+      computeScalesAndBonuses(emps, caps);
+      return new Map(emps.map((e) => [e.id, e.finalBonus]));
+    };
+    const stored: Overrides = raw.overrides;
+
+    it("unlocking any locked row changes nothing for anyone", () => {
+      const before = price(stored);
+      const lockedIds = Object.entries(stored)
+        .filter(([, ov]) => ov.locked)
+        .map(([id]) => id);
+      expect(lockedIds.length).toBeGreaterThan(40);
+      for (const id of lockedIds) {
+        const after = price({ ...stored, [id]: { ...stored[id], locked: false } });
+        for (const [who, v] of before) expect(after.get(who)).toBeCloseTo(v, 6);
+      }
+    });
+  }
+);

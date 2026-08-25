@@ -81,6 +81,14 @@ export interface CalcEmployee extends Employee {
   /** company performance modifier, derived once from the source figures */
   cpm: number;
   preIpm: number;
+  /**
+   * The stored payout-before-discretionary, if this row has one. See
+   * lib/schema.ts. Carried through so the bonus loop can read it; `undefined`
+   * means fall back (which never involves the lock flag).
+   */
+  baseAmount?: number;
+  /** the legacy frozen figure, read as a base for rows locked before 25 Aug 2026 */
+  lockedFinal?: number;
   /** recomputed "After IPM" figure (prototype overwrites e.bipm) */
   bipmCalc: number;
   calcBonus: number;
@@ -245,7 +253,12 @@ export function deriveCpm(e: Employee): { preIpm: number; cpm: number } {
 
 /**
  * Build the working rows: source employees + persisted edit state.
- * Locked rows resume with their frozen finalBonus (`lockedFinal`).
+ *
+ * Note what is NOT here any more: the lock flag no longer selects which figure
+ * a row is paid. It used to — `locked ? lockedFinal : (derived)` — and that is
+ * why toggling a lock moved the row's own payout by however far the two had
+ * drifted apart (44 of 49 rows, up to $15,529). A payout now has one source,
+ * resolved in computeScalesAndBonuses without reference to `locked` at all.
  */
 export function applyOverrides(
   emps: Employee[],
@@ -274,11 +287,18 @@ export function applyOverrides(
       // paid with no override and no history entry behind it.
       daEdit: isDaEditable(rule) ? ov.daEdit ?? e.da : 0,
       locked,
+      baseAmount: ov.baseAmount,
+      // Gated by the same rule as `locked` and `daEdit` above: a row the scheme
+      // will not let anyone freeze must not be PAID a frozen figure either.
+      // Without this, a `lockedFinal` stranded on a VIC site manager by the
+      // 24 Aug 2026 NSW-only split would come back to life as their payout base
+      // — undoing 6060a90, which stopped exactly that.
+      lockedFinal: isLockable(rule) ? ov.lockedFinal : undefined,
       cpm,
       preIpm,
       bipmCalc: 0,
       calcBonus: 0,
-      finalBonus: locked ? ov.lockedFinal ?? 0 : 0,
+      finalBonus: 0,
     };
   });
 }
@@ -299,20 +319,10 @@ export function computeScalesAndBonuses(
     e.bipmCalc = e.preIpm * e.ipmEdit;
   });
 
-  // Site managers come off the top of each pool at their fixed draw. Locking
-  // freezes what gets PAID to that row, but does not move pool scale or
-  // reallocate anyone else's calculated bonus.
-  let smVp = 0,
-    smNp = 0;
-  emps.forEach((e) => {
-    if (e.sm) {
-      // A site manager's fixed bonus comes off the top. Their discretionary
-      // amount does not: like everyone else's, it sits on top of the pool.
-      smVp += e.bipmCalc * e.vp;
-      smNp += e.bipmCalc * e.np;
-    }
-  });
-
+  // Site managers come off the top of each pool at their fixed draw; everyone
+  // else shares what is left. The lock flag is not consulted anywhere in here —
+  // it is a protection state, not an allocation input, which is why locking
+  // somebody moves nobody's calculated bonus.
   let empLockedVp = 0,
     empLockedNp = 0;
   let empBipmVpUnlocked = 0,
@@ -376,29 +386,31 @@ export function computeScalesAndBonuses(
   const nswScale = NSW_FULL_ENTITLEMENT ? 1 : nswScaleFromCap;
 
   emps.forEach((e) => {
-    if (e.sm) {
-      // The fixed bonus never scales; a discretionary amount rides on top of
-      // it, keeping the dashboard identity Calc bonus + Discretionary = Final.
-      // A site manager sits outside the state pool either way, so the funding
-      // flag does not reach them — their fixed bonus is not scaled, so there
-      // is no pool for their amount to come out of.
-      e.calcBonus = e.bipmCalc;
-      // A locked site manager keeps the figure frozen at lock time, exactly as
-      // a locked pooled row does — this assignment is what used to make the
-      // lock flag a no-op for them.
-      if (!e.locked) e.finalBonus = e.bipmCalc + e.daEdit;
-    } else if (!e.locked) {
-      // A flagged row's amount is INSIDE calcBonus — the scale above already
-      // A discretionary amount always sits ON TOP of the scaled pool bonus, so
-      // the dashboard identity "Calc bonus + Discretionary = Final" holds on
-      // every unlocked row. There is no per-row funding mode: an amount is
-      // always on top, whoever it belongs to.
-      e.calcBonus = e.bipmCalc * e.vp * vicScale + e.bipmCalc * e.np * nswScale;
-      e.finalBonus = e.calcBonus + e.daEdit;
-    } else {
-      e.calcBonus = e.bipmCalc * e.vp * vicScale + e.bipmCalc * e.np * nswScale;
-      // finalBonus stays frozen at its locked value
-    }
+    // "Calc bonus" — ADVISORY. What the formula says this row would draw from
+    // the pool at today's caps and IPM. Shown, never paid: an IPM or cap edit
+    // moves this column and leaves the payout alone (owner decision, 25 Aug
+    // 2026). A site manager's fixed bonus does not scale, as ever.
+    e.calcBonus = e.sm
+      ? e.bipmCalc
+      : e.bipmCalc * e.vp * vicScale + e.bipmCalc * e.np * nswScale;
+
+    // THE PAYOUT — one expression, every row, and `locked` is not in it.
+    //
+    // `baseAmount` is the stored figure. Two fallbacks while it is being
+    // introduced over live data, neither of which reads the lock flag:
+    //  - `lockedFinal`, for the 49 rows frozen before 25 Aug 2026. It was
+    //    stored as calc+DA at lock time, so the base it implies is that figure
+    //    less the amount. Only a locked row can carry one (/api/state deletes
+    //    it from any unlocked row), which is what lets this be read
+    //    unconditionally — and is what makes lock and unlock number-neutral
+    //    for those rows without waiting for the seed.
+    //  - the advisory figure, for every row that has never been locked. Their
+    //    payout has always been calc + amount, so this changes nothing for
+    //    them, and a lock taken from here on needs no frozen figure at all.
+    const base =
+      e.baseAmount ??
+      (e.lockedFinal !== undefined ? e.lockedFinal - e.daEdit : e.calcBonus);
+    e.finalBonus = base + e.daEdit;
   });
 
   return {

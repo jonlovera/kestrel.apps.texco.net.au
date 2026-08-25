@@ -8,15 +8,13 @@ import { diffOverrides } from "@/lib/history-diff";
 import { takeSnapshot } from "@/lib/snapshots";
 import { sanitiseOverrideWrite, scopeOverridesView } from "@/lib/write-scope";
 import {
-  applyOverrides,
-  computeScalesAndBonuses,
   isDaEditable,
   isLockable,
   rowRule,
   type CapBound,
 } from "@/lib/calc";
 import { poolBreach } from "@/lib/manager-pool";
-import { normalizeLockTransitions } from "@/lib/lock-freeze";
+import { rowsForGrantJudgement } from "@/lib/lock-freeze";
 import {
   EPSILON as DA_EPSILON,
   daHeadroom,
@@ -172,7 +170,6 @@ export async function POST(req: Request) {
       // a row drawing from no pool has nothing to lock, and a VIC site
       // manager's fixed bonus is deliberately left alone
       delete clean.locked;
-      delete clean.lockedFinal;
     }
     // A row drawing from no pool has no pool for a discretionary amount to add
     // to. An NSW site manager's IS adjustable (24 Aug 2026) — it rides on top of
@@ -182,22 +179,25 @@ export async function POST(req: Request) {
     // daEdit is deliberately not floored: an adjustment may be negative
     // (owner decision, kept through every change of funding model — a negative
     // DA lowers the recipient's final and its pool's total with it)
-    if (!clean.locked) delete clean.lockedFinal;
+    // `lockedFinal` is deliberately NOT cleared when a row is unlocked any
+    // more. For the rows frozen before 25 Aug 2026 it is the stored base their
+    // payout is built from (lib/calc.ts), so deleting it on unlock would drop
+    // the row back to its advisory figure — the very jump this all fixes. It is
+    // no longer writable by anyone either (WRITABLE_BY_ADMIN), so the stored
+    // value simply survives every save.
     if (Object.keys(clean).length > 0) sanitised[id] = clean;
   }
 
-  // Lock/unlock transition normalization, server-authoritative and ordered:
-  //  1) NEW locks freeze from the row's current displayed payout.
-  //  2) Unlocks preserve their frozen payout as the unlocked baseline before
-  //     the freeze flag is removed from persisted state.
-  // This is the number-neutral lock contract: lock/unlock are protection-state
-  // transitions, not allocation moves.
-  normalizeLockTransitions(data, sanitised, previous);
+  // No lock normalization here any more, deliberately. Locking and unlocking
+  // write one boolean and touch no amount: a payout is a stored figure that
+  // neither transition reads (lib/calc.ts), so there is nothing to freeze on
+  // the way in and nothing to preserve on the way out. The two passes that used
+  // to live here — freezing a new lock, and back-filling a discretionary amount
+  // on unlock to hold the total steady — were both compensating for a payout
+  // that changed when the flag did.
 
-  // Gate 3: the manager's pool. Runs here rather than earlier because it reads
-  // the frozen finals the fallback loop above may just have resolved, and
-  // BEFORE takeSnapshot because a refused save must not leave a restore point
-  // behind. Judged against the stored document, not against zero, so a lead
+  // Gate 3: the manager's pool. Runs BEFORE takeSnapshot because a refused save
+  // must not leave a restore point behind. Judged against the stored document, not against zero, so a lead
   // who inherits an over-pool state (a cap moved, an admin locked a row above
   // its entitlement) can still save the correction — see poolBreach.
   const breach = poolBreach(scope, data, sanitised, previous);
@@ -234,12 +234,14 @@ export async function POST(req: Request) {
   // gate 3, which is measured against the pool their header actually shows.
   const fullAccess = scope.rule.type === "full";
   const bound: CapBound = fullAccess ? "both" : "state";
-  const nextRows = applyOverrides(data.emp, sanitised);
-  computeScalesAndBonuses(nextRows, data);
   for (const grant of impact.grants) {
-    const row = nextRows.find((e) => e.id === grant.empId);
+    // A lock this save is creating is released for the measurement — see
+    // rowsForGrantJudgement. Judging the row with its own new lock applied
+    // reported no headroom and refused the grant outright.
+    const judged = rowsForGrantJudgement(data, sanitised, previous, grant.empId);
+    const row = judged.find((e) => e.id === grant.empId);
     if (!row) continue;
-    const ceiling = daHeadroom(row, nextRows, data, bound);
+    const ceiling = daHeadroom(row, judged, data, bound);
     if (!Number.isFinite(ceiling)) continue;
     if (row.daEdit <= ceiling + DA_EPSILON) continue;
     console.log(

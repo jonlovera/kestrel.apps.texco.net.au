@@ -1,11 +1,11 @@
 /**
- * The frozen figure a lock records.
+ * Pricing a grant that arrives in the same save as a lock.
  *
- * The regression these pin: a lead's lock froze the figure their last what-if
- * returned, and that preview is debounced — so a lock clicked while a
- * discretionary amount was still in flight froze the total from before it, and
- * the row paid the stale figure for good. The server now computes the figure
- * itself; the client's number is ignored for any lock that is new in the save.
+ * The freeze tests that used to live here are gone with the functions they
+ * covered (freezeNewLocks, preserveUnlockPayouts): a lock no longer captures or
+ * restores an amount, so there is nothing to assert about the figure it records.
+ * The property that replaced them — toggling a lock moves no money at all — is
+ * pinned in lib/calc.test.ts, next to the engine that guarantees it.
  *
  * Fixture: one VIC pool, cap 1500 against 1200 of demand, so the scale clamps
  * at 1 and every figure below is exact.
@@ -13,7 +13,8 @@
 import { describe, it, expect } from "vitest";
 import type { Dataset, Employee, Overrides } from "./schema";
 import { applyOverrides, computeScalesAndBonuses } from "./calc";
-import { freezeNewLocks, normalizeLockTransitions } from "./lock-freeze";
+import { daHeadroom } from "./da-impact";
+import { rowsForGrantJudgement } from "./lock-freeze";
 
 function emp(over: Partial<Employee> & { id: string }): Employee {
   return {
@@ -48,117 +49,61 @@ const data: Dataset = {
   excludedIds: [],
 };
 
-/** What the engine actually pays A for a given document — the figure to expect. */
-function paid(doc: Overrides, id = "A") {
-  const emps = applyOverrides(data.emp, doc);
-  computeScalesAndBonuses(emps, data);
-  return emps.find((e) => e.id === id)!.finalBonus;
-}
+describe("rowsForGrantJudgement", () => {
+  /** The ceiling /api/state's headroom gate would hold `id` to. */
+  function ceiling(next: Overrides, previous: Overrides, id = "A") {
+    const rows = rowsForGrantJudgement(data, next, previous, id);
+    return daHeadroom(rows.find((e) => e.id === id)!, rows, data);
+  }
 
-describe("freezeNewLocks", () => {
-  it("freezes a new lock at the payout, discretionary amount included", () => {
-    const next: Overrides = { A: { daEdit: 500, locked: true } };
-    expect(freezeNewLocks(data, next, {})).toEqual(["A"]);
-    // 400 of scaled bonus plus the 500 granted
-    expect(next.A.lockedFinal).toBeCloseTo(900, 8);
-    expect(next.A.lockedFinal).toBeCloseTo(paid({ A: { daEdit: 500 } }), 8);
+  it("grant and lock in one save keeps the row's real headroom", () => {
+    // The regression: A is granted 300 and locked in the same click. Judged
+    // with its own new lock applied, daHeadroom answers 0 — the pool has room,
+    // but a locked row has nothing left to grant — and the save was refused
+    // with "at most $0 can be granted". Releasing the new lock for the
+    // measurement gives the figure the cap actually allows.
+    const next: Overrides = { A: { daEdit: 300, locked: true } };
+    expect(ceiling(next, {})).toBe(300);
+
+    // what the gate saw before the fix, kept here so the two are visibly
+    // different rather than taken on trust
+    const asSaved = applyOverrides(data.emp, next);
+    computeScalesAndBonuses(asSaved, data);
+    expect(daHeadroom(asSaved.find((e) => e.id === "A")!, asSaved, data)).toBe(0);
   });
 
-  it("overwrites a stale figure the client sent — the actual regression", () => {
-    // What a lead's browser sends when the lock beats the debounced preview:
-    // locked with the pre-grant total, while the grant is in the same document.
-    const next: Overrides = { A: { daEdit: 500, locked: true, lockedFinal: 400 } };
-    freezeNewLocks(data, next, {});
-    expect(next.A.lockedFinal).toBeCloseTo(900, 8);
+  it("accepts the grant the two-step dance used to be needed for", () => {
+    // Unlock, save the grant, lock, save again — the workaround. One save now
+    // reaches the same ceiling, so the same grant passes the gate.
+    const twoStep = ceiling({ A: { daEdit: 300 } }, {});
+    const oneSave = ceiling({ A: { daEdit: 300, locked: true } }, {});
+    expect(oneSave).toBe(twoStep);
   });
 
-  it("computes one that is missing entirely, rather than paying $0", () => {
-    // applyOverrides reads `locked ? lockedFinal ?? 0 : 0`, so an absent figure
-    // is a $0 payout — the whole bonus gone, not just the grant.
-    const next: Overrides = { A: { daEdit: 500, locked: true } };
-    freezeNewLocks(data, next, {});
-    expect(next.A.lockedFinal).not.toBe(0);
-    expect(paid(next)).toBeCloseTo(900, 8);
+  it("still refuses a top-up on a row locked in an earlier save", () => {
+    // Not the same thing: that payout is a settled figure, and granting on top
+    // of it would pay money the lock was supposed to have closed off.
+    const previous: Overrides = { A: { locked: true, lockedFinal: 900 } };
+    const next: Overrides = { A: { daEdit: 300, locked: true, lockedFinal: 900 } };
+    expect(ceiling(next, previous)).toBe(0);
   });
 
-  it("leaves a row locked in an earlier save exactly as stored", () => {
-    // A historical record: 300 is not what the engine would pay today, and that
-    // is the point — recomputing it would silently repay the row.
-    const previous: Overrides = { A: { locked: true, lockedFinal: 300 } };
-    const next: Overrides = { A: { locked: true, lockedFinal: 300 } };
-    expect(freezeNewLocks(data, next, previous)).toEqual([]);
-    expect(next.A.lockedFinal).toBe(300);
-  });
-
-  it("re-freezes a row that was unlocked and locked again", () => {
-    // `previous` has it unlocked, so this lock is new and gets today's figure
-    const previous: Overrides = { A: { locked: false } };
-    const next: Overrides = { A: { daEdit: 500, locked: true, lockedFinal: 1 } };
-    expect(freezeNewLocks(data, next, previous)).toEqual(["A"]);
-    expect(next.A.lockedFinal).toBeCloseTo(900, 8);
-  });
-
-  it("ignores unlocked rows, whatever they carry", () => {
-    const next: Overrides = { A: { daEdit: 500 }, B: { lockedFinal: 123 } };
-    expect(freezeNewLocks(data, next, {})).toEqual([]);
-    expect(next.A.lockedFinal).toBeUndefined();
-    expect(next.B.lockedFinal).toBe(123);
-  });
-
-  it("prices each new lock against the document being saved, not one at a time", () => {
-    // B and C locked in the same save: each is frozen with the OTHER's lock
-    // applied, which is what the pool will actually look like afterwards.
+  it("measures against other rows' frozen finals, not what they would earn", () => {
+    // B is locked at 500 from an earlier save while the engine would pay it
+    // 400 today. The pool holds the frozen 500, so A's room is 200, not 300.
+    const previous: Overrides = { B: { locked: true, lockedFinal: 500 } };
     const next: Overrides = {
-      B: { locked: true },
-      C: { locked: true },
+      A: { daEdit: 100, locked: true },
+      B: { locked: true, lockedFinal: 500 },
     };
-    expect(freezeNewLocks(data, next, {}).sort()).toEqual(["B", "C"]);
-    expect(next.B.lockedFinal).toBeCloseTo(400, 8);
-    expect(next.C.lockedFinal).toBeCloseTo(400, 8);
+    expect(ceiling(next, previous)).toBe(200);
   });
 
-  it("skips an id that is not in the roster", () => {
-    const next: Overrides = { GHOST: { locked: true } };
-    expect(freezeNewLocks(data, next, {})).toEqual([]);
-    expect(next.GHOST.lockedFinal).toBeUndefined();
-  });
-});
-
-describe("normalizeLockTransitions", () => {
-  it("unlock preserves the frozen payout and persists that as the unlocked baseline", () => {
-    const previous: Overrides = { A: { locked: true, lockedFinal: 900 } };
-    const next: Overrides = { A: { locked: false } };
-
-    const before = paid(previous);
-    normalizeLockTransitions(data, next, previous);
-    const after = paid(next);
-
-    expect(next.A.locked).toBe(false);
-    expect(next.A.lockedFinal).toBeUndefined();
-    expect(after).toBeCloseTo(before, 8);
-  });
-
-  it("unlock then save/reload keeps the same payout on a no-op save", () => {
-    const previous: Overrides = { A: { locked: true, lockedFinal: 900 } };
-    const next: Overrides = { A: { locked: false } };
-    normalizeLockTransitions(data, next, previous);
-
-    const reloaded: Overrides = JSON.parse(JSON.stringify(next)) as Overrides;
-    normalizeLockTransitions(data, reloaded, next);
-
-    expect(paid(reloaded)).toBeCloseTo(paid(next), 8);
-  });
-
-  it("unlock then unrelated-row edit does not snap the unlocked row", () => {
-    const previous: Overrides = { A: { locked: true, lockedFinal: 900 } };
-    const next: Overrides = { A: { locked: false } };
-    normalizeLockTransitions(data, next, previous);
-
-    const withUnrelated: Overrides = {
-      ...next,
-      B: { ...(next.B ?? {}), daEdit: 250 },
-    };
-
-    expect(paid(withUnrelated, "A")).toBeCloseTo(paid(next, "A"), 8);
+  it("leaves an unlocked grant judged exactly as before", () => {
+    const next: Overrides = { A: { daEdit: 300 } };
+    const rows = rowsForGrantJudgement(data, next, {}, "A");
+    const plain = applyOverrides(data.emp, next);
+    computeScalesAndBonuses(plain, data);
+    expect(rows.map((e) => e.finalBonus)).toEqual(plain.map((e) => e.finalBonus));
   });
 });

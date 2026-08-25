@@ -146,13 +146,15 @@ describe("who may write what", () => {
   });
 
   it("a fully-granted lead may write Discretionary and IPM, plus the lock", () => {
-    expect(writableFields(vicLead)).toEqual([...WRITABLE_BY_LEAD, "locked", "lockedFinal"]);
-    expect(writableFields(subsetLead)).toEqual([...WRITABLE_BY_LEAD, "locked", "lockedFinal"]);
-    expect(writableFields(smGroupLead)).toEqual([...WRITABLE_BY_LEAD, "locked", "lockedFinal"]);
+    // the lock grant is one boolean since 25 Aug 2026 — `lockedFinal` is a
+    // stored payout base nobody writes any more
+    expect(writableFields(vicLead)).toEqual([...WRITABLE_BY_LEAD, "locked"]);
+    expect(writableFields(subsetLead)).toEqual([...WRITABLE_BY_LEAD, "locked"]);
+    expect(writableFields(smGroupLead)).toEqual([...WRITABLE_BY_LEAD, "locked"]);
   });
 
   it("a partially-granted lead who also holds Can lock gets both", () => {
-    expect(writableFields(daOnlyLead)).toEqual(["daEdit", "locked", "lockedFinal"]);
+    expect(writableFields(daOnlyLead)).toEqual(["daEdit", "locked"]);
   });
 
   it("a lead granted nothing at all may write nothing", () => {
@@ -258,23 +260,36 @@ describe("a lead cannot reach fields that aren't theirs", () => {
   });
 
   it("a granted lead may set the lock within their own scope", () => {
-    const res = write(vicLead, { V1: { locked: true, lockedFinal: 999 } });
-    expect(res.overrides.V1).toEqual({ locked: true, lockedFinal: 999 });
+    const res = write(vicLead, { V1: { locked: true } });
+    expect(res.overrides.V1).toEqual({ locked: true });
     expect(res.rejected).toEqual([]);
   });
 
   it("an admin may set the lock", () => {
-    const res = write(admin, { V1: { locked: true, lockedFinal: 999 } });
-    expect(res.overrides.V1).toEqual({ locked: true, lockedFinal: 999 });
+    const res = write(admin, { V1: { locked: true } });
+    expect(res.overrides.V1).toEqual({ locked: true });
     expect(res.rejected).toEqual([]);
   });
 
   it("Can lock with no edit grant at all may still lock/unlock their own rows", () => {
     // The decoupled case that has no prior coverage: a lead who cannot touch
     // Discretionary or IPM at all, but was separately ticked "Can lock".
-    const res = write(lockOnlyLead, { V1: { locked: true, lockedFinal: 999 } });
-    expect(res.overrides.V1).toEqual({ locked: true, lockedFinal: 999 });
+    const res = write(lockOnlyLead, { V1: { locked: true } });
+    expect(res.overrides.V1).toEqual({ locked: true });
     expect(res.rejected).toEqual([]);
+  });
+
+  it("nobody may write a payout base, and the stored one survives", () => {
+    // `lockedFinal` left WRITABLE_BY_ADMIN on 25 Aug 2026: it is the stored base
+    // a pre-existing locked row is paid from, and a client pushing a stale
+    // figure over it is exactly what went wrong before. Not writable by an
+    // admin, not by a lead, and never cleared by a save.
+    const sent = write(admin, { V1: { locked: true, lockedFinal: 999 } }, { V1: { lockedFinal: 1234 } });
+    expect(sent.overrides.V1).toEqual({ locked: true, lockedFinal: 1234 });
+    expect(sent.rejected).toContain("field lockedFinal on V1");
+
+    const unlocking = write(admin, { V1: { locked: false } }, { V1: { locked: true, lockedFinal: 1234 } });
+    expect(unlocking.overrides.V1).toEqual({ locked: false, lockedFinal: 1234 });
   });
 
   it("a full edit grant with Can lock unticked still can't touch the lock", () => {
@@ -389,9 +404,11 @@ describe("scopeOverridesView", () => {
   });
 
   it("gives a lead only their rows and only their fields", () => {
+    // no lockedFinal: it is not writable, so it is not part of a lead's save
+    // baseline either — sanitiseOverrideWrite keeps the stored one regardless
     expect(scopeOverridesView(vicLead, EMPLOYEES, stored)).toEqual({
       V1: { daEdit: 100, ipmEdit: 0.9 },
-      V2: { locked: true, lockedFinal: 5000 },
+      V2: { locked: true },
     });
   });
 
@@ -404,7 +421,7 @@ describe("scopeOverridesView", () => {
   it("gives a partially-granted lead only the granted figure", () => {
     expect(scopeOverridesView(daOnlyLead, EMPLOYEES, stored)).toEqual({
       V1: { daEdit: 100 },
-      V2: { locked: true, lockedFinal: 5000 },
+      V2: { locked: true },
     });
   });
 

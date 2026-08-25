@@ -1422,38 +1422,22 @@ export default function DashboardClient({
     if (isEditor) {
       const emp = empById.get(id);
       if (!emp || !isLockable(rowRule(emp))) return;
-      if (emp.locked) {
-        setOverride(id, { locked: false, lockedFinal: undefined });
-      } else {
-        // finalBonus is the actual payout to freeze — identical to calcBonus
-        // for an unlocked row, but it's the one that means "what gets paid".
-        setOverride(id, { locked: true, lockedFinal: emp.finalBonus });
-      }
+      // One boolean, and nothing else. A payout is a stored figure that this
+      // flag does not feed (lib/calc.ts), so there is no amount to capture on
+      // the way in or restore on the way out — which is what makes locking and
+      // unlocking leave every figure on screen exactly where it was.
+      setOverride(id, { locked: !emp.locked });
       return;
     }
 
-    // A lead has no local recompute engine — scopedRows/rowById is already
-    // the server's latest figures for their own rows. The figure sent here is
-    // only ever a starting point: /api/state recomputes the frozen final for
-    // every newly locked row and hands back what it decided, so a stale
-    // what-if (the preview is debounced) can no longer freeze the wrong total.
+    // A lead needs no engine and no figure for this any more: the flag carries
+    // no amount, so a scope that cannot even see Final can still lock a row.
+    // (It used to need the figure to freeze, and silently did nothing when the
+    // column was outside the scope.)
     if (!canLockAnything) return;
     const row = rowById.get(id);
     if (!row || !isLockable(row)) return;
-    if (row.final === undefined) {
-      // The lock control is shown (isLockable passes) but there is no figure on
-      // screen to freeze, because this scope cannot see Final. Silently doing
-      // nothing is what made this look broken — say so instead.
-      setNotice(
-        `${row.name} can't be locked from this view: freezing a bonus needs the Final figure, which isn't part of your access. Ask an administrator to lock the row.`
-      );
-      return;
-    }
-    if (row.locked) {
-      setOverride(id, { locked: false, lockedFinal: undefined });
-    } else {
-      setOverride(id, { locked: true, lockedFinal: row.final });
-    }
+    setOverride(id, { locked: !row.locked });
   }
 
   /**
@@ -1857,23 +1841,10 @@ export default function DashboardClient({
     const lock = !allVisibleLocked;
     setOverrides((prev) => {
       const next: Overrides = { ...prev };
-      let skipped = 0;
+      // Same one-boolean write as toggleLock, in bulk. Nothing can be skipped
+      // for want of a figure now, so the "couldn't be locked" notice is gone.
       for (const row of visibleLockable) {
-        if (lock) {
-          const frozen = isEditor ? empById.get(row.id)?.finalBonus : row.final;
-          if (frozen === undefined) {
-            skipped += 1;
-            continue;
-          }
-          next[row.id] = { ...next[row.id], locked: true, lockedFinal: frozen };
-        } else {
-          next[row.id] = { ...next[row.id], locked: false, lockedFinal: undefined };
-        }
-      }
-      if (skipped > 0) {
-        setNotice(
-          `${skipped} row${skipped === 1 ? "" : "s"} couldn't be locked from this view because Final isn't visible.`
-        );
+        next[row.id] = { ...next[row.id], locked: lock };
       }
       return next;
     });

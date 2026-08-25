@@ -1,108 +1,50 @@
 /**
- * What figure a newly locked row is frozen at.
+ * Pricing a discretionary grant that arrives in the same save as a lock.
  *
- * Locking freezes a payout, so the frozen number IS the payout — which makes it
- * the last figure that should ever be taken on trust from a browser. It used to
- * be: /api/state accepted whatever `lockedFinal` arrived and computed one only
- * when the field was missing. That cost a lead their discretionary amount. Their
- * lock freezes the last figure /api/preview handed back, that preview is
- * debounced 350ms, and a lock clicked inside the window froze the total from
- * BEFORE the amount was typed — then paid it for good, with the amount still
- * sitting in its own column and nothing on screen to say where the money went.
- * An admin never hit it, because their lock reads the local engine
- * synchronously.
+ * The filename is historical. This module used to hold the lock/unlock
+ * "transition normalizers": one froze a new lock at the row's current payout
+ * (`freezeNewLocks`), the other back-filled a discretionary amount on unlock so
+ * the total held steady (`preserveUnlockPayouts`). Both are gone as of 25 August
+ * 2026, and neither is coming back — they existed only because a payout changed
+ * when the lock flag did, which was the actual defect. A payout is now a stored
+ * figure that no lock transition reads (see lib/calc.ts), so locking and
+ * unlocking write one boolean and move no money. Nothing to freeze, nothing to
+ * preserve.
  *
- * So the server computes it, from the document actually being saved: the row's
- * own lock released, everything else as it stands, and the resulting finalBonus
- * (not calcBonus — the frozen figure is the actual payout, discretionary amount
- * included).
- *
- * Only rows whose lock is NEW in this save are touched. A row locked in an
- * earlier save keeps its stored figure: that is a historical record of what was
- * frozen at the time, and recomputing it would silently repay it at today's
- * figures.
- *
- * Pure apart from writing `lockedFinal` into `next`, which is the shape the
- * route needs (the sanitised document goes on to the pool gate and the save).
+ * What is left is a different question, and a real one.
  */
 import { applyOverrides, computeScalesAndBonuses } from "./calc";
+import type { CalcEmployee } from "./calc";
 import type { Dataset, Overrides } from "./schema";
 
-export function freezeNewLocks(
-  data: Dataset,
-  next: Overrides,
-  previous: Overrides
-): string[] {
-  const frozen: string[] = [];
-  for (const [id, ov] of Object.entries(next)) {
-    if (!ov.locked || previous[id]?.locked) continue;
-    // this row unlocked, so the engine prices it as it would be paid; every
-    // other row's state is left exactly as this save has it
-    const doc: Overrides = { ...next, [id]: { ...ov, locked: false } };
-    const emps = applyOverrides(data.emp, doc);
-    computeScalesAndBonuses(emps, data);
-    const row = emps.find((e) => e.id === id);
-    if (!row) continue;
-    ov.lockedFinal = row.finalBonus;
-    frozen.push(id);
-  }
-  return frozen;
-}
-
 /**
- * Unlock is also number-neutral: preserve the row's frozen payout first, then
- * remove the freeze state.
+ * The rows a save's discretionary grant is priced against, for /api/state's
+ * headroom gate.
  *
- * The carried value is persisted as the row's discretionary amount in the same
- * transition, so a no-op save/reload or an unrelated edit cannot snap the row
- * back to a derived figure.
+ * getMaxDA reports no room at all for a locked row, because a locked row is
+ * settled and nothing should be topping it up. That is right for a row locked in
+ * an earlier save, and wrong for a row being granted and locked in the same save
+ * — an ordinary grant that happens to be signed off in the same click. Judging
+ * that row with its own new lock applied refused it with "at most $0", and the
+ * only way through was to unlock, save, lock, and save again to record identical
+ * numbers.
+ *
+ * So a lock this save is creating is released for the measurement, everything
+ * else left as the save has it — including other rows' locks, whose stored
+ * payouts are what the pool actually holds.
  */
-export function preserveUnlockPayouts(
+export function rowsForGrantJudgement(
   data: Dataset,
   next: Overrides,
-  previous: Overrides
-): string[] {
-  const ids = Object.entries(previous)
-    .filter(([id, prev]) => prev.locked && !(next[id]?.locked ?? false))
-    .map(([id]) => id);
-  if (ids.length === 0) return [];
-
-  const beforeRows = applyOverrides(data.emp, previous);
-  computeScalesAndBonuses(beforeRows, data);
-  const beforeById = new Map(beforeRows.map((e) => [e.id, e]));
-
-  // Price the post-unlock document exactly as it stands now (locks already
-  // toggled, before any carry values are written) so each unlocked row can be
-  // translated to the equivalent unlocked DA at this instant.
-  const afterRows = applyOverrides(data.emp, next);
-  computeScalesAndBonuses(afterRows, data);
-  const afterById = new Map(afterRows.map((e) => [e.id, e]));
-
-  const preserved: string[] = [];
-  for (const id of ids) {
-    const was = beforeById.get(id);
-    const now = afterById.get(id);
-    if (!was || !now) continue;
-    const keep = was.finalBonus;
-    const daEdit = keep - now.calcBonus;
-    next[id] = { ...(next[id] ?? {}), locked: false, daEdit };
-    delete next[id].lockedFinal;
-    preserved.push(id);
-  }
-  return preserved;
-}
-
-/**
- * One transition normalizer for /api/state:
- *  - new locks are frozen from the row's current displayed payout
- *  - unlocks preserve their frozen payout as the unlocked baseline
- */
-export function normalizeLockTransitions(
-  data: Dataset,
-  next: Overrides,
-  previous: Overrides
-): { frozen: string[]; preserved: string[] } {
-  const frozen = freezeNewLocks(data, next, previous);
-  const preserved = preserveUnlockPayouts(data, next, previous);
-  return { frozen, preserved };
+  previous: Overrides,
+  empId: string
+): CalcEmployee[] {
+  const lockIsNew =
+    (next[empId]?.locked ?? false) && !(previous[empId]?.locked ?? false);
+  const doc: Overrides = lockIsNew
+    ? { ...next, [empId]: { ...(next[empId] ?? {}), locked: false } }
+    : next;
+  const rows = applyOverrides(data.emp, doc);
+  computeScalesAndBonuses(rows, data);
+  return rows;
 }

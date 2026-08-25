@@ -78,7 +78,28 @@ export const EmployeeOverrideSchema = z.object({
   // manual reduction that frees pool money back to the other unlocked rows)
   daEdit: z.number().optional(),
   locked: z.boolean().optional(),
-  /** finalBonus frozen at the moment the row was locked */
+  /**
+   * The row's payout before its discretionary amount — a STORED figure, not a
+   * derived one (owner decision, 25 August 2026). Final is `baseAmount +
+   * daEdit`, and nothing recomputes either on read: an IPM or cap edit moves
+   * the advisory "Calc bonus" column and leaves the payout alone, and only the
+   * Redistribute button ever writes a new one.
+   *
+   * Not writable by any client (it is absent from WRITABLE_BY_ADMIN, so
+   * sanitiseOverrideWrite preserves whatever is stored) — it is written by the
+   * seed script and by redistribution, never typed.
+   *
+   * Optional because it is being introduced over live data: absent means "fall
+   * back", which lib/calc.ts resolves without ever consulting the lock flag.
+   */
+  baseAmount: z.number().optional(),
+  /**
+   * finalBonus frozen at the moment the row was locked. NO LONGER WRITTEN as of
+   * 25 August 2026 — locking is a payout freeze that writes one boolean and
+   * touches no amount. Still read, because 49 rows locked before that carry one
+   * and it is their `baseAmount` until the seed materialises it, and still
+   * parsed so older snapshots restore.
+   */
   lockedFinal: z.number().optional(),
 });
 
