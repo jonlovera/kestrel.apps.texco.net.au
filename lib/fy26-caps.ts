@@ -27,19 +27,22 @@
  * from it — which is exactly what went wrong before: a NSW lead was shown a
  * $1,220,209 budget while the card beside it headlined $1,194,970.
  *
- * The cost the owner has accepted. Option A netted shared services ONLY,
- * because the four part-split staff were moved to `st = "VIC"` on 24 Aug, so
- * their whole payouts already count in VIC's home total and the split-state
- * carve charges them a second time. That double-count is real and unchanged;
- * it is now absorbed as a tighter VIC pool rather than paid for with a second
- * identity. VIC's card consequently reads over its pool by around $104k on
- * the 25 Aug 2026 population. The part-split methodology (the live 90,050 /
- * 23,959 attribution against the typed 87,637 / 25,239) stays open with Dee —
- * see docs/bonus-reconciliation.md §4.1. Settling it moves the constants
- * below and nothing else.
+ * What keeps that identity honest is WHO is counted against the pool. The pool
+ * is defined net of two carves, and the people those carves fund must not also
+ * be measured against it: shared-services staff are `st = "SHARED"` and never
+ * in a home total, and the four part-split staff — moved to `st = "VIC"` on
+ * 24 Aug 2026, their locked amounts being exactly the split-state carve — are
+ * excluded from every home-state total by lib/calc.ts's inStateHomeTotal
+ * (cards, capRoom, a lead's Allocated, the redistribution budget, the impact
+ * dialog). Before that rule VIC's card read ~$104k over its pool while its
+ * whole-pool rows were $9.7k under (docs/bonus-reconciliation.md §9).
  *
- * Shared-services staff are `st = "SHARED"` and never in a home total, so
- * carving SS out stays exactly consistent with how capRoom measures.
+ * The Shared Services card's part-split lines show the typed splitState
+ * constants below. The live attribution (poolCardTotals's vicPartSplit /
+ * nswPartSplit: 90,050 / 23,959 on the 25 Aug population, with-locks scale ×
+ * today's payouts) differs from the sheet's no-locks-scale figures and stays
+ * open with Dee — docs/bonus-reconciliation.md §9.5. Settling it moves the
+ * constants below and nothing else.
  */
 
 export type CarveState = "VIC" | "NSW";

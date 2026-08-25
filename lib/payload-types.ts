@@ -29,6 +29,16 @@ export interface ScopedRow {
   locked: boolean;
   /** whether the row participates in any pool (drives the DA '—' rendering) */
   inPool: boolean;
+  /**
+   * Whether this row's payout counts against the pool the header measures —
+   * false for a carve-funded VIC/NSW row under a state-pool budget (a
+   * part-split person, whose money the pool is already net of). The header's
+   * Allocated, the discretionary ceiling and the redistribution budget all skip
+   * such a row; the table still lists it. Decided server-side
+   * (lib/manager-pool.ts's countsAgainstPool) because the split itself is not
+   * sent to a lead.
+   */
+  inHomeTotal: boolean;
   elig?: number;
   totalPkg?: number;
   pkg?: number;

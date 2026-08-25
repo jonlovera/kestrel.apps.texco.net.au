@@ -167,6 +167,32 @@ describe("a lead sees their own pool and nothing wider", () => {
     // same definition, and the payload carries the rows it was measured over
     const fromRows = vic.rows.reduce((s, r) => s + (r.final ?? 0), 0);
     expect(vic.managerPool.allocated).toBeCloseTo(fromRows, 6);
+    // nobody in this fixture is a VIC-labelled split, so every row counts
+    for (const r of vic.rows) expect(r.inHomeTotal).toBe(true);
+  });
+
+  it("a carve-funded row in a whole-state scope is flagged out of the header, and its split still never leaves the server", () => {
+    // the shape of the four part-split staff: VIC-labelled, on their own split
+    const first = data.emp.find((e) => e.st === "VIC")!;
+    const withSplit: Dataset = {
+      ...data,
+      emp: data.emp.map((e) => (e.id === first.id ? { ...e, vp: 0.92, np: 0.08 } : e)),
+    };
+    const payload = buildPayloadCore(withSplit, {}, vicScopeNoPkg, user);
+    if (payload.mode !== "readonly") throw new Error("expected readonly");
+    const split = payload.rows.find((r) => r.id === first.id)!;
+    expect(split.inHomeTotal).toBe(false);
+    expect(payload.rows.filter((r) => !r.inHomeTotal)).toHaveLength(1);
+    // the header measures only the rows that count — exactly Σ over the flag,
+    // so the browser can re-measure it without the engine
+    const counted = payload.rows.filter((r) => r.inHomeTotal).reduce((s, r) => s + (r.final ?? 0), 0);
+    expect(payload.managerPool.allocated).toBeCloseTo(counted, 6);
+    expect(payload.managerPool.people).toBe(payload.rows.length);
+    expect(payload.managerPool.pool).toBeCloseTo(vic.managerPool.pool, 8);
+    // the split itself is not a visible field here, so it stays out of the bytes
+    const json = JSON.stringify(payload);
+    expect(json).not.toContain('"vp"');
+    expect(json).not.toContain('"vCap"');
   });
 
   it("the group cap and group total never reach the payload", () => {

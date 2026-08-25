@@ -36,7 +36,7 @@ import type {
   ScopedRow,
   UserInfo,
 } from "./payload-types";
-import { managerPoolFrom } from "./manager-pool";
+import { managerPoolFrom, countsAgainstPool } from "./manager-pool";
 import { isSplit } from "./dataset-edit";
 
 export interface PayloadOptions {
@@ -119,6 +119,7 @@ export function buildPayloadCore(
       sm: e.sm,
       locked: e.locked,
       inPool: e.vp > 0 || e.np > 0,
+      inHomeTotal: countsAgainstPool(scope.rule, e),
     };
     if (fields.has("elig")) row.elig = e.elig;
     if (fields.has("totalPkg")) row.totalPkg = e.totalPkg;

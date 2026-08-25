@@ -36,7 +36,8 @@
  * /api/state (which enforces both the limit and the confirmation, and writes
  * the audit record).
  */
-import { applyOverrides, computeScalesAndBonuses, getMaxDA } from "./calc";
+import {
+  inStateHomeTotal, applyOverrides, computeScalesAndBonuses, getMaxDA } from "./calc";
 import type { PoolState } from "./calc";
 import type { CalcEmployee, CapBound, Caps } from "./calc";
 import type { Employee, Overrides } from "./schema";
@@ -307,8 +308,13 @@ function poolImpacts(
   recipients: Set<string>
 ): DaPoolImpact[] {
   if (recipients.size === 0) return [];
+  // A carve-funded recipient (lib/calc.ts's inStateHomeTotal) moves no state
+  // pool — only the group total — so their state is not listed for them, and
+  // the state sums below skip such rows exactly as capRoom does.
   const states = new Set(
-    afterRows.filter((e) => recipients.has(e.id)).map((e) => e.st)
+    afterRows
+      .filter((e) => recipients.has(e.id) && inStateHomeTotal(e))
+      .map((e) => e.st)
   );
   const sum = (rows: CalcEmployee[], of: (e: CalcEmployee) => boolean) =>
     rows.reduce((s, e) => (of(e) ? s + e.finalBonus : s), 0);
@@ -324,8 +330,8 @@ function poolImpacts(
     if (!states.has(st)) continue;
     pools.push({
       key: st,
-      before: sum(beforeRows, (e) => e.st === st),
-      after: sum(afterRows, (e) => e.st === st),
+      before: sum(beforeRows, (e) => e.st === st && inStateHomeTotal(e)),
+      after: sum(afterRows, (e) => e.st === st && inStateHomeTotal(e)),
       cap: caveats[st],
     });
   }

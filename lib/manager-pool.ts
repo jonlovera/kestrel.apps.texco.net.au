@@ -41,23 +41,27 @@
  *              lands near half the figure ($555,733 against Clint Cassar's
  *              57 rows, 27 of them locked).
  *
- *              SHARED SERVICES ARE NOT FILTERED OUT HERE, and neither is
- *              anyone else whose cost splits across the two pools. The scope
- *              rule is the exclusion: 24 of the 25 SHARED rows in the
- *              21 Aug 2026 capture fall outside a lead like Clint's grant and
- *              never reach this sum. The 25th is Peter Clements (National
- *              EHSQ Manager, vp 0.7/np 0.3), in scope by position and
- *              counted — a split is a statement about which caps fund him,
- *              not a reason to drop his $51,392 draw from the pool his
- *              manager is accountable for. A literal `st !== "SHARED"` test
- *              breaks the reconciliation by exactly that amount, and testing
- *              the split instead breaks it for every VIC employee who does a
- *              portion of NSW work.
+ *              Under an ENTITLEMENT budget nobody is filtered out here — not
+ *              Shared Services, not anyone whose cost splits across the two
+ *              pools. The scope rule is the exclusion: Peter Clements
+ *              (National EHSQ Manager, vp 0.7/np 0.3) is in Clint's scope by
+ *              position and counted, because his entitlement is in the pool
+ *              figure above and his payout belongs against it.
  *
- *   allocated  Σ finalBonus over ALL in-scope rows, through the shared
- *              sumAllocated — the same function the table's "Total bonuses"
- *              footer calls, so the header and the footer can never disagree
- *              about what a total is.
+ *              Under a STATE-POOL budget the carve-funded rows ARE left out
+ *              (countsAgainstPool → lib/calc.ts's inStateHomeTotal). The FY26
+ *              state pool is defined net of the shared-services and
+ *              split-state carves, so a part-split person labelled VIC —
+ *              Clements and three others since 24 Aug 2026 — is funded by the
+ *              carve, not the pool, and counting their whole payouts charged
+ *              VIC a second time (docs/bonus-reconciliation.md §9). The same
+ *              rows are left out of capRoom's home total, which is what keeps
+ *              a lead's header and gate 4 one number.
+ *
+ *   allocated  Σ finalBonus over the in-scope rows that count against the
+ *              budget, through the shared sumAllocated. `people` still counts
+ *              every row in scope — a carve-funded person is still theirs to
+ *              manage, their money just comes from elsewhere.
  *   remaining  pool - allocated (the header paints it red at or below 0).
  *   people     the in-scope row count.
  *
@@ -107,6 +111,7 @@ import { ruleMatches } from "./access-rules";
 import {
   applyOverrides,
   computeScalesAndBonuses,
+  inStateHomeTotal,
   sumAllocated,
   type CalcEmployee,
   type Caps,
@@ -132,8 +137,23 @@ export function managerPoolFrom(
 ): ManagerPool {
   const mine = emps.filter((e) => ruleMatches(rule, e));
   const pool = rulePool(rule, mine, caps);
-  const allocated = sumAllocated(mine, (e) => e.finalBonus);
+  const allocated = sumAllocated(
+    mine.filter((e) => countsAgainstPool(rule, e)),
+    (e) => e.finalBonus
+  );
   return { pool, allocated, remaining: pool - allocated, people: mine.length };
+}
+
+/**
+ * Whether one in-scope row's payout is charged to this rule's budget. Every
+ * row counts under an entitlement budget (the budget was built from the same
+ * rows); under a state-pool budget a carve-funded VIC/NSW row does not — see
+ * the module header. Exported so lib/scope-core.ts can send the same verdict
+ * to the browser as `inHomeTotal`, where the lead's ceiling and the
+ * redistribution budget re-measure this sum without the engine.
+ */
+export function countsAgainstPool(rule: GrantingRule, e: CalcEmployee): boolean {
+  return rule.type !== "state" || inStateHomeTotal(e);
 }
 
 /** Σ calcBonus — the entitlement definition, for scopes with no cap of their own. */

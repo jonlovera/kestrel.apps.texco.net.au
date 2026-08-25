@@ -252,6 +252,32 @@ export function rowRule(e: Pick<Employee, "sm" | "st" | "vp" | "np">): RowRule {
 }
 
 /**
+ * A row whose cost splits across BOTH pools is funded by a carve-out, never by
+ * a state pool: the corporate-ratio Shared Services staff by the
+ * shared-services carve, the part-split staff (their own ratio) by the
+ * split-state carve. The FY26 state pools are DEFINED net of both
+ * (lib/fy26-caps.ts), so such a row's payout must never also be measured
+ * against a state pool — whatever state label it carries.
+ */
+export function isCarveFunded(e: { vp: number; np: number }): boolean {
+  return e.vp > 0 && e.np > 0;
+}
+
+/**
+ * Whether a row counts in the home-state total a STATE POOL is measured
+ * against — the cards' Remaining, capRoom, a whole-state lead's Allocated, the
+ * redistribution budget. False for a carve-funded row labelled VIC or NSW:
+ * the four part-split staff moved to `st = "VIC"` on 24 Aug 2026 kept their
+ * split, and counting their whole payouts against a pool already net of them
+ * charged VIC twice (docs/bonus-reconciliation.md §9). A SHARED row is never
+ * in a home total anyway, so `true` there is harmless and keeps this a
+ * statement about state pools only.
+ */
+export function inStateHomeTotal(e: { vp: number; np: number; st: string }): boolean {
+  return !((e.st === "VIC" || e.st === "NSW") && isCarveFunded(e));
+}
+
+/**
  * Derivation the prototype performs at login (lines 252–266):
  * cpm is inferred from the source bipm so that pkg * bp * cpm * ipm === bipm.
  */
@@ -489,10 +515,11 @@ export type CapBound = "both" | "state";
  * Floored to whole dollars like the prototype. Returns 0 for a locked row (its
  * payout is frozen, so there is nothing to grant) and Infinity for a row with
  * no cap left to bound it — either it draws from no pool (vp + np === 0, and
- * /api/state strips its DA anyway) or it is a Shared Services row under
- * `bound: "state"`, which has no state cap of its own. Callers treat a
- * non-finite ceiling as "no bound here"; for a lead the binding constraint is
- * then their own pool, which lib/manager-pool.ts's poolBreach enforces.
+ * /api/state strips its DA anyway) or it is a Shared Services row — or any
+ * other carve-funded row (inStateHomeTotal false) — under `bound: "state"`,
+ * which has no state cap of its own. Callers treat a non-finite ceiling as "no
+ * bound here"; for a lead the binding constraint is then their own pool, which
+ * lib/manager-pool.ts's poolBreach enforces.
  *
  * Can be NEGATIVE when stored figures already exceed a cap — honestly "no room
  * at all", which callers hold at the stored figure rather than dragging down.
@@ -518,11 +545,14 @@ export function getMaxDA(
 
 /**
  * Room left under the applicable caps for one row, measured EXACTLY the way
- * the dashboard's pool cards measure their totals: Σ finalBonus grouped by
- * HOME STATE against that state's cap, and (under "both") Σ finalBonus over
- * everyone against the group cap, whichever binds first. Shared Services has
- * no state cap of its own, so the group bound is its only one — and under
- * "state" it therefore has none at all, which is Infinity rather than a cap.
+ * the dashboard's pool cards measure their totals: Σ finalBonus over the rows
+ * that COUNT in a home state (inStateHomeTotal) against that state's cap, and
+ * (under "both") Σ finalBonus over everyone against the group cap, whichever
+ * binds first. A carve-funded row — Shared Services, or a part-split person
+ * whatever their state label — is funded from outside the state pool, so it is
+ * neither counted in a home total nor bounded by one: the group bound is its
+ * only one, and under "state" it therefore has none at all, which is Infinity
+ * rather than a cap.
  *
  * The row's own amount is added back in, so this is "the most this field may
  * hold", not "the most it may go up by".
@@ -537,17 +567,18 @@ function capRoom(
   let homeTotal = 0;
   for (const r of emps) {
     groupTotal += r.finalBonus;
-    if (r.st === e.st) homeTotal += r.finalBonus;
+    if (r.st === e.st && inStateHomeTotal(r)) homeTotal += r.finalBonus;
   }
   // Back out this row's own amount so each figure measures every OTHER draw on
   // the cap, then the room is what the cap has left for this one.
   let room = bound === "both" ? caps.gCap - (groupTotal - e.daEdit) : Infinity;
-  // The state cap NET of its carve-out (Caps.vCarve / nCarve), when one is
-  // attached: the figure the state is actually bound by. The group cap carries
-  // no carve — shared-services payouts are in the group total, so nothing there
-  // is being funded from outside it.
-  const stateCap =
-    e.st === "VIC"
+  // The state cap NET of its carve-outs (Caps.vCarve / nCarve), when attached:
+  // the pool the state is actually bound by. Null for a row the pool does not
+  // fund. The group cap carries no carve — every payout is in the group total,
+  // so nothing there is being funded from outside it.
+  const stateCap = !inStateHomeTotal(e)
+    ? null
+    : e.st === "VIC"
       ? caps.vCap - (caps.vCarve ?? 0)
       : e.st === "NSW"
         ? caps.nCap - (caps.nCarve ?? 0)
@@ -592,6 +623,16 @@ export function sumAllocated<T>(
 
 /** The figures an admin's pool cards show. See poolCardTotals. */
 export interface PoolCardTotals {
+  /**
+   * THE FIGURE THE VIC POOL IS MEASURED AGAINST: Σ payout over VIC-home rows
+   * that count in the home total (inStateHomeTotal) — i.e. excluding the
+   * carve-funded part-split staff, whose money the pool is already net of.
+   * The same sum capRoom bounds a grant by, so the card's Remaining and gate 4
+   * are one number.
+   */
+  vicHome: number;
+  /** The same for NSW. */
+  nswHome: number;
   /** the VIC card: VIC-home payouts, less the VIC cap's shared draw */
   vic: number;
   /** the NSW card: NSW-home payouts, less the NSW cap's shared draw */
@@ -605,11 +646,12 @@ export interface PoolCardTotals {
   /** NSW cap money going to people who are not on the NSW card */
   nswOther: number;
   /**
-   * THE VIC CARD'S HEADLINE: vCap less the payouts the VIC cap is carrying for
-   * people whose cost splits across both states. See poolCardTotals.
+   * vCap less the payouts the VIC cap is carrying for people whose cost splits
+   * across both states — the LIVE attribution, no longer the card's headline
+   * (that is lib/fy26-caps.ts's statePoolOf). See poolCardTotals.
    */
   vicPool: number;
-  /** THE NSW CARD'S HEADLINE: nCap less the same, for NSW. */
+  /** nCap less the same, for NSW. */
   nswPool: number;
   /**
    * The VIC share of the PART-SPLIT staff — those on their own ratio rather than
@@ -637,16 +679,22 @@ export interface PoolCardTotals {
  * discretionary amounts excluded, and a payout is a stored figure the cap funds
  * in full.
  *
- * DISPLAY ONLY. Nothing here bounds a grant. The caps are enforced against Σ
- * payout by home state (capRoom, and /api/state's gate 4), which is why the
- * cards' cap footers keep using the unreduced figure — a "remaining" derived
- * from `vic` would advertise room the save then refuses.
+ * The two figures a cap is ENFORCED against are `vicHome` / `nswHome`: Σ payout
+ * over the home-state rows that count (inStateHomeTotal), measured exactly as
+ * capRoom and /api/state's gate 4 measure them. Everything else here is
+ * display: `vic`/`vicOther` (the whole-payout grouping, kept for the
+ * reconciliation) and the part-split attribution. A "remaining" derived from
+ * any of those would advertise room the save then refuses.
  */
 export function poolCardTotals(
   emps: readonly CalcEmployee[],
   pool: PoolState,
   caps: Caps
 ): PoolCardTotals {
+  // Whole payouts by state label, the grouping the reconciliation reads...
+  let vicAll = 0;
+  let nswAll = 0;
+  // ...and the same less the carve-funded rows: what the state POOL funds.
   let vicHome = 0;
   let nswHome = 0;
   let shared = 0;
@@ -666,15 +714,20 @@ export function poolCardTotals(
   const splitRows: { payout: number; vp: number; fracVic: number }[] = [];
   for (const e of emps) {
     group += e.finalBonus;
-    if (e.st === "VIC") vicHome += e.finalBonus;
-    else vicOther += e.finalBonus * e.vp;
-    if (e.st === "NSW") nswHome += e.finalBonus;
-    else nswOther += e.finalBonus * e.np;
+    const counts = inStateHomeTotal(e);
+    if (e.st === "VIC") {
+      vicAll += e.finalBonus;
+      if (counts) vicHome += e.finalBonus;
+    } else vicOther += e.finalBonus * e.vp;
+    if (e.st === "NSW") {
+      nswAll += e.finalBonus;
+      if (counts) nswHome += e.finalBonus;
+    } else nswOther += e.finalBonus * e.np;
     if (e.st === "SHARED") shared += e.finalBonus;
 
     // Only a genuinely split row is apportioned; a wholly-one-state row is
     // already counted whole on its own card.
-    if (e.vp > 0 && e.np > 0) {
+    if (isCarveFunded(e)) {
       const wVic = e.vp * pool.vicScale;
       const wNsw = e.np * pool.nswScale;
       const wSum = wVic + wNsw;
@@ -712,8 +765,10 @@ export function poolCardTotals(
   }
 
   return {
-    vic: vicHome - vicOther,
-    nsw: nswHome - nswOther,
+    vicHome,
+    nswHome,
+    vic: vicAll - vicOther,
+    nsw: nswAll - nswOther,
     shared,
     group,
     vicOther,

@@ -450,6 +450,70 @@ describe("poolBreach", () => {
     expect(managerPool(nswLead, carved, {}).pool).toBeCloseTo(1_194_970.16, 2);
   });
 
+  it("a whole-state lead's Allocated leaves out a carve-funded row, who is still one of their people", () => {
+    // P is VIC-labelled but on a split: funded by the split-state carve the
+    // pool is already net of, so charging P's payout against the pool would
+    // charge it twice (the four part-split staff since 24 Aug 2026)
+    const P = emp({ id: "P", vp: 0.9, np: 0.1, bipm: 300, pkg: 3000 });
+    const carved: Dataset = { ...data, emp: [...data.emp, P], vCap: 1500, gCap: 2500 };
+    const rows = applyOverrides(carved.emp, {});
+    computeScalesAndBonuses(rows, carved);
+    const final = (id: string) => rows.find((e) => e.id === id)!.finalBonus;
+    const p = managerPool(lead, carved, {});
+    expect(p.people).toBe(3);
+    expect(p.pool).toBe(1500);
+    expect(p.allocated).toBeCloseTo(final("A") + final("B"), 8);
+    expect(p.remaining).toBeCloseTo(1500 - final("A") - final("B"), 8);
+    // a grant to P moves nothing the pool measures, so gate 3 never refuses it
+    expect(poolBreach(lead, carved, { P: { daEdit: 5_000 } }, {})).toBeNull();
+    // while a grant to A is bounded exactly as before P existed
+    const room = Math.floor(p.remaining);
+    expect(poolBreach(lead, carved, { A: { daEdit: room } }, {})).toBeNull();
+    expect(poolBreach(lead, carved, { A: { daEdit: room + 1 } }, {})).not.toBeNull();
+  });
+
+  it("the ceiling identity holds with a carve-funded row in scope, and that row has no state bound", () => {
+    const P = emp({ id: "P", vp: 0.9, np: 0.1, bipm: 300, pkg: 3000 });
+    const carved: Dataset = { ...data, emp: [...data.emp, P], vCap: 1500, gCap: 2500 };
+    const check = (doc: Overrides, id: string) => {
+      const rows = applyOverrides(carved.emp, doc);
+      computeScalesAndBonuses(rows, carved);
+      const row = rows.find((e) => e.id === id)!;
+      const p = managerPool(lead, carved, doc);
+      expect(getMaxDA(row, rows, carved, "state")).toBe(Math.floor(p.remaining + row.daEdit));
+    };
+    check({}, "A");
+    check({ A: { daEdit: 200 } }, "B");
+    check({ P: { daEdit: 999 } }, "A"); // P's grant is invisible to A's ceiling
+    const rows = applyOverrides(carved.emp, {});
+    computeScalesAndBonuses(rows, carved);
+    expect(getMaxDA(rows.find((e) => e.id === "P")!, rows, carved, "state")).toBe(Infinity);
+  });
+
+  it("an entitlement-budgeted rule still counts a carve-funded row: its entitlement is in the pool", () => {
+    const P = emp({ id: "P", vp: 0.9, np: 0.1, bipm: 300, pkg: 3000 });
+    const withP: Dataset = { ...data, emp: [...data.emp, P] };
+    const subset: Scope = {
+      ...lead,
+      rule: {
+        type: "subset",
+        employeeIds: ["A", "P"],
+        visibleFields: ["da", "final"],
+        editableFields: ["da"],
+        canLock: true,
+        canActAs: [],
+        canDownloadLetter: false,
+      },
+    };
+    const rows = applyOverrides(withP.emp, {});
+    computeScalesAndBonuses(rows, withP);
+    const by = (id: string) => rows.find((e) => e.id === id)!;
+    const p = managerPool(subset, withP, {});
+    expect(p.people).toBe(2);
+    expect(p.pool).toBeCloseTo(by("A").calcBonus + by("P").calcBonus, 8);
+    expect(p.allocated).toBeCloseTo(by("A").finalBonus + by("P").finalBonus, 8);
+  });
+
   it("several states sum their caps", () => {
     const both: Scope = {
       ...lead,

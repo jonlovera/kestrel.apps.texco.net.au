@@ -235,6 +235,35 @@ describe("a carve-out on the caps (FY26)", () => {
   });
 });
 
+describe("a carve-funded row (FY26 part-split staff labelled VIC)", () => {
+  // P is VIC-labelled but on a split: funded by the split-state carve, not the pool
+  const withP: Dataset = {
+    ...data,
+    emp: [...data.emp, emp({ id: "P", gn: "Pat", sn: "Part", vp: 0.9, np: 0.1, bipm: 300, pkg: 3000 })],
+  };
+
+  it("is left out of the VIC figures the confirmation reports", () => {
+    const impact = daImpact(withP.emp, withP, {}, { A: { daEdit: 100 } });
+    // A/B/C still hold 1200 between them; P's payout is not in the VIC line
+    expect(impact.pools).toEqual([
+      { key: "VIC", before: 1200, after: 1300, cap: 1500 },
+      { key: "GROUP", before: 1200 + row(pooled({}, withP).rows, "P").finalBonus, after: 1300 + row(pooled({}, withP).rows, "P").finalBonus, cap: 5000 },
+    ]);
+  });
+
+  it("does not consume the pool's room, and a grant to it moves the group total only", () => {
+    const { rows } = pooled({}, withP);
+    // A's headroom is the same 300 as without P
+    expect(daHeadroom(row(rows, "A"), rows, withP)).toBe(300);
+    // P is bounded by the group cap alone, and by nothing under "state"
+    expect(daHeadroom(row(rows, "P"), rows, withP, "state")).toBe(Infinity);
+    expect(daHeadroom(row(rows, "P"), rows, withP)).toBe(Math.floor(5000 - cardTotal(rows)));
+    const impact = daImpact(withP.emp, withP, {}, { P: { daEdit: 250 } });
+    expect(impact.pools.map((p) => p.key)).toEqual(["GROUP"]);
+    expect(impact.grants[0].headroom).toBe(Math.floor(5000 - cardTotal(rows)));
+  });
+});
+
 describe("clampDa", () => {
   it("passes an amount inside the ceiling through untouched", () => {
     expect(clampDa(500, 0, 800)).toEqual({ value: 500, clamped: false });

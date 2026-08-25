@@ -8,6 +8,8 @@ import {
   getVicAlloc,
   getNswAlloc,
   getMaxDA,
+  inStateHomeTotal,
+  isCarveFunded,
   deriveCpm,
   isDaEditable,
   rowRule,
@@ -700,6 +702,95 @@ describe("a carve-out tightens the state bound by exactly the carve", () => {
   });
 });
 
+/**
+ * FY26: a row whose cost splits across both pools is CARVE-FUNDED — its money
+ * comes out of the state pool before the pool is struck (lib/fy26-caps.ts), so
+ * it must never also be measured against that pool. The four part-split staff
+ * have been st = "VIC" since 24 Aug 2026; counting their whole payouts in the
+ * VIC home total charged the pool for them twice.
+ */
+describe("carve-funded rows do not count against a state pool", () => {
+  const ROOM: Caps = { vCap: 100_000, nCap: 100_000, gCap: 200_000 };
+  // P: VIC-labelled, on their own split — the shape of Clements/Fairclough/Wali/Porter
+  const P = makeEmp({ id: "P", st: "VIC", vp: 0.9, np: 0.1, bipm: 300, pkg: 3000 });
+  function roomy(rows: Employee[], overrides: Overrides = {}) {
+    const emps = applyOverrides(rows, overrides);
+    computeScalesAndBonuses(emps, ROOM);
+    const byId = Object.fromEntries(emps.map((e) => [e.id, e]));
+    return { emps, byId };
+  }
+
+  it("the predicates: any split is carve-funded; only a VIC/NSW split is left out of a home total", () => {
+    expect(isCarveFunded(P)).toBe(true);
+    expect(isCarveFunded(FIXTURE[4])).toBe(true); // E, SHARED 0.6/0.4
+    expect(isCarveFunded(FIXTURE[0])).toBe(false); // A, wholly VIC
+    expect(isCarveFunded(FIXTURE[5])).toBe(false); // F, no pool at all
+    expect(inStateHomeTotal(P)).toBe(false);
+    expect(inStateHomeTotal({ ...P, st: "NSW" })).toBe(false);
+    expect(inStateHomeTotal(FIXTURE[4])).toBe(true); // SHARED is never in a home total anyway
+    expect(inStateHomeTotal(FIXTURE[0])).toBe(true);
+  });
+
+  it("a whole-pool VIC row's ceiling ignores the carve-funded row's payout", () => {
+    const with_ = roomy([...FIXTURE, P]);
+    const without = roomy(FIXTURE);
+    expect(with_.byId.P.finalBonus).toBeGreaterThan(0);
+    // the card's whole-payout total DOES include P...
+    expect(cardTotal(with_.emps, "VIC")).toBeCloseTo(cardTotal(without.emps, "VIC") + with_.byId.P.finalBonus, 8);
+    // ...but the room under the VIC cap is measured without P, so A's ceiling
+    // is exactly what it was before P existed (the scales are clamped at 1
+    // under ROOM, so nobody else's payout moved)
+    for (const bound of ["both", "state"] as const) {
+      expect(getMaxDA(with_.byId.A, with_.emps, ROOM, bound)).toBe(
+        getMaxDA(without.byId.A, without.emps, ROOM, bound)
+      );
+    }
+    expect(getMaxDA(with_.byId.A, with_.emps, ROOM, "state")).toBe(
+      Math.floor(100_000 - (cardTotal(with_.emps, "VIC") - with_.byId.P.finalBonus))
+    );
+  });
+
+  it("the carve-funded row itself is bounded like Shared Services: group cap only", () => {
+    const r = roomy([...FIXTURE, P]);
+    expect(getMaxDA(r.byId.P, r.emps, ROOM, "state")).toBe(Infinity);
+    expect(getMaxDA(r.byId.P, r.emps, ROOM, "both")).toBe(
+      Math.floor(200_000 - (cardTotal(r.emps) - r.byId.P.daEdit))
+    );
+    // and exactly as E, the SHARED split row, has always been
+    expect(getMaxDA(r.byId.E, r.emps, ROOM, "state")).toBe(Infinity);
+    expect(getMaxDA(r.byId.E, r.emps, ROOM, "both")).toBe(
+      Math.floor(200_000 - (cardTotal(r.emps) - r.byId.E.daEdit))
+    );
+  });
+
+  it("a carve attached to the caps still nets off the whole-pool rows only", () => {
+    const carved: Caps = { ...ROOM, vCarve: 25_000 };
+    const r = roomy([...FIXTURE, P]);
+    expect(getMaxDA(r.byId.A, r.emps, carved, "state")).toBe(
+      Math.floor(75_000 - (cardTotal(r.emps, "VIC") - r.byId.P.finalBonus))
+    );
+    expect(getMaxDA(r.byId.P, r.emps, carved, "state")).toBe(Infinity);
+  });
+
+  it("poolCardTotals reports the pool-facing home totals without the carve-funded rows", () => {
+    const rows = [...FIXTURE, P, makeEmp({ id: "Q", st: "NSW", vp: 0.2, np: 0.8, bipm: 100, pkg: 1000 })];
+    const emps = applyOverrides(rows, {});
+    const pool = computeScalesAndBonuses(emps, ROOM);
+    const t = poolCardTotals(emps, pool, ROOM);
+    const byId = Object.fromEntries(emps.map((e) => [e.id, e]));
+    expect(t.vicHome).toBeCloseTo(cardTotal(emps, "VIC") - byId.P.finalBonus, 10);
+    expect(t.nswHome).toBeCloseTo(cardTotal(emps, "NSW") - byId.Q.finalBonus, 10);
+    // the whole-payout grouping and its identity are untouched
+    expect(t.vic + t.vicOther).toBeCloseTo(cardTotal(emps, "VIC"), 10);
+    expect(t.nsw + t.nswOther).toBeCloseTo(cardTotal(emps, "NSW"), 10);
+    // and with no VIC/NSW split row the two definitions coincide
+    const plain = run();
+    const tp = poolCardTotals(plain.emps, plain.pool, CAPS);
+    expect(tp.vicHome).toBeCloseTo(cardTotal(plain.emps, "VIC"), 10);
+    expect(tp.nswHome).toBeCloseTo(cardTotal(plain.emps, "NSW"), 10);
+  });
+});
+
 describe("edge guards", () => {
   it("ipm = 0: cpm derives from raw bipm; ipmEdit 0 zeroes the bonus", () => {
     const e = makeEmp({ id: "Z", ipm: 0, bipm: 100 });
@@ -1334,6 +1425,10 @@ describe("poolCardTotals", () => {
     );
     // ...and B's VIC half is not in vicOther: B IS on the VIC card
     expect(t.vicOther).toBeCloseTo(emps.find((e) => e.id === "E")!.finalBonus * 0.6, 10);
+    // ...but B is now carve-funded, so the figure the VIC POOL is measured
+    // against leaves B out entirely, while the whole-payout grouping keeps B
+    expect(t.vicHome).toBeCloseTo(cardTotal(emps, "VIC") - b.finalBonus, 10);
+    expect(t.vic + t.vicOther).toBeCloseTo(cardTotal(emps, "VIC"), 10);
   });
 
   /** Σ payout over the rows the carried figures apportion. */

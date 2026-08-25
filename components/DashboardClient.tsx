@@ -18,6 +18,7 @@ import {
 import {
   applyOverrides,
   computeScalesAndBonuses,
+  inStateHomeTotal,
   isDaEditable,
   isLockable,
   parsePercentInput,
@@ -134,6 +135,11 @@ function measureAllocation(
   let allocated = 0;
   let canMeasure = true;
   for (const r of sourceRows) {
+    // A carve-funded row (lib/calc.ts's inStateHomeTotal, sent to a lead as
+    // `inHomeTotal`) is paid from outside the pool this measures: it is neither
+    // counted nor a target for the pool's remaining. Same exclusion the header
+    // (lib/manager-pool.ts) and gate 4 (capRoom) apply.
+    if (!r.inHomeTotal) continue;
     const da = next[r.id]?.daEdit ?? r.da ?? 0;
     const locked = next[r.id]?.locked ?? r.locked;
     if (locked) {
@@ -1036,6 +1042,7 @@ export default function DashboardClient({
       sm: e.sm,
       locked: e.locked,
       inPool: e.vp > 0 || e.np > 0,
+      inHomeTotal: inStateHomeTotal(e),
       vp: e.vp,
       np: e.np,
       elig: e.elig,
@@ -1225,6 +1232,10 @@ export default function DashboardClient({
     (row: DisplayRow, next: Overrides): { current: number; ceiling: number } => {
       const current = next[row.id]?.daEdit ?? row.da ?? 0;
       if (!mgrPool) return { current, ceiling: Infinity };
+      // A carve-funded row is not bounded by the pool at all — gate 4 says
+      // Infinity for it under CapBound "state" (lib/calc.ts's capRoom), so the
+      // clamp must too, or the field would hold what the save then accepts.
+      if (!row.inHomeTotal) return { current, ceiling: Infinity };
       const { allocated, canMeasure } = measureAllocation(scopedRows, next);
       // Fall back to the server's Remaining when Calc bonus isn't in the
       // payload and there is nothing local to add up.
@@ -1497,6 +1508,12 @@ export default function DashboardClient({
   // ── totals row ──
   // Identity columns are in the payload too now; they hold strings and are
   // skipped by the `typeof v === "number"` guard.
+  //
+  // Every visible row is summed, carve-funded ones included (owner decision,
+  // 25 Aug 2026): this row totals the TABLE, not the pool. The pool-facing
+  // figure — the same rows less those with `inHomeTotal` false — is the cards'
+  // Remaining and a lead's header Allocated, so on a VIC view the Final total
+  // here can read above the header by exactly the part-split payouts.
   const totals = useMemo(() => {
     const t: Partial<Record<NumericField, number>> = {};
     for (const col of payload.columns) {
@@ -1570,22 +1587,21 @@ export default function DashboardClient({
     // One definition, in lib/calc.ts, so these six figures are testable rather
     // than four filters buried in a memo.
     const cards = poolCardTotals(emps, pool, params);
-    // The cap footers below measure the UNREDUCED home-state totals against
-    // each state's POOL — total cap less BOTH carve-outs (lib/fy26-caps.ts's
-    // statePoolOf, owner decision 25 Aug 2026) — which is the SAME figure the
-    // card headlines, and exactly what capRoom and /api/state's gate 4 enforce
-    // once the carves are attached (boundCaps above / getEffectiveDataset on
-    // the server). One figure throughout, so a card's Remaining is room under
-    // the number printed above it, and a lead's "Your pool CAP" is that same
-    // number rather than a looser one.
+    // The cap footers below measure each state's home total against its POOL
+    // — total cap less BOTH carve-outs (lib/fy26-caps.ts's statePoolOf, owner
+    // decision 25 Aug 2026) — which is the SAME figure the card headlines, and
+    // exactly what capRoom and /api/state's gate 4 enforce once the carves are
+    // attached (boundCaps above / getEffectiveDataset on the server).
     //
-    // There used to be a second, looser bound here (shared services only), on
-    // the grounds that the four part-split staff are VIC-home rows whose whole
-    // payouts are already in vicHome, so the split-state carve charges them
-    // twice. That double-count is real and now absorbed as a tighter VIC pool —
-    // see lib/fy26-caps.ts for the reversal and what it costs.
-    const vicHome = cards.vic + cards.vicOther;
-    const nswHome = cards.nsw + cards.nswOther;
+    // The home total is `cards.vicHome`: the state's rows LESS the carve-funded
+    // ones (lib/calc.ts's inStateHomeTotal). The pool is defined net of the
+    // people the carves fund — Shared Services, and the four part-split staff
+    // who have been st = "VIC" since 24 Aug — so counting their payouts here
+    // charged VIC for them twice (docs/bonus-reconciliation.md §9). One
+    // definition, shared with capRoom and a lead's header, so a Remaining is
+    // room the save will actually allow.
+    const vicHome = cards.vicHome;
+    const nswHome = cards.nswHome;
     const groupTotal = cards.group;
 
     // A figure goes red when it exceeds its cap. An ADMIN's own edit cannot
@@ -1658,15 +1674,19 @@ export default function DashboardClient({
           // The two lines are NOT a breakdown of the headline — they cover a
           // different population. The headline is everyone on Shared Services;
           // the lines are the PART-SPLIT staff, the few on their own ratio
-          // rather than the corporate one, attributed per cap. They deliberately
-          // do not sum to it.
+          // rather than the corporate one, per cap. They deliberately do not
+          // sum to it.
           //
-          // No ratio in the label: no such constant exists in the code, the
-          // corporate ratio is inferred from the data (see poolCardTotals), and
-          // a hardcoded "61/39" would go stale the moment one changed.
+          // These are the TYPED split-state carve-outs (lib/fy26-caps.ts), the
+          // same figures the state cards print as "Less split state" and what
+          // each pool is defined net of (owner decision, 25 Aug 2026). The live
+          // attribution — cards.vicPartSplit / nswPartSplit, today's payouts at
+          // the with-locks scale — reads a couple of thousand higher on VIC and
+          // is kept for the reconciliation, not displayed: which method is right
+          // is open with Dee (docs/bonus-reconciliation.md §9.5).
           lines: [
-            { label: "Part-split staff, VIC", value: cards.vicPartSplit },
-            { label: "Part-split staff, NSW", value: cards.nswPartSplit },
+            { label: "Part-split staff, VIC", value: FY26_CARVE_OUTS.VIC.splitState },
+            { label: "Part-split staff, NSW", value: FY26_CARVE_OUTS.NSW.splitState },
           ],
           over: false,
         },
@@ -1793,6 +1813,8 @@ export default function DashboardClient({
     // the figure they are clamped against and the figure this spends can never
     // drift apart. See that function for why a local sum is exact here, and for
     // what `canMeasure` falls back to.
+    // measureAllocation drops the carve-funded rows itself, so a state's
+    // budget is spent only across the people the pool actually funds.
     const sourceRows = isEditor
       ? allRows.filter((r) => r.st === activeTab)
       : scopedRows;
@@ -1856,7 +1878,11 @@ export default function DashboardClient({
     if (isEditor && activeTab !== "VIC" && activeTab !== "NSW") {
       return new Set<string>();
     }
-    const candidates = isEditor ? allRows.filter((r) => r.st === activeTab) : allRows;
+    // Carve-funded rows are not funded by the pool a redistribution spends, so
+    // they cannot be ticked into one — the same rows measureAllocation skips.
+    const candidates = (isEditor ? allRows.filter((r) => r.st === activeTab) : allRows).filter(
+      (r) => r.inHomeTotal
+    );
     const rows: Redistributable[] = candidates.map((r) => ({
       id: r.id,
       daEdit: r.da ?? 0,
