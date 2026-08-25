@@ -11,7 +11,12 @@
 import type { Dataset, Overrides } from "./schema";
 import type { Scope } from "./access";
 import { ruleMatches } from "./access-rules";
-import { editableColumns, canLockRows, scopeOverridesView } from "./write-scope";
+import {
+  editableColumns,
+  canLockRows,
+  canDownloadLetters,
+  scopeOverridesView,
+} from "./write-scope";
 import { NUMERIC_FIELDS } from "./access-types";
 import {
   DEFAULT_COLUMNS,
@@ -83,6 +88,7 @@ export function buildPayloadCore(
       },
       caps: { vCap: data.vCap, nCap: data.nCap, gCap: data.gCap },
       canEditCaps: scope.rule.canEditCaps,
+      canDownloadLetter: canDownloadLetters(scope),
       cats: data.cats,
       depts: data.depts,
       mgrs: data.mgrs,
@@ -167,6 +173,7 @@ export function buildPayloadCore(
     columns,
     canEditFields: editableColumns(scope),
     canLock: canLockRows(scope),
+    canDownloadLetter: canDownloadLetters(scope),
     // the same window the write boundary enforces: their rows, their fields.
     // A lead needs this baseline so a save doesn't clear rows they never
     // touched, and the version so their save isn't a guaranteed 409.

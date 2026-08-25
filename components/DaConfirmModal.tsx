@@ -68,10 +68,9 @@ export default function DaConfirmModal({
             Confirm {impact.grants.length === 1 ? "this discretionary change" : "these discretionary changes"}
           </div>
           <p className="mt-1 text-[12px] text-brand-70">
-            Each discretionary amount is either funded FROM the pool — other
-            bonuses fall to pay for it — or added ON TOP of it, which raises the
-            pool total instead. Neither can take a pool past its cap. Here is
-            where this leaves them.
+            A discretionary amount is added ON TOP of the pool, so nobody else&rsquo;s
+            bonus falls to pay for it — the pool total simply rises by the
+            amount. Here is where that leaves each pool against its cap.
           </p>
         </div>
 

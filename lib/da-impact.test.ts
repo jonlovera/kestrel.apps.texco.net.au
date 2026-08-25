@@ -167,6 +167,19 @@ describe("daHeadroom", () => {
     expect(daHeadroom(row(rows, "A"), rows, tight)).toBe(50);
   });
 
+  it("forwards the CapBound, so a scoped lead is judged by their state alone", () => {
+    // Same tight group cap, which is what refuses an admin above. A lead is
+    // never sent gCap (lib/scope-core.ts), so /api/state's gate 4 passes
+    // "state" for them and they get VIC's own 300 instead of the group's 50.
+    const tight: Dataset = { ...data, gCap: 1250 };
+    const { rows } = pooled({}, tight);
+    expect(daHeadroom(row(rows, "A"), rows, tight, "state")).toBe(300);
+    // and the default is the stricter bound, unchanged
+    expect(daHeadroom(row(rows, "A"), rows, tight)).toBe(
+      daHeadroom(row(rows, "A"), rows, tight, "both")
+    );
+  });
+
   it("leaves a row drawing from no pool unbounded", () => {
     const noPool: Dataset = {
       ...data,

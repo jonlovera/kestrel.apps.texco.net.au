@@ -107,6 +107,18 @@ export function canLockRows(scope: Scope): boolean {
   return writableFields(scope).includes("locked");
 }
 
+/**
+ * Whether this scope may download a person's remuneration letter.
+ *
+ * Read straight off the rule rather than derived from anything else, and NOT
+ * implied by full access — see `canDownloadLetter` in lib/access-rules.ts for
+ * why an admin has to be granted it like everyone else. A Scope always carries
+ * a granting rule, so there is no `none` case to exclude.
+ */
+export function canDownloadLetters(scope: Scope): boolean {
+  return scope.rule.canDownloadLetter;
+}
+
 /** Whose rows this scope may change. */
 export function writableEmployeeIds(
   scope: Scope,

@@ -29,6 +29,7 @@ import {
 } from "@/lib/calc";
 import { clampDa, daHeadroom, type DaImpact } from "@/lib/da-impact";
 import { redistribute, eligible, type Redistributable } from "@/lib/redistribute";
+import { letterUnavailableReason } from "@/lib/letter-blocks";
 import { fmt } from "@/lib/fmt";
 import DaConfirmModal from "./DaConfirmModal";
 import { TexcoX, TexcoWordmark } from "./TexcoBrand";
@@ -79,6 +80,55 @@ const BUILDUP_KEY = "kestrel:buildup-open";
 const filterApplies = (sel: string[], all: readonly string[]) =>
   sel.length > 0 && sel.length !== all.length;
 
+/**
+ * What a set of display rows allocates under a document, in one pass, without
+ * waiting for the preview round trip.
+ *
+ * This is only possible because a discretionary amount no longer moves the
+ * scale: `calc` is therefore INVARIANT under a DA edit, so
+ * Σ(locked ? final : calc + da) is exact for the case that matters (a DA
+ * change or a tick). It goes stale for one pass after an IPM or lock edit,
+ * which does move `calc`, and that self-corrects on the next preview.
+ *
+ * `canMeasure` is false for a scoped view that is not sent Calc bonus at all,
+ * since then there is nothing local to add up — callers fall back to the
+ * server's figure.
+ *
+ * ONE definition, shared by the two things that need it: the ceiling a lead's
+ * Discretionary field is held to (leadDaBounds) and the budget a redistribution
+ * spends (withRedistribution). Expressing it twice would let a lead be clamped
+ * against one figure and redistributed against another.
+ */
+function measureAllocation(
+  sourceRows: readonly DisplayRow[],
+  next: Overrides
+): { allocated: number; canMeasure: boolean; rows: Redistributable[] } {
+  const rows: Redistributable[] = [];
+  let allocated = 0;
+  let canMeasure = true;
+  for (const r of sourceRows) {
+    const da = next[r.id]?.daEdit ?? r.da ?? 0;
+    const locked = next[r.id]?.locked ?? r.locked;
+    if (locked) {
+      allocated += r.final ?? 0;
+    } else if (r.calc === undefined) {
+      canMeasure = false;
+    } else {
+      allocated += r.calc + da;
+    }
+    rows.push({
+      id: r.id,
+      daEdit: da,
+      locked,
+      calcBonus: r.calc ?? 0,
+      sm: r.sm,
+      st: r.st,
+      inPool: r.inPool,
+    });
+  }
+  return { allocated, canMeasure, rows };
+}
+
 export default function DashboardClient({
   payload,
   viewAs,
@@ -121,6 +171,17 @@ export default function DashboardClient({
    * write).
    */
   const canLockAnything = isEditor || payload.canLock;
+
+  /**
+   * Whether the Letter column appears at all.
+   *
+   * Straight off the payload for BOTH kinds of user, with no `isEditor ||`
+   * shortcut — that is the deliberate difference from the lock above. A
+   * remuneration letter leaves the building over a director's signature, so
+   * full access is not by itself an answer to whether someone may produce one;
+   * /api/letter refuses on the same grant.
+   */
+  const canDownloadLetter = payload.canDownloadLetter;
 
   // ── editor state: the SOURCE dataset, persisted per-change to /api/dataset ─
   // Held in state (not read straight off the payload) so an inline edit
@@ -1022,14 +1083,21 @@ export default function DashboardClient({
     // The exclude (pencil) column stays admin-only: removing someone from
     // the model entirely is a different, heavier action than freezing their
     // bonus.
+    // The letter sits beside the lock because that is what it depends on — a
+    // letter states a final bonus, so the row has to be frozen first. Its own
+    // grant again (the access screen's "Can download letters"), and unlike the
+    // lock an admin does NOT get it for being an admin.
     const tools: TableColumn[] = [
       ...(canLockAnything
         ? [{ key: "lock", label: "Lock", noSort: true }]
         : []),
+      ...(canDownloadLetter
+        ? [{ key: "letter", label: "Letter", noSort: true }]
+        : []),
       ...(isEditor ? [{ key: "edit", label: "", noSort: true }] : []),
     ];
     return [...configured, ...tools];
-  }, [isEditor, viewingAs, columnConfig, payload, canEditFields, canLockAnything]);
+  }, [isEditor, viewingAs, columnConfig, payload, canEditFields, canLockAnything, canDownloadLetter]);
 
   /** Which of the build-up figures this person is entitled to at all. */
   const buildupColumnCount = useMemo(
@@ -1126,20 +1194,60 @@ export default function DashboardClient({
     setOverrides((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
   }
 
+  /**
+   * A LEAD's ceiling for one row: the most its Discretionary field may hold.
+   *
+   * A lead has no engine here — they are never sent the dataset or the caps —
+   * so this is measured off their own header instead: their pool, less what
+   * every OTHER row in scope allocates. Backing the row's own amount out is
+   * what makes it "the most this field may hold" rather than "the most it may
+   * go up by", and also what makes it stable while they type into this row:
+   * only a change to some other row moves it.
+   *
+   * It agrees with what /api/state's gate 4 will decide. For a whole-state
+   * lead the two are identical arithmetic — their pool IS the state cap and
+   * their rows ARE that state's rows, so `pool - others` is exactly the
+   * home-state bound the server applies (lib/calc.ts's capRoom under
+   * CapBound "state"). For a narrower scope this is the tighter of the two,
+   * which is the honest answer: their budget is their own pool, and gate 3
+   * would refuse anything above it regardless of what a state cap allowed.
+   *
+   * Infinity when there is no header to measure against (an admin, who has the
+   * engine and takes the branch above instead).
+   */
+  const leadDaBounds = useCallback(
+    (row: DisplayRow, next: Overrides): { current: number; ceiling: number } => {
+      const current = next[row.id]?.daEdit ?? row.da ?? 0;
+      if (!mgrPool) return { current, ceiling: Infinity };
+      const { allocated, canMeasure } = measureAllocation(scopedRows, next);
+      // Fall back to the server's Remaining when Calc bonus isn't in the
+      // payload and there is nothing local to add up.
+      const others = canMeasure ? mgrPool.pool - allocated : mgrPool.remaining;
+      return { current, ceiling: others + current };
+    },
+    [mgrPool, scopedRows]
+  );
+
   function updateDA(id: string, val: string) {
     // The hard limit (owner decision, 25 Aug 2026: the field refuses the grant
     // automatically). A discretionary amount adds to its pool's total instead
-    // of being funded from inside it, so what bounds it IS the cap: the room
-    // left under this row's home-state cap and the group cap, measured off the
-    // same totals the pool cards show (lib/da-impact.ts's daHeadroom). Anything
+    // of being funded from inside it, so what bounds it IS the cap. Anything
     // above that ceiling is held to it and said out loud. A reduction is never
     // held back.
     //
-    // Read-only leads are deliberately never sent the dataset or the caps, so
-    // there is no ceiling to apply here for them; /api/state's gate 4 refuses
-    // an over-headroom figure on their behalf, and gate 5 makes both kinds of
-    // user confirm before anything is recorded.
+    // The two kinds of user reach the same ceiling by different routes, because
+    // they hold different figures. An admin has the engine and every cap, so
+    // theirs is daHeadroom over the whole population: the row's home-state cap
+    // AND the group cap. A lead has neither, so theirs is measured off their
+    // own header (leadDaBounds) — which is the same number gate 4 will apply to
+    // them, since a lead is bounded by their home state alone (lib/calc.ts's
+    // CapBound). Leads used to get no ceiling at all here and only learned on
+    // save, from a figure the refusal withheld.
+    //
+    // Gate 5 still makes both kinds of user confirm before anything is
+    // recorded, and gate 4 remains the guarantee behind both clamps.
     let num = parseDaInput(val);
+    let heldName = "";
     if (isEditor) {
       const emp = empById.get(id);
       if (!emp || emp.locked) return;
@@ -1148,20 +1256,25 @@ export default function DashboardClient({
       const ceiling = pool ? daHeadroom(emp, emps, params) : Infinity;
       const held = clampDa(num, emp.daEdit, ceiling);
       num = held.value;
-      if (held.clamped) {
-        setDaNotice(
-          `${emp.gn} ${emp.sn} was held to ${fmt(num)}. That is the most that can be granted before the pool reaches its cap.`
-        );
-        // The cell is uncontrolled and keyed on the stored figure, so a value
-        // held at what is already there wouldn't re-render on its own — the
-        // typed text would sit there looking accepted. Force the remount.
-        setDaNonce((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }));
-      } else if (daNotice) {
-        setDaNotice(null);
-      }
+      if (held.clamped) heldName = `${emp.gn} ${emp.sn}`;
     } else {
       const row = rowById.get(id);
       if (!row || row.locked || !isDaEditable(row)) return;
+      const { current, ceiling } = leadDaBounds(row, overridesRef.current);
+      const held = clampDa(num, current, ceiling);
+      num = held.value;
+      if (held.clamped) heldName = row.name;
+    }
+    if (heldName) {
+      setDaNotice(
+        `${heldName} was held to ${fmt(num)}. That is the most that can be granted before the pool reaches its cap.`
+      );
+      // The cell is uncontrolled and keyed on the stored figure, so a value
+      // held at what is already there wouldn't re-render on its own — the
+      // typed text would sit there looking accepted. Force the remount.
+      setDaNonce((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }));
+    } else if (daNotice) {
+      setDaNotice(null);
     }
     setOverride(id, { daEdit: num });
   }
@@ -1169,21 +1282,90 @@ export default function DashboardClient({
   /**
    * The ceiling for one row, for the hint the table shows on a focused cell —
    * so the limit is visible before anyone types into it rather than only after
-   * they have been held to it. Null when there is nothing to show (a lead, who
-   * has no engine here, or a row with no cap bound).
+   * they have been held to it. Null when there is nothing to show (a row with
+   * no cap bound, or one that isn't adjustable in the first place).
+   *
+   * `overrides`, not `overridesRef`: this runs during render, where the state
+   * is current and the ref is a beat behind.
    */
   const daHeadroomFor = useCallback(
     (id: string): number | null => {
-      if (!isEditor || !pool) return null;
-      const emp = empById.get(id);
-      if (!emp || emp.locked) return null;
-      // no ceiling badge on a cell that isn't adjustable in the first place
-      if (!isDaEditable(rowRule(emp))) return null;
-      const ceiling = daHeadroom(emp, emps, params);
-      return Number.isFinite(ceiling) ? Math.max(0, Math.floor(ceiling)) : null;
+      const show = (ceiling: number) =>
+        Number.isFinite(ceiling) ? Math.max(0, Math.floor(ceiling)) : null;
+      if (isEditor) {
+        if (!pool) return null;
+        const emp = empById.get(id);
+        if (!emp || emp.locked) return null;
+        // no ceiling badge on a cell that isn't adjustable in the first place
+        if (!isDaEditable(rowRule(emp))) return null;
+        return show(daHeadroom(emp, emps, params));
+      }
+      const row = rowById.get(id);
+      if (!row || row.locked || !isDaEditable(row)) return null;
+      return show(leadDaBounds(row, overrides).ceiling);
     },
-    [isEditor, pool, empById, emps, params]
+    [isEditor, pool, empById, emps, params, rowById, leadDaBounds, overrides]
   );
+
+  /**
+   * Why this row's letter is unavailable — the rule itself is in
+   * lib/letter-blocks.ts; what this adds is the one fact only the dashboard
+   * holds, whether the lock has actually been SAVED. Everything typed since
+   * the last Save is scratch, invisible to the server, so a row that reads as
+   * locked on screen is not one /api/letter can see.
+   */
+  const letterBlocked = useCallback(
+    (row: DisplayRow): string | null =>
+      letterUnavailableReason(row, savedOverrides[row.id]?.locked === true),
+    [savedOverrides]
+  );
+
+  /**
+   * Fetch the letter and hand it to the browser as a file.
+   *
+   * Deliberately NOT a plain link, which is how this started: a link navigates,
+   * so any refusal replaced the whole dashboard with the raw JSON error at
+   * /api/letter?id=… and the only way back was the back button. A refusal has
+   * to leave the person where they were, with the reason in the notice bar they
+   * already read everything else in.
+   */
+  async function downloadLetter(id: string) {
+    const row = rowById.get(id);
+    if (!row) return;
+    const blocked = letterBlocked(row);
+    if (blocked) {
+      setNotice(blocked);
+      return;
+    }
+    setNotice(null);
+    let url: string | null = null;
+    try {
+      const res = await fetch(`/api/letter?id=${encodeURIComponent(id)}`);
+      if (!res.ok) {
+        // The server is the boundary, so it still gets the last word — a lock
+        // someone else released, or a grant withdrawn since the page loaded.
+        const body = await res.json().catch(() => null);
+        setNotice(body?.error ?? `The letter for ${row.name} couldn't be produced.`);
+        return;
+      }
+      const name =
+        /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ??
+        `${row.name}.docx`;
+      url = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch {
+      setNotice(`The letter for ${row.name} couldn't be downloaded. Check your connection and try again.`);
+    } finally {
+      // Revoked either way: on the error path there is nothing to keep, and on
+      // the success path the click has already handed the blob to the browser.
+      if (url) URL.revokeObjectURL(url);
+    }
+  }
 
   /**
    * IPM is the one figure a site manager's own bonus does still move with
@@ -1390,12 +1572,19 @@ export default function DashboardClient({
     const sharedTotal = emps.filter((e) => e.st === "SHARED").reduce((s, e) => s + e.finalBonus, 0);
     const groupTotal = emps.reduce((s, e) => s + e.finalBonus, 0);
 
-    // A figure goes red when it exceeds its cap. A discretionary amount adds
-    // to these totals, but it is clamped at type time to the room left under
-    // the caps (getMaxDA, measured off exactly these figures), so a fresh edit
-    // cannot cause this — at most it takes a card to exactly its cap. What
-    // still surfaces here is a stored figure inherited from a lowered cap or an
-    // earlier funding model, until it is corrected.
+    // A figure goes red when it exceeds its cap. An ADMIN's own edit cannot
+    // cause that: theirs is clamped at type time to the room left under both
+    // caps (getMaxDA, measured off exactly these figures), so at most it takes
+    // a card to exactly its cap.
+    //
+    // The GROUP card can now go red from someone else's work, and that is
+    // expected rather than a fault. A lead is bounded by their home state
+    // alone (lib/calc.ts's CapBound), so a lead spending their state's room can
+    // carry the group total past gCap — which, since gCap defaults to
+    // vCap + nCap and Shared Services draws against it with no state cap of its
+    // own, it was already close to. This card is where that surfaces, for the
+    // one person who can act on it. Also still surfaces a stored figure
+    // inherited from a lowered cap or an earlier funding model.
     // Half-a-cent slack so float noise never paints a card red.
     const over = (value: number, cap: number) => value > cap + 0.005;
     const { vCap, nCap, gCap } = params;
@@ -1493,11 +1682,11 @@ export default function DashboardClient({
         footer={
           it.cap !== undefined && capCommits[it.key]
             ? capFooter(
-                capCommits[it.key].label,
-                it.cap,
-                "remaining" in it && typeof it.remaining === "number" ? it.remaining : undefined,
-                capCommits[it.key].commit
-              )
+              capCommits[it.key].label,
+              it.cap,
+              "remaining" in it && typeof it.remaining === "number" ? it.remaining : undefined,
+              capCommits[it.key].commit
+            )
             : undefined
         }
         tone={it.over ? "alert" : "normal"}
@@ -1525,41 +1714,14 @@ export default function DashboardClient({
     if (isEditor && activeTab !== "VIC" && activeTab !== "NSW") return null;
 
     // Remaining, recomputed locally rather than waiting for the preview round
-    // trip. This is only possible because a discretionary amount no longer
-    // moves the scale: `calc` is therefore INVARIANT under a DA edit, so
-    // pool − Σ(locked ? final : calc + da) is exact for the case that matters
-    // (a DA change or a tick). It goes stale for one pass after an IPM or lock
-    // edit, which does move `calc` — and that self-corrects, because the next
-    // pass sees a negative remaining and reclaims it.
-    //
-    // Falls back to the server's figure for a scoped view that is not sent
-    // Calc bonus at all, since then there is nothing local to add up.
+    // trip — through the same measureAllocation a lead's field ceiling uses, so
+    // the figure they are clamped against and the figure this spends can never
+    // drift apart. See that function for why a local sum is exact here, and for
+    // what `canMeasure` falls back to.
     const sourceRows = isEditor
       ? allRows.filter((r) => r.st === activeTab)
       : scopedRows;
-    const rows: Redistributable[] = [];
-    let allocated = 0;
-    let canMeasure = true;
-    for (const r of sourceRows) {
-      const da = next[r.id]?.daEdit ?? r.da ?? 0;
-      const locked = next[r.id]?.locked ?? r.locked;
-      if (locked) {
-        allocated += r.final ?? 0;
-      } else if (r.calc === undefined) {
-        canMeasure = false;
-      } else {
-        allocated += r.calc + da;
-      }
-      rows.push({
-        id: r.id,
-        daEdit: da,
-        locked,
-        calcBonus: r.calc ?? 0,
-        sm: r.sm,
-        st: r.st,
-        inPool: r.inPool,
-      });
-    }
+    const { allocated, canMeasure, rows } = measureAllocation(sourceRows, next);
     let remaining: number;
     if (isEditor) {
       // Admin redistribution is state-tab scoped and spends that state's room
@@ -2256,6 +2418,8 @@ export default function DashboardClient({
                 toggleLock,
                 renameColumn,
                 editEmployee: setEditingId,
+                downloadLetter,
+                letterBlocked,
               }}
               scrollRef={setTableScrollEl}
             />

@@ -10,20 +10,20 @@ import { fmt } from "@/lib/fmt";
  */
 export type PoolSummary =
   | {
-      kind: "editor";
-      items: {
-        key: string;
-        title: string;
-        value: number;
-        cap?: number;
-        remaining?: number;
-        over: boolean;
-      }[];
-    }
+    kind: "editor";
+    items: {
+      key: string;
+      title: string;
+      value: number;
+      cap?: number;
+      remaining?: number;
+      over: boolean;
+    }[];
+  }
   | {
-      kind: "manager";
-      items: { key: string; title: string; value: string; alert?: boolean }[];
-    };
+    kind: "manager";
+    items: { key: string; title: string; value: string; alert?: boolean }[];
+  };
 
 /**
  * The collapsed form of the pool cards: one thin line of the same figures, so
@@ -33,17 +33,17 @@ export function PoolStrip({ summary }: { summary: PoolSummary }) {
   const items =
     summary.kind === "editor"
       ? summary.items.map((it) => ({
-          key: it.key,
-          title: it.title,
-          value: fmt(it.value),
-          alert: it.over,
-        }))
+        key: it.key,
+        title: it.title,
+        value: fmt(it.value),
+        alert: it.over,
+      }))
       : summary.items.map((it) => ({
-          key: it.key,
-          title: it.title,
-          value: it.value,
-          alert: it.alert ?? false,
-        }));
+        key: it.key,
+        title: it.title,
+        value: it.value,
+        alert: it.alert ?? false,
+      }));
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t-2 border-brand-orange bg-white px-4 py-1.5 text-[12px] shadow-sm">

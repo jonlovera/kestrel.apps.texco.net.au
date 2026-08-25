@@ -36,10 +36,10 @@ import { loadAccessOverlay, saveAccessOverlay, appendHistory } from "./store";
  * ============================================================================
  */
 const ACCESS: Record<string, AccessRule> = {
-  'jlovera@texco.net.au': { type: 'full', canEditCaps: false, canActAs: [] },
-  'dgibson@texco.net.au': { type: 'full', canEditCaps: false, canActAs: [] },
-  'tbull@texco.net.au': { type: 'full', canEditCaps: false, canActAs: [] },
-  'jbull@texco.net.au': { type: 'full', canEditCaps: false, canActAs: [] },
+  'jlovera@texco.net.au': { type: 'full', canEditCaps: false, canActAs: [], canDownloadLetter: false },
+  'dgibson@texco.net.au': { type: 'full', canEditCaps: false, canActAs: [], canDownloadLetter: false },
+  'tbull@texco.net.au': { type: 'full', canEditCaps: false, canActAs: [], canDownloadLetter: false },
+  'jbull@texco.net.au': { type: 'full', canEditCaps: false, canActAs: [], canDownloadLetter: false },
 };
 
 /** Resolved scope handed to the rest of the server code. */

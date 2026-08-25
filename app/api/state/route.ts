@@ -13,6 +13,7 @@ import {
   isDaEditable,
   isLockable,
   rowRule,
+  type CapBound,
 } from "@/lib/calc";
 import { poolBreach } from "@/lib/manager-pool";
 import { normalizeLockTransitions } from "@/lib/lock-freeze";
@@ -46,12 +47,15 @@ export const dynamic = "force-dynamic";
  *      2026: "it will get refused automatically by each discretionary field").
  *      A discretionary amount adds to its pool's total rather than being
  *      funded from inside it, so the bound is the cap: how much room is left
- *      under the row's home-state cap and the group cap, measured off the same
- *      totals the pool cards show (lib/da-impact.ts's daHeadroom). The editor
- *      holds every entry to it at type time and shows it on the field; this
- *      gate is the guarantee, judging only the amounts THIS save changes, so
- *      an inherited over-cap figure stays correctable. Refused, never trimmed
- *      — same principle as gate 3.
+ *      under the caps that apply to the person saving, measured off the same
+ *      totals the pool cards show (lib/da-impact.ts's daHeadroom). An admin is
+ *      bounded by the row's home-state cap AND the group cap; a scoped lead by
+ *      the home-state cap alone, because the group cap is one they are never
+ *      sent and is structurally the tighter of the two (see CapBound in
+ *      lib/calc.ts). Both kinds of user are held to the ceiling at type time
+ *      and shown it on the field; this gate is the guarantee, judging only the
+ *      amounts THIS save changes, so an inherited over-cap figure stays
+ *      correctable. Refused, never trimmed — same principle as gate 3.
  *   5. confirmation — a grant is a decision about money nobody else approved,
  *      so it is never committed silently. A save carrying changed
  *      discretionary amounts is refused with 428 and the impact figures (what
@@ -220,25 +224,32 @@ export async function POST(req: Request) {
   // The ceiling is re-derived from the document being saved, so several grants
   // in one save are judged against each other rather than each in isolation:
   // each one eats the room the next one would have had.
+  //
+  // WHICH caps bound it depends on who is saving (lib/calc.ts's CapBound). An
+  // admin owns every cap and is held to all of them. A scoped lead is held to
+  // their home-state cap alone: the group cap is one lib/scope-core.ts
+  // deliberately never sends them, and because gCap defaults to vCap + nCap it
+  // is structurally the tighter bound, so it used to refuse grants that their
+  // own Remaining figure said were affordable. Their remaining constraint is
+  // gate 3, which is measured against the pool their header actually shows.
   const fullAccess = scope.rule.type === "full";
+  const bound: CapBound = fullAccess ? "both" : "state";
   const nextRows = applyOverrides(data.emp, sanitised);
   computeScalesAndBonuses(nextRows, data);
   for (const grant of impact.grants) {
     const row = nextRows.find((e) => e.id === grant.empId);
     if (!row) continue;
-    const ceiling = daHeadroom(row, nextRows, data);
+    const ceiling = daHeadroom(row, nextRows, data, bound);
     if (!Number.isFinite(ceiling)) continue;
     if (row.daEdit <= ceiling + DA_EPSILON) continue;
     console.log(
-      `[audit] state-write OVER-HEADROOM email=${email} emp=${grant.empId} asked=${row.daEdit.toFixed(2)} ceiling=${ceiling.toFixed(2)} ts=${new Date().toISOString()}`
+      `[audit] state-write OVER-HEADROOM email=${email} emp=${grant.empId} asked=${row.daEdit.toFixed(2)} ceiling=${ceiling.toFixed(2)} bound=${bound} ts=${new Date().toISOString()}`
     );
     return noStore(
       NextResponse.json(
         {
-          error: overHeadroomMessage(grant, ceiling, fullAccess),
-          // The figure itself goes only to an admin. The dashboard derives its
-          // own ceiling from the payload it was sent, so a lead loses nothing.
-          ...(fullAccess ? { ceiling } : {}),
+          error: overHeadroomMessage(grant, ceiling),
+          ceiling,
           empId: grant.empId,
         },
         { status: 422 }
@@ -346,26 +357,23 @@ function overPoolMessage(over: number, wasOver: number): string {
 }
 
 /**
- * The hard limit's refusal.
+ * The hard limit's refusal, naming the ceiling — the one figure that lets
+ * someone fix it without guessing.
  *
- * Names the ceiling for an admin, because that is the one figure that lets
- * someone fix it without guessing. WITHHELD from a state lead, and that is a
- * privacy boundary rather than tidiness: for a pool-funded row the ceiling is
- * the state pool's own remaining room, and a lead is deliberately never sent
- * vCap, nCap, gCap or any whole-state total (lib/scope-core.ts strips them and
- * lib/scope-core.test.ts asserts it). Quoting the figure in an error string
- * would hand over exactly what the payload withholds. The audit line keeps the
- * exact number, where only an admin reads it.
+ * It used to be WITHHELD from a lead as a privacy boundary: a lead is never
+ * sent vCap, nCap, gCap or any whole-state total (lib/scope-core.ts strips them
+ * and lib/scope-core.test.ts asserts it), so quoting a group-cap ceiling would
+ * have handed over exactly what the payload withholds — and "ask an
+ * administrator how much room is left" was the only recourse left.
+ *
+ * That is no longer a boundary worth keeping, because a lead's ceiling is now
+ * their home-state bound alone (see CapBound). For a whole-state lead that is
+ * precisely `remaining + the row's own amount`, arithmetic they can already do
+ * from the header on their own screen, so the figure discloses nothing new. A
+ * narrower scope is bounded tighter still by their own pool at gate 3.
  */
-function overHeadroomMessage(
-  grant: DaGrant,
-  ceiling: number,
-  fullAccess: boolean
-): string {
+function overHeadroomMessage(grant: DaGrant, ceiling: number): string {
   const opener = `Not saved: ${fmt(grant.to)} for ${grant.name} would take the pool past its cap.`;
-  if (!fullAccess) {
-    return `${opener} Reduce it and save again, or ask an administrator how much room is left.`;
-  }
   const room = fmt(Math.max(0, Math.floor(ceiling)));
   return `${opener} At most ${room} can be granted before the pool reaches its cap. Reduce it to ${room} or less and save again.`;
 }

@@ -1,6 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // The remuneration letter template is read from disk at request time, so it
+  // has to be traced into the serverless bundle — nothing imports it, and the
+  // tracer only follows imports.
+  outputFileTracingIncludes: {
+    "/api/letter": ["./lib/templates/**"],
+  },
   async rewrites() {
     return [
       // A safety net, not the contract. Auth.js derives its own redirect_uri

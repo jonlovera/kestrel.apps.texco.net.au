@@ -28,7 +28,7 @@ import type { Dataset, Employee, Overrides } from "./schema";
 import { ParamsSchema, applyParams } from "./params-apply";
 import type { Scope } from "./access";
 import { managerPool, managerPoolFrom, poolBreach } from "./manager-pool";
-import { applyOverrides, computeScalesAndBonuses } from "./calc";
+import { applyOverrides, computeScalesAndBonuses, getMaxDA } from "./calc";
 
 const FIXTURE = join(__dirname, "..", "data", "prod-fixture.json");
 
@@ -189,6 +189,56 @@ describe.skipIf(!existsSync(FIXTURE))(
       // not turn a no-op save into a refusal
       expect(poolBreach(scope, data, overrides, overrides)).toBeNull();
     });
+
+    /**
+     * WHY THE GROUP CAP STOPPED BINDING A LEAD, on the real numbers.
+     *
+     * scripts/import.ts defaults gCap to vCap + nCap, and this capture has that
+     * identity exactly — so the group cap holds no room of its own, and Shared
+     * Services (counted in the group total, but with no state cap of its own)
+     * draws against the states' combined room dollar for dollar. The group
+     * bound is therefore tighter than either state bound by the whole Shared
+     * Services total, permanently. A lead is never sent gCap, so before
+     * CapBound that figure refused grants their own Remaining said were
+     * affordable, without ever telling them by how much.
+     */
+    it("the group cap holds no room of its own, and Shared Services consumes it", () => {
+      const emps = population();
+      const total = (st?: Employee["st"]) =>
+        emps.reduce((s, e) => (!st || e.st === st ? s + e.finalBonus : s), 0);
+
+      expect(data.gCap).toBeCloseTo(data.vCap + data.nCap, 6);
+
+      const vicRoom = data.vCap - total("VIC");
+      const nswRoom = data.nCap - total("NSW");
+      const groupRoom = data.gCap - total();
+      // the whole arithmetic in one line: the group has the states' combined
+      // room LESS every dollar Shared Services holds
+      expect(groupRoom).toBeCloseTo(vicRoom + nswRoom - total("SHARED"), 6);
+      // and on this capture that makes it the tighter bound by a wide margin
+      expect(total("SHARED")).toBeGreaterThan(0);
+      expect(groupRoom).toBeLessThan(vicRoom);
+      expect(groupRoom).toBeLessThan(nswRoom);
+    });
+
+    it("an NSW lead's ceiling matches their header, where the group cap refused it", () => {
+      const nswLead: Scope = {
+        ...scope,
+        rule: { ...rule, type: "state", states: ["NSW"] } as typeof rule,
+      };
+      const p = managerPool(nswLead, data, overrides);
+      const emps = population();
+      const row = emps.find((e) => e.st === "NSW" && !e.locked && e.vp + e.np > 0)!;
+
+      // what a lead is judged by now: their own Remaining, to the dollar
+      expect(getMaxDA(row, emps, data, "state")).toBe(
+        Math.floor(p.remaining + row.daEdit)
+      );
+      // ...and what used to judge them, which their header could not show
+      expect(getMaxDA(row, emps, data)).toBeLessThan(
+        getMaxDA(row, emps, data, "state")
+      );
+    });
   }
 );
 
@@ -238,7 +288,7 @@ describe("poolBreach", () => {
       visibleFields: ["da", "final"],
       editableFields: ["da"],
       canLock: true,
-      canActAs: [],
+      canActAs: [], canDownloadLetter: false,
     },
     canEdit: false,
     visibleFields: ["da", "final"],
@@ -246,7 +296,7 @@ describe("poolBreach", () => {
   };
   const admin: Scope = {
     email: "admin@texco.net.au",
-    rule: { type: "full", canEditCaps: true, canActAs: [] },
+    rule: { type: "full", canEditCaps: true, canActAs: [], canDownloadLetter: false },
     canEdit: true,
     visibleFields: ["da", "final"],
     label: "Admin",
@@ -305,6 +355,38 @@ describe("poolBreach", () => {
     expect(poolBreach(lead, roomy, { A: { daEdit: 501 } }, {})).not.toBeNull();
   });
 
+  /**
+   * THE IDENTITY THE DISCRETIONARY CEILING RESTS ON.
+   *
+   * A lead's field is clamped in the browser against their own header
+   * (DashboardClient's leadDaBounds: pool − what every OTHER row allocates),
+   * because they hold no engine and no caps. /api/state's gate 4 then judges
+   * the same figure with getMaxDA under CapBound "state". Those are two
+   * different computations in two different processes, and if they ever
+   * disagree a lead is either clamped below what they may have or accepted
+   * into a refusal — which is exactly the bug this replaced.
+   *
+   * For a whole-state lead they are the same arithmetic, because their pool IS
+   * the state cap and their rows ARE that state's rows. Pinned here so a change
+   * to either definition breaks loudly.
+   */
+  it("a state lead's ceiling equals their Remaining plus the row's own amount", () => {
+    const roomy: Dataset = { ...data, vCap: 1500, gCap: 2500 };
+    const check = (doc: Overrides, id: string) => {
+      const rows = applyOverrides(roomy.emp, doc);
+      computeScalesAndBonuses(rows, roomy);
+      const row = rows.find((e) => e.id === id)!;
+      const p = managerPool(lead, roomy, doc);
+      expect(getMaxDA(row, rows, roomy, "state")).toBe(
+        Math.floor(p.remaining + row.daEdit)
+      );
+    };
+    check({}, "A");
+    check({ A: { daEdit: 200 } }, "A"); // the row's own amount backed out
+    check({ A: { daEdit: 200 } }, "B"); // and counted against everyone else
+    check({ B: { locked: true, lockedFinal: 600 } }, "A");
+  });
+
   it("several states sum their caps", () => {
     const both: Scope = {
       ...lead,
@@ -337,7 +419,7 @@ describe("poolBreach", () => {
         visibleFields: ["da", "final"],
         editableFields: ["da"],
         canLock: true,
-        canActAs: [],
+        canActAs: [], canDownloadLetter: false,
       },
       label: "VIC group lead",
     };

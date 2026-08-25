@@ -23,7 +23,7 @@ const vicScope: Scope = {
     visibleFields: ["ipm", "bipm", "calc", "f25", "da", "yoy", "final"],
     editableFields: ["da"],
   canLock: false,
-  canActAs: [],
+  canActAs: [], canDownloadLetter: false,
   },
   canEdit: false,
   visibleFields: ["ipm", "bipm", "calc", "f25", "da", "yoy", "final"],
@@ -32,7 +32,7 @@ const vicScope: Scope = {
 
 const fullScope: Scope = {
   email: "admin@x.com",
-  rule: { type: "full", canEditCaps: false, canActAs: [] },
+  rule: { type: "full", canEditCaps: false, canActAs: [], canDownloadLetter: false },
   canEdit: true,
   visibleFields: ["pkg", "bp", "ipm", "bipm", "calc", "f25", "da", "yoy", "final"],
   label: "Full access — can edit",

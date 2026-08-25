@@ -86,6 +86,13 @@ export interface ReadonlyPayload {
    */
   canLock: boolean;
   /**
+   * Whether this user may download a locked person's remuneration letter.
+   * Its own grant, held by admins and leads alike or by neither — see
+   * `canDownloadLetter` in lib/access-rules.ts. /api/letter decides again on
+   * every request; this only says whether the control is rendered live.
+   */
+  canDownloadLetter: boolean;
+  /**
    * The stored overrides narrowed to this scope's writable window (their
    * rows, their fields) — see scopeOverridesView. Without a real baseline,
    * a lead's first save would read as "cleared everything else in my scope"
@@ -143,6 +150,12 @@ export interface EditorPayload {
    * pool card renders as an input.
    */
   canEditCaps: boolean;
+  /**
+   * Whether this admin may download a locked person's remuneration letter —
+   * its own grant, and deliberately NOT implied by full access, for the same
+   * reason `canEditCaps` is not. /api/letter decides again on every request.
+   */
+  canDownloadLetter: boolean;
   cats: string[];
   depts: string[];
   mgrs: string[];

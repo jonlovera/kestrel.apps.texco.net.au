@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   COLUMN_FORMATS,
+  DEFAULT_COLUMNS,
   isIdentityField,
   type ColumnConfig,
   type ColumnConfigEntry,
@@ -91,13 +92,35 @@ export default function ColumnMenu({
                 it. Changes are display only — they never alter a figure or who can
                 see one.
               </p>
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                className="shrink-0 border border-neutral-300 px-2.5 py-1 text-[11px] font-semibold text-brand-70 transition-colors hover:border-brand-orange hover:text-brand-orange"
-              >
-                Close
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                {/* One click back to the order in lib/columns.ts. Worth having
+                    because a stored config only ever drifts one way: fields
+                    added since it was saved are appended at the far right, so
+                    an old config ends up with Name adrift in the middle and
+                    nine ↑ presses to fix by hand. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (
+                      confirm(
+                        "Reset every column to its default order, label and visibility?"
+                      )
+                    ) {
+                      onChange(DEFAULT_COLUMNS.map((c) => ({ ...c })));
+                    }
+                  }}
+                  className="border border-neutral-300 px-2.5 py-1 text-[11px] font-semibold text-brand-70 transition-colors hover:border-brand-orange hover:text-brand-orange"
+                >
+                  Reset to default
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="border border-neutral-300 px-2.5 py-1 text-[11px] font-semibold text-brand-70 transition-colors hover:border-brand-orange hover:text-brand-orange"
+                >
+                  Close
+                </button>
+              </div>
             </div>
             <table className="w-full border-collapse text-[12px]">
               <tbody>

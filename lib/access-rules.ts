@@ -57,6 +57,22 @@ const canLock = z.boolean().default(false);
 const canEditCaps = z.boolean().default(false);
 
 /**
+ * May download a person's remuneration letter once their bonus is locked.
+ *
+ * Granted on EVERY rule shape including `full`, which is the one place this
+ * departs from `canLock` (where full access confers it implicitly). The letter
+ * is an outward-facing document carrying someone's salary and a director's
+ * signature, and the owner asked for it to reach "only some people" — so being
+ * an admin is not by itself an answer to whether you may produce one. That
+ * makes it read like `canEditCaps`: a narrower grant sitting on top.
+ *
+ * Defaults to false for the same reason both of those do — no stored rule
+ * predates it, so an unset value is "not granted" rather than assumed, and one
+ * unparseable rule must never be able to revoke the whole overlay.
+ */
+const canDownloadLetter = z.boolean().default(false);
+
+/**
  * Emails of the people whose dashboards this person may open through View as
  * AND make changes on. The change is always recorded against this person
  * (the actor), never the dashboard's owner — that requirement is what the
@@ -71,7 +87,7 @@ const canEditCaps = z.boolean().default(false);
 const canActAs = z.array(z.string()).default([]);
 
 export const AccessRuleSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("full"), canEditCaps, canActAs }),
+  z.object({ type: z.literal("full"), canEditCaps, canActAs, canDownloadLetter }),
   z.object({
     type: z.literal("state"),
     states: z.array(z.enum(["VIC", "NSW", "SHARED"])).min(1),
@@ -79,6 +95,7 @@ export const AccessRuleSchema = z.discriminatedUnion("type", [
     editableFields,
     canLock,
     canActAs,
+    canDownloadLetter,
   }),
   z.object({
     type: z.literal("subset"),
@@ -87,6 +104,7 @@ export const AccessRuleSchema = z.discriminatedUnion("type", [
     editableFields,
     canLock,
     canActAs,
+    canDownloadLetter,
   }),
   // A standing group rather than a fixed list: "all VIC site managers" keeps
   // meaning that as people come and go, where a subset would go stale.
@@ -98,6 +116,7 @@ export const AccessRuleSchema = z.discriminatedUnion("type", [
     editableFields,
     canLock,
     canActAs,
+    canDownloadLetter,
   }).refine(
     (r) => r.states.length > 0 || r.positions.length > 0,
     "a group needs at least one state or position, or it would match everyone"
@@ -143,20 +162,26 @@ export function describeRule(rule: AccessRule): string {
   // hide the most consequential thing the rule says.
   const acting =
     rule.canActAs.length > 0 ? `; can act for ${rule.canActAs.join(", ")}` : "";
-  if (rule.type === "full") return `full access${acting}`;
+  // Letters go out of the building over a director's signature, so who may
+  // produce one belongs in the sentence for the same reason acting does —
+  // an entry that omitted it would hide a grant nobody can see from the rule
+  // shape alone.
+  const letters = rule.canDownloadLetter ? "; can download letters" : "";
+  const extras = `${letters}${acting}`;
+  if (rule.type === "full") return `full access${extras}`;
   // The history has to record what they may CHANGE, not just what they see:
   // a rule going read-only is the whole point of the entry.
   const editing = describeEditing(rule);
   if (rule.type === "state")
-    return `${rule.states.join(" + ")} / ${editing}${acting}`;
+    return `${rule.states.join(" + ")} / ${editing}${extras}`;
   if (rule.type === "group") {
     const where = rule.states.length ? rule.states.join(" + ") : "all states";
     const who = rule.positions.length ? rule.positions.join(", ") : "all roles";
-    return `${where} / ${who} / ${editing}${acting}`;
+    return `${where} / ${who} / ${editing}${extras}`;
   }
   return `${rule.employeeIds.length} selected employee${
     rule.employeeIds.length === 1 ? "" : "s"
-  } / ${editing}${acting}`;
+  } / ${editing}${extras}`;
 }
 
 /**

@@ -100,6 +100,14 @@ export default function AccessManager({
    */
   const [canEditCaps, setCanEditCaps] = useState(false);
   /**
+   * Whether this person may download a locked employee's remuneration letter.
+   * Offered on every rule type, full access included — unlike Can lock, an
+   * admin does not get this for being an admin (lib/access-rules.ts explains
+   * why). Defaults to unticked: the letter leaves the building over a
+   * director's signature, so it is granted deliberately or not at all.
+   */
+  const [canDownloadLetter, setCanDownloadLetter] = useState(false);
+  /**
    * The "can act for" delegation: whose dashboards this person may open
    * through View as AND make changes on, recorded against their own name.
    * A list of emails from the access list itself (a target not on the list
@@ -129,6 +137,7 @@ export default function AccessManager({
     );
     setCanLock(row.rule.type === "full" ? true : row.rule.canLock);
     setCanEditCaps(row.rule.type === "full" ? row.rule.canEditCaps : false);
+    setCanDownloadLetter(row.rule.canDownloadLetter);
     setActAs([...row.rule.canActAs]);
     window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
   }
@@ -144,6 +153,7 @@ export default function AccessManager({
     setEditable([...EDITABLE_FIELDS]);
     setCanLock(true);
     setCanEditCaps(false);
+    setCanDownloadLetter(false);
     setActAs([]);
     setError("");
   }
@@ -182,7 +192,7 @@ export default function AccessManager({
     const canActAs = actAs.filter((e) => e !== email.trim().toLowerCase());
     const rule: GrantingRule =
       type === "full"
-        ? { type: "full", canEditCaps, canActAs }
+        ? { type: "full", canEditCaps, canActAs, canDownloadLetter }
         : type === "state"
           ? {
               type: "state",
@@ -191,6 +201,7 @@ export default function AccessManager({
               editableFields,
               canLock,
               canActAs,
+              canDownloadLetter,
             }
           : type === "group"
             ? {
@@ -201,6 +212,7 @@ export default function AccessManager({
                 editableFields,
                 canLock,
                 canActAs,
+                canDownloadLetter,
               }
             : {
                 type: "subset",
@@ -209,6 +221,7 @@ export default function AccessManager({
                 editableFields,
                 canLock,
                 canActAs,
+                canDownloadLetter,
               };
     if (rule.type === "state" && rule.states.length === 0) {
       setError("Pick at least one state");
@@ -563,6 +576,30 @@ export default function AccessManager({
               </div>
             </div>
           )}
+
+          {/* Every rule type, full access included: being an admin is not by
+              itself an answer to whether someone may send a signed letter. */}
+          <div className="mb-4">
+            <div className="mb-1 text-[11px] font-semibold tracking-wide text-brand-70">
+              Can download letters
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-1.5 text-[13px]">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 accent-brand-orange"
+                  checked={canDownloadLetter}
+                  onChange={() => setCanDownloadLetter((v) => !v)}
+                />
+                Can download remuneration letters
+              </label>
+              <span className="text-[12px] text-brand-70">
+                The signed FY27 review and FY26 award letter, for their own
+                people once a row is locked. Not implied by full access —
+                every admin needs this ticked too.
+              </span>
+            </div>
+          </div>
 
           {type === "full" && (
             <div className="mb-4">

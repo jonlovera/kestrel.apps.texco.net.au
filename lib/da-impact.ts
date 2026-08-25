@@ -11,10 +11,16 @@
  *     so a grant is refused automatically at the point its pool would pass its
  *     cap.
  *
- * That is exactly what lib/calc.ts's getMaxDA computes: the row's home-state
- * cap and the group cap, whichever binds first, measured off Σ final the same
- * way the cards are. A locked row has no headroom at all (its payout is
- * frozen), and a row drawing from no pool has no cap to overrun.
+ * That is exactly what lib/calc.ts's getMaxDA computes, measured off Σ final
+ * the same way the cards are. WHICH caps is the CapBound argument: an admin is
+ * bounded by the row's home-state cap and the group cap, whichever binds first,
+ * while a scoped lead is bounded by the home-state cap alone — the group cap is
+ * one they are never sent, and it is structurally the tighter of the two, so it
+ * refused every grant they made without ever telling them by how much (see
+ * CapBound in lib/calc.ts for the arithmetic). A locked row has no headroom at
+ * all (its payout is frozen), and a row with no applicable cap has none to
+ * overrun; for a lead the remaining constraint there is their own pool, which
+ * lib/manager-pool.ts's poolBreach enforces.
  *
  * The impact figures below are still measured by running the engine twice, so
  * they report what actually happens rather than what the model implies. Under
@@ -32,7 +38,7 @@
  */
 import { applyOverrides, computeScalesAndBonuses, getMaxDA } from "./calc";
 import type { PoolState } from "./calc";
-import type { CalcEmployee, Caps } from "./calc";
+import type { CalcEmployee, CapBound, Caps } from "./calc";
 import type { Employee, Overrides } from "./schema";
 
 /**
@@ -81,10 +87,16 @@ export const DA_POLICY: DaPolicy = {
  * Takes the whole population because the bound is measured off the pool totals
  * (see getMaxDA), not off one row — pass the rows the engine has just run over.
  *
- * Infinity for a row that draws from no pool (no cap to overrun, and /api/state
- * strips its DA anyway). Can be NEGATIVE when stored figures already exceed a
- * cap, which honestly means "no room at all" — callers hold at the row's
- * current amount rather than dragging it down.
+ * WHICH caps apply depends on who is asking (lib/calc.ts's CapBound). An admin
+ * is bounded by the home-state cap and the group cap; a SCOPED LEAD by their
+ * home-state cap alone, so they are judged against the pool their own header
+ * shows rather than by a group cap they are never sent. The default is "both",
+ * so a caller that has not thought about it gets the stricter bound.
+ *
+ * Infinity when no cap is left to bound the row — it draws from no pool, or it
+ * is a Shared Services row under "state". Can be NEGATIVE when stored figures
+ * already exceed a cap, which honestly means "no room at all" — callers hold
+ * at the row's current amount rather than dragging it down.
  *
  * HOOK: DA_POLICY.minBonusFloor would tighten this if a floor were ever set
  * on how far a redistribution may push a bonus down.
@@ -92,9 +104,10 @@ export const DA_POLICY: DaPolicy = {
 export function daHeadroom(
   e: CalcEmployee,
   emps: readonly CalcEmployee[],
-  caps: Caps
+  caps: Caps,
+  bound: CapBound = "both"
 ): number {
-  return getMaxDA(e, emps, caps);
+  return getMaxDA(e, emps, caps, bound);
 }
 
 /**

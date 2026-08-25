@@ -19,6 +19,7 @@ import {
   writeVerdict,
   WRITABLE_BY_ADMIN,
   WRITABLE_BY_LEAD,
+  canDownloadLetters,
 } from "./write-scope";
 
 const EMPLOYEES = [
@@ -36,7 +37,7 @@ const FIELDS = ["ipm", "da", "calc", "final"] as const;
 
 const admin: Scope = {
   email: "admin@texco.net.au",
-  rule: { type: "full", canEditCaps: false, canActAs: [] },
+  rule: { type: "full", canEditCaps: false, canActAs: [], canDownloadLetter: false },
   canEdit: true,
   visibleFields: [...FIELDS],
   label: "Full access",
@@ -50,7 +51,7 @@ const vicLead: Scope = {
     visibleFields: [...FIELDS],
     editableFields: [...EDITABLE_FIELDS],
     canLock: true,
-    canActAs: [],
+    canActAs: [], canDownloadLetter: false,
   },
   canEdit: false,
   visibleFields: [...FIELDS],
@@ -64,7 +65,7 @@ const subsetLead: Scope = {
     visibleFields: [...FIELDS],
     editableFields: [...EDITABLE_FIELDS],
     canLock: true,
-    canActAs: [],
+    canActAs: [], canDownloadLetter: false,
   },
   canEdit: false,
   visibleFields: [...FIELDS],
@@ -79,7 +80,7 @@ const smGroupLead: Scope = {
     visibleFields: [...FIELDS],
     editableFields: [...EDITABLE_FIELDS],
     canLock: true,
-    canActAs: [],
+    canActAs: [], canDownloadLetter: false,
   },
   canEdit: false,
   visibleFields: [...FIELDS],
@@ -94,7 +95,7 @@ const daOnlyLead: Scope = {
     visibleFields: [...FIELDS],
     editableFields: ["da"],
     canLock: true,
-    canActAs: [],
+    canActAs: [], canDownloadLetter: false,
   },
   canEdit: false,
   visibleFields: [...FIELDS],
@@ -103,7 +104,7 @@ const daOnlyLead: Scope = {
 /** Granted nothing at all — no editable fields, and "Can lock" unticked. */
 const readOnlyLead: Scope = {
   email: "vic-ro@texco.net.au",
-  rule: { type: "state", states: ["VIC"], visibleFields: [...FIELDS], editableFields: [], canLock: false, canActAs: [] },
+  rule: { type: "state", states: ["VIC"], visibleFields: [...FIELDS], editableFields: [], canLock: false, canActAs: [], canDownloadLetter: false },
   canEdit: false,
   visibleFields: [...FIELDS],
   label: "VIC (read only)",
@@ -115,7 +116,7 @@ const readOnlyLead: Scope = {
  */
 const lockOnlyLead: Scope = {
   email: "vic-lock@texco.net.au",
-  rule: { type: "state", states: ["VIC"], visibleFields: [...FIELDS], editableFields: [], canLock: true, canActAs: [] },
+  rule: { type: "state", states: ["VIC"], visibleFields: [...FIELDS], editableFields: [], canLock: true, canActAs: [], canDownloadLetter: false },
   canEdit: false,
   visibleFields: [...FIELDS],
   label: "VIC (lock only)",
@@ -129,7 +130,7 @@ const grantedNoLockLead: Scope = {
     visibleFields: [...FIELDS],
     editableFields: [...EDITABLE_FIELDS],
     canLock: false,
-    canActAs: [],
+    canActAs: [], canDownloadLetter: false,
   },
   canEdit: false,
   visibleFields: [...FIELDS],
@@ -514,12 +515,12 @@ describe("the canActAs default", () => {
       editableFields: ["da"],
       canLock: false,
     };
-    expect(AccessRuleSchema.parse(stored)).toMatchObject({ canActAs: [] });
+    expect(AccessRuleSchema.parse(stored)).toMatchObject({ canActAs: [], canDownloadLetter: false });
   });
 
   it("a stored full rule without canActAs parses the same way", () => {
     const stored = { type: "full", canEditCaps: true };
-    expect(AccessRuleSchema.parse(stored)).toMatchObject({ canActAs: [] });
+    expect(AccessRuleSchema.parse(stored)).toMatchObject({ canActAs: [], canDownloadLetter: false });
   });
 });
 
@@ -536,7 +537,7 @@ describe("the editable-fields grant", () => {
     visibleFields: Scope["visibleFields"] = [...FIELDS]
   ): Scope => ({
     ...vicLead,
-    rule: { type: "state", states: ["VIC"], visibleFields, editableFields, canLock: false, canActAs: [] },
+    rule: { type: "state", states: ["VIC"], visibleFields, editableFields, canLock: false, canActAs: [], canDownloadLetter: false },
     visibleFields,
   });
 
@@ -549,7 +550,7 @@ describe("the editable-fields grant", () => {
     // whatever editableFields happens to contain.
     const stored = { type: "state", states: ["VIC"], visibleFields: [...FIELDS] };
     const parsed = AccessRuleSchema.parse(stored);
-    expect(parsed).toMatchObject({ editableFields: ["da", "ipm"], canLock: false, canActAs: [] });
+    expect(parsed).toMatchObject({ editableFields: ["da", "ipm"], canLock: false, canActAs: [], canDownloadLetter: false });
   });
 
   it("writes nothing when no field is granted", () => {
@@ -599,5 +600,60 @@ describe("the editable-fields grant", () => {
     // and no visibility, so the new filtering must not reach them.
     expect(writableFields(admin)).toEqual(WRITABLE_BY_ADMIN);
     expect(writableFields(admin)).toContain("locked");
+  });
+});
+
+/**
+ * The letter grant. Its own permission, and the one place the codebase's
+ * "full access implies it" habit deliberately does NOT hold: a remuneration
+ * letter leaves the building over a director's signature, so an admin is
+ * granted it like anyone else or not at all.
+ */
+describe("canDownloadLetters", () => {
+  it("is false unless it has been granted, admin included", () => {
+    expect(canDownloadLetters(admin)).toBe(false);
+    expect(canDownloadLetters(vicLead)).toBe(false);
+    expect(canDownloadLetters(subsetLead)).toBe(false);
+  });
+
+  it("is true for whoever holds it, whatever their rule shape", () => {
+    for (const base of [admin, vicLead, subsetLead]) {
+      const granted: Scope = {
+        ...base,
+        rule: { ...base.rule, canDownloadLetter: true },
+      };
+      expect(canDownloadLetters(granted)).toBe(true);
+    }
+  });
+
+  it("is independent of every other grant", () => {
+    // read-only, cannot lock, cannot edit a thing — and may still be the
+    // person who sends the letters
+    const readOnly: Scope = {
+      ...vicLead,
+      rule: {
+        type: "state",
+        states: ["VIC"],
+        visibleFields: [...FIELDS],
+        editableFields: [],
+        canLock: false,
+        canActAs: [],
+        canDownloadLetter: true,
+      },
+    };
+    expect(canDownloadLetters(readOnly)).toBe(true);
+    expect(editableColumns(readOnly)).toEqual([]);
+  });
+
+  it("defaults to false when an older stored rule never carried it", () => {
+    // The parse-safety that matters: a rule written before this grant existed
+    // must come back valid and ungranted, never valid and granted.
+    const stored = AccessRuleSchema.parse({
+      type: "state",
+      states: ["VIC"],
+      visibleFields: ["final"],
+      editableFields: ["da"],
+    });
+    expect(stored).toMatchObject({ canDownloadLetter: false });
   });
 });

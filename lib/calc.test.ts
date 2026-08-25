@@ -569,6 +569,55 @@ describe("getMaxDA is the room left under the caps", () => {
   });
 });
 
+/**
+ * The bound a SCOPED LEAD is judged by (owner decision, 25 Aug 2026, after a
+ * lead was refused a $246,000 grant by a cap they are not shown).
+ *
+ * The block above ends on the reason: with gCap only vCap + nCap, the group
+ * bound is tighter than either state bound by the whole Shared Services total,
+ * so it refused everything, everywhere, for everyone. An admin owns that cap
+ * and can raise it; a lead is never even sent it (lib/scope-core.ts). So a
+ * lead is bounded by their home state alone, and the group overrun surfaces on
+ * the admin's group card instead.
+ */
+describe("getMaxDA under CapBound 'state' (what bounds a scoped lead)", () => {
+  it("ignores the group cap, so a lead may spend their state's room", () => {
+    const base = run();
+    // the very case the block above pins: nothing grantable under "both"...
+    expect(getMaxDA(base.byId.A, base.emps, CAPS)).toBe(-80);
+    // ...while VIC's own card still has 104 of room, which is now A's ceiling
+    expect(getMaxDA(base.byId.A, base.emps, CAPS, "state")).toBe(104);
+  });
+
+  it("defaults to 'both', so a caller that has not thought about it is stricter", () => {
+    const base = run();
+    expect(getMaxDA(base.byId.A, base.emps, CAPS)).toBe(
+      getMaxDA(base.byId.A, base.emps, CAPS, "both")
+    );
+  });
+
+  it("leaves a Shared Services row unbounded, since it has no state cap", () => {
+    // Under "both" the group cap is E's only bound; remove it and there is no
+    // cap left to overrun. Infinity is honest rather than permissive: gate 4
+    // skips a non-finite ceiling and the lead's own pool (poolBreach) binds.
+    const base = run();
+    expect(getMaxDA(base.byId.E, base.emps, CAPS)).toBe(-80);
+    expect(getMaxDA(base.byId.E, base.emps, CAPS, "state")).toBe(Infinity);
+  });
+
+  it("keeps every other rule: a locked row has none, a no-pool row has no bound", () => {
+    const r = run({ B: { locked: true, lockedFinal: 500 } });
+    expect(getMaxDA(r.byId.B, r.emps, CAPS, "state")).toBe(0);
+    expect(getMaxDA(r.byId.F, r.emps, CAPS, "state")).toBe(Infinity);
+  });
+
+  it("still refuses once the state's OWN card is full", () => {
+    // the bound is relaxed, not removed — a lead cannot overrun their state
+    const full = run({ A: { daEdit: 104 } });
+    expect(getMaxDA(full.byId.B, full.emps, CAPS, "state")).toBe(0);
+  });
+});
+
 describe("edge guards", () => {
   it("ipm = 0: cpm derives from raw bipm; ipmEdit 0 zeroes the bonus", () => {
     const e = makeEmp({ id: "Z", ipm: 0, bipm: 100 });

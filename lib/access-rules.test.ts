@@ -11,14 +11,14 @@ import {
   rewriteActAsReferences,
 } from "./access-rules";
 
-const full: AccessRule = { type: "full", canEditCaps: false, canActAs: [] };
+const full: AccessRule = { type: "full", canEditCaps: false, canActAs: [], canDownloadLetter: false };
 const vic: AccessRule = {
   type: "state",
   states: ["VIC"],
   visibleFields: ["final"],
   editableFields: ["da"],
   canLock: false,
-  canActAs: [],
+  canActAs: [], canDownloadLetter: false,
 };
 const none: AccessRule = { type: "none" };
 
@@ -77,7 +77,7 @@ describe("group rules: state and/or role, standing rather than a fixed list", ()
       visibleFields: [],
       editableFields: [],
       canLock: false,
-      canActAs: [],
+      canActAs: [], canDownloadLetter: false,
     });
 
   it("state and role together intersect", () => {
@@ -119,7 +119,7 @@ describe("describeEditing", () => {
       visibleFields: [],
       editableFields,
       canLock: false,
-      canActAs: [],
+      canActAs: [], canDownloadLetter: false,
     });
 
   it("names what they may set", () => {
@@ -133,7 +133,7 @@ describe("describeEditing", () => {
   });
 
   it("full access is never read only", () => {
-    expect(describeEditing({ type: "full", canEditCaps: false, canActAs: [] })).toBe("can edit");
+    expect(describeEditing({ type: "full", canEditCaps: false, canActAs: [], canDownloadLetter: false })).toBe("can edit");
   });
 });
 
@@ -226,17 +226,17 @@ describe("dropInvalidRules", () => {
 describe("the canActAs delegation", () => {
   it("describeRule names the delegation — the history must record it", () => {
     expect(
-      describeRule({ ...vic, canActAs: ["jglick@texco.net.au"] })
+      describeRule({ ...vic, canActAs: ["jglick@texco.net.au"], canDownloadLetter: false })
     ).toBe("VIC / can set Discretionary; can act for jglick@texco.net.au");
     expect(
-      describeRule({ type: "full", canEditCaps: false, canActAs: ["jglick@texco.net.au"] })
+      describeRule({ type: "full", canEditCaps: false, canActAs: ["jglick@texco.net.au"], canDownloadLetter: false })
     ).toBe("full access; can act for jglick@texco.net.au");
     expect(describeRule(vic)).not.toContain("can act for");
   });
 
   it("rewriteActAsReferences moves a reference to a changed email", () => {
     const overlay: Record<string, AccessRule> = {
-      "clint@texco.net.au": { ...vic, canActAs: ["old@texco.net.au"] },
+      "clint@texco.net.au": { ...vic, canActAs: ["old@texco.net.au"], canDownloadLetter: false },
       "other@texco.net.au": { ...vic },
     };
     const { overlay: out, changed } = rewriteActAsReferences(
@@ -256,7 +256,7 @@ describe("the canActAs delegation", () => {
     const overlay: Record<string, AccessRule> = {
       "clint@texco.net.au": {
         ...vic,
-        canActAs: ["old@texco.net.au", "new@texco.net.au"],
+        canActAs: ["old@texco.net.au", "new@texco.net.au"], canDownloadLetter: false,
       },
     };
     const { overlay: out } = rewriteActAsReferences(
@@ -271,7 +271,7 @@ describe("the canActAs delegation", () => {
 
   it("rewriteActAsReferences matches case-insensitively and reports nothing when nothing matched", () => {
     const overlay: Record<string, AccessRule> = {
-      "clint@texco.net.au": { ...vic, canActAs: ["Old@Texco.net.au"] },
+      "clint@texco.net.au": { ...vic, canActAs: ["Old@Texco.net.au"], canDownloadLetter: false },
     };
     const hit = rewriteActAsReferences(overlay, "old@texco.net.au", "new@texco.net.au");
     expect(hit.changed).toEqual(["clint@texco.net.au"]);

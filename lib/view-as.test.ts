@@ -34,7 +34,7 @@ const scope = (
 
 const admin = scope(
   "admin@texco.net.au",
-  { type: "full", canEditCaps: false, canActAs: [] },
+  { type: "full", canEditCaps: false, canActAs: [], canDownloadLetter: false },
   true
 );
 const lead = scope(
@@ -45,7 +45,7 @@ const lead = scope(
     visibleFields: [...FIELDS],
     editableFields: ["da"],
     canLock: false,
-    canActAs: [],
+    canActAs: [], canDownloadLetter: false,
   },
   false
 );
@@ -58,7 +58,7 @@ const clint = scope(
     visibleFields: [...FIELDS],
     editableFields: ["da"],
     canLock: false,
-    canActAs: ["jglick@texco.net.au"],
+    canActAs: ["jglick@texco.net.au"], canDownloadLetter: false,
   },
   false
 );
@@ -70,14 +70,14 @@ const jglick = scope(
     visibleFields: [...FIELDS],
     editableFields: ["da"],
     canLock: false,
-    canActAs: [],
+    canActAs: [], canDownloadLetter: false,
   },
   false
 );
 /** An admin who was ALSO delegated one person — the write sanction rides on the list, not on full access. */
 const delegatedAdmin = scope(
   "admin2@texco.net.au",
-  { type: "full", canEditCaps: false, canActAs: ["jglick@texco.net.au"] },
+  { type: "full", canEditCaps: false, canActAs: ["jglick@texco.net.au"], canDownloadLetter: false },
   true
 );
 
@@ -144,7 +144,7 @@ describe("who may WRITE while viewing (canActOn)", () => {
     // acting for an admin would mean writing with an admin-wide window
     const clintDelegatedAnAdmin = scope(
       clint.email,
-      { ...clint.rule, canActAs: ["admin@texco.net.au"] },
+      { ...clint.rule, canActAs: ["admin@texco.net.au"], canDownloadLetter: false },
       false
     );
     expect(canActOn(clintDelegatedAnAdmin, admin)).toBe(false);

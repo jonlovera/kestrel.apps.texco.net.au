@@ -411,17 +411,44 @@ export function computeScalesAndBonuses(
 }
 
 /**
+ * WHICH CAPS BOUND A GRANT (owner decision, 25 August 2026, after a lead was
+ * refused a grant by a cap they are not shown).
+ *
+ *   "both"   the home-state cap AND the group cap, whichever binds first.
+ *            What an admin gets: they see all four pool cards, they own every
+ *            cap, and they are the one who can raise one.
+ *   "state"  the home-state cap alone. What a SCOPED LEAD gets, so they are
+ *            judged against the pool their own header actually shows.
+ *
+ * Why the group cap had to stop binding a lead. scripts/import.ts defaults
+ * gCap to vCap + nCap, and that identity holds in every capture we have — so
+ * the group cap has no headroom of its own, and Shared Services (which counts
+ * in the group total but has no state cap of its own, see capRoom) eats the
+ * states' combined room dollar for dollar. In the 21 August 2026 capture that
+ * left $143,453 of group room against $274,282 VIC and $291,227 NSW: the group
+ * bound was tighter than either state bound by the whole $422,056 Shared
+ * Services total, permanently, for every grant in the system. A lead is
+ * deliberately never sent vCap/nCap/gCap (lib/scope-core.ts), so the figure
+ * refusing them was one they could not see, derive, or plan around.
+ *
+ * What this costs, stated plainly: a lead spending their state's room can now
+ * take the GROUP total past gCap. That surfaces as a red group card on the
+ * admin's dashboard — expected rather than a fault, the same bargain
+ * NSW_FULL_ENTITLEMENT already struck with nCap.
+ */
+export type CapBound = "both" | "state";
+
+/**
  * The most a row's discretionary amount may be before its pool passes its cap
  * — the automatic refusal the business owner asked for (25 August 2026): "it
  * will get refused automatically by each discretionary field".
  *
  * A discretionary amount is on top of the pool and moves nothing else, so the
- * room is simply what is left under the caps, measured EXACTLY the way the
- * dashboard's pool cards measure their totals (components/DashboardClient.tsx):
- * Σ finalBonus grouped by HOME STATE against that state's cap, and Σ finalBonus
- * over everyone against the group cap. A row is bounded by both, whichever
- * binds first; Shared Services has no state cap of its own, so only the group
- * bound applies there. Measuring it off the cards rather than off each pool's
+ * room is simply what is left under the caps that apply (see CapBound),
+ * measured EXACTLY the way the dashboard's pool cards measure their totals
+ * (components/DashboardClient.tsx): Σ finalBonus grouped by HOME STATE against
+ * that state's cap, and — for `bound: "both"` only — Σ finalBonus over everyone
+ * against the group cap. Measuring it off the cards rather than off each pool's
  * draw is deliberate: the card is the figure the person is watching, and it is
  * the one that must not go over.
  *
@@ -432,39 +459,43 @@ export function computeScalesAndBonuses(
  * Reads everyone's finalBonus, so call it only after computeScalesAndBonuses.
  *
  * Floored to whole dollars like the prototype. Returns 0 for a locked row (its
- * payout is frozen, so there is nothing to grant), Infinity for a row drawing
- * from no pool (vp + np === 0: no cap to overrun, and /api/state strips their
- * DA anyway), and can be NEGATIVE when stored figures already exceed a cap —
- * honestly "no room at all", which callers hold at the stored figure rather
- * than dragging it down.
+ * payout is frozen, so there is nothing to grant) and Infinity for a row with
+ * no cap left to bound it — either it draws from no pool (vp + np === 0, and
+ * /api/state strips its DA anyway) or it is a Shared Services row under
+ * `bound: "state"`, which has no state cap of its own. Callers treat a
+ * non-finite ceiling as "no bound here"; for a lead the binding constraint is
+ * then their own pool, which lib/manager-pool.ts's poolBreach enforces.
+ *
+ * Can be NEGATIVE when stored figures already exceed a cap — honestly "no room
+ * at all", which callers hold at the stored figure rather than dragging down.
  */
 export function getMaxDA(
   e: CalcEmployee,
   emps: readonly CalcEmployee[],
-  caps: Caps
+  caps: Caps,
+  bound: CapBound = "both"
 ): number {
   if (e.locked) return 0;
   if (e.vp + e.np === 0) return Infinity;
-  return Math.floor(capRoom(e, emps, caps));
+  return Math.floor(capRoom(e, emps, caps, bound));
 }
 
 /**
- * Room left under the caps for one row, measured EXACTLY the way the
- * dashboard's pool cards measure their totals: Σ finalBonus grouped by HOME
- * STATE against that state's cap, and Σ finalBonus over everyone against the
- * group cap, whichever binds first. Shared Services has no state cap of its
- * own, so only the group bound applies there.
+ * Room left under the applicable caps for one row, measured EXACTLY the way
+ * the dashboard's pool cards measure their totals: Σ finalBonus grouped by
+ * HOME STATE against that state's cap, and (under "both") Σ finalBonus over
+ * everyone against the group cap, whichever binds first. Shared Services has
+ * no state cap of its own, so the group bound is its only one — and under
+ * "state" it therefore has none at all, which is Infinity rather than a cap.
  *
  * The row's own amount is added back in, so this is "the most this field may
  * hold", not "the most it may go up by".
- *
- * Shared by both getMaxDA branches: it is the whole bound for an on-top row,
- * and the NSW-weighted half of the bound for a flagged one (see there).
  */
 function capRoom(
   e: CalcEmployee,
   emps: readonly CalcEmployee[],
-  caps: Caps
+  caps: Caps,
+  bound: CapBound
 ): number {
   let groupTotal = 0;
   let homeTotal = 0;
@@ -474,7 +505,7 @@ function capRoom(
   }
   // Back out this row's own amount so each figure measures every OTHER draw on
   // the cap, then the room is what the cap has left for this one.
-  let room = caps.gCap - (groupTotal - e.daEdit);
+  let room = bound === "both" ? caps.gCap - (groupTotal - e.daEdit) : Infinity;
   const stateCap =
     e.st === "VIC" ? caps.vCap : e.st === "NSW" ? caps.nCap : null;
   if (stateCap !== null) {
