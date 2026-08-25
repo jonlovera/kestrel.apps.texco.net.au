@@ -7,6 +7,7 @@ import { signatureRouteFor, signatoriesFor } from "@/lib/letter-blocks";
 import type { DisplayRow } from "@/lib/payload-types";
 import type { ColumnFormat } from "@/lib/columns";
 import { fmtValue } from "@/lib/fmt";
+import LetterButton from "./LetterButton";
 
 /**
  * The dashboard table: headers, cells, totals.
@@ -43,7 +44,9 @@ export interface TableHandlers {
   /** opens the per-person edit modal (state change, remove from model) */
   editEmployee: (id: string) => void;
   /** fetches the letter and hands it to the browser; reports refusals itself */
-  downloadLetter: (id: string) => void;
+  downloadLetter: (id: string, format?: "docx" | "pdf") => void;
+  /** id of the row currently having a PDF rendered, or null */
+  letterPending: string | null;
   /**
    * Why this row's letter is unavailable, or null when it is.
    *
@@ -444,34 +447,15 @@ export default function EmployeeTable({
         // the orange one.
         const why = handlers.letterBlocked(r);
         const route = why ? null : signatureRouteFor(r);
+        const pending = handlers.letterPending === r.id;
         return (
-          <button
-            type="button"
-            aria-disabled={why !== null}
-            title={
-              why ??
-              `Download ${r.name}'s letter — signed by ${signatoriesFor(route!).join(" and ")}`
-            }
-            onClick={() => handlers.downloadLetter(r.id)}
-            className={`inline-flex h-7 w-7 items-center justify-center border-[1.5px] transition-colors ${
-              why
-                ? "cursor-help border-neutral-200 bg-transparent text-neutral-300"
-                : "border-neutral-300 bg-transparent text-brand-orange hover:border-brand-orange"
-            }`}
-          >
-            {/* An SVG rather than the ⬇ character: the colour IS the state
-                here, and a font free to render that codepoint as a colour
-                emoji would ignore `text-`. `currentColor` cannot. */}
-            <svg
-              viewBox="0 0 16 16"
-              className="h-3.5 w-3.5"
-              fill="currentColor"
-              aria-hidden="true"
-            >
-              <path d="M7 1h2v7.1l2.6-2.6 1.4 1.4L8 12 3 6.9l1.4-1.4L7 8.1V1Z" />
-              <path d="M3 13h10v2H3z" />
-            </svg>
-          </button>
+          <LetterButton
+            row={r}
+            why={why}
+            pending={pending}
+            signedBy={route ? signatoriesFor(route).join(" and ") : ""}
+            onDownload={(format: "docx" | "pdf") => handlers.downloadLetter(r.id, format)}
+          />
         );
       }
       case "edit":

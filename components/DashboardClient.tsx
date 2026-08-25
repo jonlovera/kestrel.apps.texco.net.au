@@ -30,6 +30,7 @@ import {
 import { clampDa, daHeadroom } from "@/lib/da-impact";
 import { redistribute, eligible, type Redistributable } from "@/lib/redistribute";
 import { letterUnavailableReason } from "@/lib/letter-blocks";
+import type { LetterFormat } from "@/lib/letter-docx";
 import { fmt } from "@/lib/fmt";
 import { TexcoX, TexcoWordmark } from "./TexcoBrand";
 import { PoolCard } from "./PoolCard";
@@ -330,6 +331,8 @@ export default function DashboardClient({
   } | null>(null);
   /** A dismissible one-liner ("a colleague saved, changes combined"). */
   const [notice, setNotice] = useState<string | null>(null);
+  /** id of the row whose PDF is being rendered, so its control can say so. */
+  const [letterPending, setLetterPending] = useState<string | null>(null);
   /** A discretionary amount was held to the headroom ceiling. */
   const [daNotice, setDaNotice] = useState<string | null>(null);
   /**
@@ -1287,7 +1290,7 @@ export default function DashboardClient({
    * to leave the person where they were, with the reason in the notice bar they
    * already read everything else in.
    */
-  async function downloadLetter(id: string) {
+  async function downloadLetter(id: string, format: LetterFormat = "docx") {
     const row = rowById.get(id);
     if (!row) return;
     const blocked = letterBlocked(row);
@@ -1295,10 +1298,18 @@ export default function DashboardClient({
       setNotice(blocked);
       return;
     }
-    setNotice(null);
+    // A PDF is rendered by LibreOffice on the server: about a second warm, and
+    // closer to ten on a cold function while it unpacks itself. Long enough
+    // that silence reads as a broken button, so say what is happening.
+    setNotice(
+      format === "pdf" ? `Producing ${row.name}'s letter as PDF…` : null
+    );
+    setLetterPending(format === "pdf" ? id : null);
     let url: string | null = null;
     try {
-      const res = await fetch(`/api/letter?id=${encodeURIComponent(id)}`);
+      const res = await fetch(
+        `/api/letter?id=${encodeURIComponent(id)}&format=${format}`
+      );
       if (!res.ok) {
         // The server is the boundary, so it still gets the last word — a lock
         // someone else released, or a grant withdrawn since the page loaded.
@@ -1308,7 +1319,7 @@ export default function DashboardClient({
       }
       const name =
         /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ??
-        `${row.name}.docx`;
+        `${row.name}.${format}`;
       url = URL.createObjectURL(await res.blob());
       const a = document.createElement("a");
       a.href = url;
@@ -1316,12 +1327,14 @@ export default function DashboardClient({
       document.body.appendChild(a);
       a.click();
       a.remove();
+      if (format === "pdf") setNotice(null);
     } catch {
       setNotice(`The letter for ${row.name} couldn't be downloaded. Check your connection and try again.`);
     } finally {
       // Revoked either way: on the error path there is nothing to keep, and on
       // the success path the click has already handed the blob to the browser.
       if (url) URL.revokeObjectURL(url);
+      setLetterPending(null);
     }
   }
 
@@ -2326,6 +2339,7 @@ export default function DashboardClient({
                 editEmployee: setEditingId,
                 downloadLetter,
                 letterBlocked,
+                letterPending,
               }}
               scrollRef={setTableScrollEl}
             />

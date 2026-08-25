@@ -5,6 +5,8 @@ const nextConfig: NextConfig = {
   // has to be traced into the serverless bundle — nothing imports it, and the
   // tracer only follows imports.
   outputFileTracingIncludes: {
+    // Covers the brand fonts under lib/templates/fonts too, which LibreOffice
+    // needs on disk or the PDF comes out in a substituted typeface.
     "/api/letter": ["./lib/templates/**"],
   },
   async rewrites() {

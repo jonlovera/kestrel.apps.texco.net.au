@@ -558,8 +558,14 @@ async function stripUnusedMedia(zip: JSZip, doc: string): Promise<void> {
   }
 }
 
+/** The two things a letter can be downloaded as. */
+export type LetterFormat = "docx" | "pdf";
+
 /** "Ann Alpha - FY27 Remuneration Review and FY26 EBS Award.docx" */
-export function letterFilename(emp: Pick<LetterEmployee, "gn" | "sn">): string {
+export function letterFilename(
+  emp: Pick<LetterEmployee, "gn" | "sn">,
+  format: LetterFormat = "docx"
+): string {
   const name = `${emp.gn} ${emp.sn}`.replace(/[^\w\s'-]/g, "").trim();
-  return `${name} - FY27 Remuneration Review and FY26 EBS Award.docx`;
+  return `${name} - FY27 Remuneration Review and FY26 EBS Award.${format}`;
 }

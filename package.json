@@ -19,6 +19,7 @@
     "papaparse": "^5.5.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "tar": "^7.5.22",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -32,6 +33,7 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.5",
     "typescript": "^5",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "wawoff2": "^2.0.1"
   }
 }

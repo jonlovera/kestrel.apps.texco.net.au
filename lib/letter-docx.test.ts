@@ -258,9 +258,20 @@ describe.skipIf(!template)("buildLetter", () => {
 });
 
 describe("letterFilename", () => {
-  it("names the file after the person", () => {
+  it("names the file after the person, defaulting to Word", () => {
     expect(letterFilename({ gn: "Ann", sn: "Alpha" })).toBe(
       "Ann Alpha - FY27 Remuneration Review and FY26 EBS Award.docx"
+    );
+  });
+
+  it("carries the format through to the extension", () => {
+    // The extension is what tells the recipient's machine what to open it
+    // with, so a PDF named .docx is a file nobody can read.
+    expect(letterFilename({ gn: "Ann", sn: "Alpha" }, "pdf")).toBe(
+      "Ann Alpha - FY27 Remuneration Review and FY26 EBS Award.pdf"
+    );
+    expect(letterFilename({ gn: "Ann", sn: "Alpha" }, "docx")).toBe(
+      letterFilename({ gn: "Ann", sn: "Alpha" })
     );
   });
 

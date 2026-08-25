@@ -1,3 +1,10 @@
 {
-  "regions": ["syd1"]
+  "regions": [
+    "syd1"
+  ],
+  "functions": {
+    "app/api/letter/route.ts": {
+      "maxDuration": 300
+    }
+  }
 }
