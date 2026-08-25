@@ -148,7 +148,9 @@ async function main() {
   };
   // parse before writing: an unparseable snapshot is worse than none
   SnapshotSchema.parse(snapshot);
-  await sql`INSERT INTO kestrel_log (key, entry)
+  // `list`, not `key` — kestrel_log is the append-only table, keyed by list
+  // name (lib/store.ts's pushSnapshot writes exactly this).
+  await sql`INSERT INTO kestrel_log (list, entry)
             VALUES ('kestrel:snapshots:fy26', ${JSON.stringify(snapshot)}::jsonb)`;
 
   await sql`UPDATE kestrel_docs
