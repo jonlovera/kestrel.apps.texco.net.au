@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Dataset } from "./schema";
 import type { Scope } from "./access";
 import { applyOverrides, computeScalesAndBonuses } from "./calc";
-import { applyParams, defaultParams, ParamsSchema, canChangeCaps } from "./params-apply";
+import { applyParams, defaultParams, ParamsSchema, canChangeCaps, capsWarning } from "./params-apply";
 
 const data = JSON.parse(
   readFileSync(join(__dirname, "..", "data", "bonus.json"), "utf-8")
@@ -95,5 +95,21 @@ describe("canChangeCaps", () => {
 
   it("a state lead may never change caps, regardless of their other grants", () => {
     expect(canChangeCaps(lead)).toBe(false);
+  });
+});
+
+describe("capsWarning", () => {
+  it("is silent when the state caps sum to the group cap within a dollar", () => {
+    expect(capsWarning({ vCap: 1_593_574.32, nCap: 1_365_714.16, gCap: 2_959_288.48 })).toBeNull();
+    expect(capsWarning({ vCap: 100, nCap: 200, gCap: 300.99 })).toBeNull();
+  });
+
+  it("names the gap when they do not — the August 2026 NSW corruption", () => {
+    // nCap overwritten with the NSW state pool while gCap kept the truth
+    const w = capsWarning({ vCap: 1_593_574, nCap: 1_194_970, gCap: 2_959_288.48 });
+    expect(w).toMatch(/differ from the group cap/);
+    expect(w).toContain("2,788,544");
+    expect(w).toContain("2,959,288");
+    expect(w).toContain("-170,744");
   });
 });

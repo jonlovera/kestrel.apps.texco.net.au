@@ -387,6 +387,40 @@ describe("poolBreach", () => {
     check({ B: { locked: true, lockedFinal: 600 } }, "A");
   });
 
+  it("a whole-state lead's pool nets the state's carve-out when the caps carry one (FY26)", () => {
+    // the binding cap, not the total: vCap 1500 less a 300 carve
+    const carved: Dataset = { ...data, vCap: 1500, gCap: 2500, vCarve: 300 };
+    const p = managerPool(lead, carved, {});
+    expect(p.pool).toBe(1200);
+    expect(p.allocated).toBeCloseTo(1000, 8); // the scales ignore the carve
+    expect(p.remaining).toBeCloseTo(200, 8);
+    expect(poolBreach(lead, carved, { A: { daEdit: 200 } }, {})).toBeNull();
+    expect(poolBreach(lead, carved, { A: { daEdit: 201 } }, {})).not.toBeNull();
+    // the other state's carve is not this lead's business
+    const other: Dataset = { ...data, vCap: 1500, gCap: 2500, nCarve: 999 };
+    expect(managerPool(lead, other, {}).pool).toBe(1500);
+  });
+
+  it("the ceiling identity survives a carve-out: header and gate 4 net the same figure", () => {
+    // Same identity as above, with the carve attached — this is what stops the
+    // browser's header-based clamp and the server's capRoom drifting apart
+    // once FY26's shared-services carve is netted (lib/fy26-caps.ts).
+    const carved: Dataset = { ...data, vCap: 1500, gCap: 2500, vCarve: 300 };
+    const check = (doc: Overrides, id: string) => {
+      const rows = applyOverrides(carved.emp, doc);
+      computeScalesAndBonuses(rows, carved);
+      const row = rows.find((e) => e.id === id)!;
+      const p = managerPool(lead, carved, doc);
+      expect(getMaxDA(row, rows, carved, "state")).toBe(
+        Math.floor(p.remaining + row.daEdit)
+      );
+    };
+    check({}, "A");
+    check({ A: { daEdit: 200 } }, "A");
+    check({ A: { daEdit: 200 } }, "B");
+    check({ B: { locked: true, lockedFinal: 600 } }, "A");
+  });
+
   it("several states sum their caps", () => {
     const both: Scope = {
       ...lead,

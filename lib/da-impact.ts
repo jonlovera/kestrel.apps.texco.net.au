@@ -312,9 +312,11 @@ function poolImpacts(
   );
   const sum = (rows: CalcEmployee[], of: (e: CalcEmployee) => boolean) =>
     rows.reduce((s, e) => (of(e) ? s + e.finalBonus : s), 0);
+  // The cap each state is actually BOUND by — net of its carve-out when one is
+  // attached — so the confirmation shows the same ceiling the save enforces.
   const caveats: Record<string, number | null> = {
-    VIC: caps.vCap,
-    NSW: caps.nCap,
+    VIC: caps.vCap - (caps.vCarve ?? 0),
+    NSW: caps.nCap - (caps.nCarve ?? 0),
     SHARED: null,
   };
   const pools: DaPoolImpact[] = [];

@@ -635,6 +635,71 @@ describe("getMaxDA under CapBound 'state' (what bounds a scoped lead)", () => {
   });
 });
 
+/**
+ * FY26: the caps may carry a carve-out (Caps.vCarve / nCarve, attached by
+ * lib/fy26-caps.ts's attachFy26Carves) that the state bound nets off. Every
+ * fixture above leaves the fields absent and so binds at the raw cap — these
+ * pin what attaching one does, and what it must NOT touch.
+ */
+describe("a carve-out tightens the state bound by exactly the carve", () => {
+  const ROOM: Caps = { vCap: 100_000, nCap: 100_000, gCap: 200_000 };
+  const CARVED: Caps = { ...ROOM, vCarve: 25_000, nCarve: 10_000 };
+  function roomy(caps: Caps, overrides: Overrides = {}) {
+    const emps = applyOverrides(FIXTURE, overrides);
+    computeScalesAndBonuses(emps, caps);
+    const byId = Object.fromEntries(emps.map((e) => [e.id, e]));
+    return { emps, byId };
+  }
+
+  it("a VIC row's ceiling drops by the VIC carve, under either CapBound", () => {
+    const raw = roomy(ROOM);
+    const carved = roomy(CARVED);
+    for (const bound of ["both", "state"] as const) {
+      expect(getMaxDA(carved.byId.A, carved.emps, CARVED, bound)).toBe(
+        getMaxDA(raw.byId.A, raw.emps, ROOM, bound) - 25_000
+      );
+    }
+    // the raw figure is the 99,000 pinned above; the carved one is 74,000
+    expect(getMaxDA(carved.byId.A, carved.emps, CARVED, "state")).toBe(74_000);
+  });
+
+  it("the scales do not move: a carve is a bound, not an engine input", () => {
+    const raw = roomy(ROOM);
+    const carved = roomy(CARVED);
+    for (const id of Object.keys(raw.byId)) {
+      expect(carved.byId[id].finalBonus).toBe(raw.byId[id].finalBonus);
+    }
+  });
+
+  it("a Shared Services row is untouched — the group cap carries no carve", () => {
+    const raw = roomy(ROOM);
+    const carved = roomy(CARVED);
+    expect(getMaxDA(carved.byId.E, carved.emps, CARVED)).toBe(
+      getMaxDA(raw.byId.E, raw.emps, ROOM)
+    );
+    expect(getMaxDA(carved.byId.E, carved.emps, CARVED, "state")).toBe(Infinity);
+  });
+
+  it("when the carved state cap binds tighter than the group cap, it is the one reported", () => {
+    // group room is 200,000 − Σ all; VIC room under the carve is 75,000 − others
+    const carved = roomy(CARVED);
+    const groupRoom = 200_000 - (cardTotal(carved.emps) - carved.byId.A.daEdit);
+    const stateRoom = 75_000 - (cardTotal(carved.emps, "VIC") - carved.byId.A.daEdit);
+    expect(stateRoom).toBeLessThan(groupRoom);
+    expect(getMaxDA(carved.byId.A, carved.emps, CARVED)).toBe(Math.floor(stateRoom));
+  });
+
+  it("a stored total past the carved cap reads as no room, even though it is under the raw cap", () => {
+    const tight: Caps = { ...ROOM, vCarve: 99_500 }; // binding VIC cap 500 vs 1,000 on the card
+    const r = roomy(tight);
+    expect(cardTotal(r.emps, "VIC")).toBeCloseTo(1000, 10);
+    // the card holds 1,000 and A's own daEdit is 0, so nothing backs out:
+    // 500 − 1,000 — negative, honestly "no room at all"
+    expect(getMaxDA(r.byId.A, r.emps, tight, "state")).toBe(-500);
+    expect(getMaxDA(r.byId.A, r.emps, ROOM, "state")).toBe(99_000);
+  });
+});
+
 describe("edge guards", () => {
   it("ipm = 0: cpm derives from raw bipm; ipmEdit 0 zeroes the bonus", () => {
     const e = makeEmp({ id: "Z", ipm: 0, bipm: 100 });

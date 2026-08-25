@@ -2,6 +2,7 @@ import "server-only";
 import { DatasetSchema, type Dataset } from "./schema";
 import { loadStoredDataset, loadParams } from "./store";
 import { applyParams, defaultParams, type Params } from "./params-apply";
+import { attachFy26Carves } from "./fy26-caps";
 
 /**
  * The source dataset (155 employees + pool caps). The raw file holds real
@@ -57,10 +58,20 @@ export async function getParams(): Promise<Params> {
 
 /**
  * The dataset as the calc engine should see it: scheme parameters applied
- * (caps replaced, company modifier folded into the bipm input). This is
- * what every server-side calculation path consumes.
+ * (caps replaced, company modifier folded into the bipm input), and the FY26
+ * cap carve-outs attached. This is what every server-side calculation path
+ * consumes.
+ *
+ * The carve-outs ride here and NOT in applyParams, deliberately: applyParams
+ * stays a pure fold of the params document, so the engine's scales still run
+ * on the raw caps (lib/params-apply.test.ts pins stateVicAvail === vCap). The
+ * carves only ever matter where a grant is bounded — capRoom, poolBreach's
+ * rulePool, daImpact's cap reporting — and this is the one place every server
+ * route that does any of that gets its dataset from, so attaching them here
+ * is what makes /api/state's gates, a lead's header and the admin's client
+ * clamp (DashboardClient, which attaches the same constants) one identity.
  */
 export async function getEffectiveDataset(): Promise<Dataset> {
   const [data, params] = await Promise.all([getDataset(), loadParams()]);
-  return applyParams(data, params ?? defaultParams(data));
+  return attachFy26Carves(applyParams(data, params ?? defaultParams(data)));
 }

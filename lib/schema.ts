@@ -47,6 +47,15 @@ export const BonusDataSchema = z.object({
   vCap: z.number().positive(),
   nCap: z.number().positive(),
   gCap: z.number().positive(),
+  /**
+   * Carve-outs netted off each state's cap wherever a grant is BOUNDED (see
+   * lib/calc.ts's Caps). Never stored: lib/data.ts's getEffectiveDataset
+   * attaches them at read time (lib/fy26-caps.ts), so they are optional here
+   * only so the effective dataset can carry them through to every server
+   * gate under the one Dataset type.
+   */
+  vCarve: z.number().min(0).optional(),
+  nCarve: z.number().min(0).optional(),
   cats: z.array(z.string()),
   depts: z.array(z.string()),
   mgrs: z.array(z.string()),

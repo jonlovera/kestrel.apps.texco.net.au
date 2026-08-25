@@ -99,6 +99,16 @@ export interface Caps {
   vCap: number;
   nCap: number;
   gCap: number;
+  /**
+   * Optional carve-outs netted off each state's cap when a grant is BOUNDED
+   * (capRoom), and nowhere else — the engine's scales run on the raw caps. FY26
+   * attaches the shared-services figures here (lib/fy26-caps.ts's
+   * attachFy26Carves) so a state's payouts are held to Dee Gibson's binding
+   * state cap rather than the total cap. Absent = 0 = the raw cap binds, which
+   * is what every synthetic fixture in the tests means by `vCap`.
+   */
+  vCarve?: number;
+  nCarve?: number;
 }
 
 /**
@@ -532,8 +542,16 @@ function capRoom(
   // Back out this row's own amount so each figure measures every OTHER draw on
   // the cap, then the room is what the cap has left for this one.
   let room = bound === "both" ? caps.gCap - (groupTotal - e.daEdit) : Infinity;
+  // The state cap NET of its carve-out (Caps.vCarve / nCarve), when one is
+  // attached: the figure the state is actually bound by. The group cap carries
+  // no carve — shared-services payouts are in the group total, so nothing there
+  // is being funded from outside it.
   const stateCap =
-    e.st === "VIC" ? caps.vCap : e.st === "NSW" ? caps.nCap : null;
+    e.st === "VIC"
+      ? caps.vCap - (caps.vCarve ?? 0)
+      : e.st === "NSW"
+        ? caps.nCap - (caps.nCarve ?? 0)
+        : null;
   if (stateCap !== null) {
     room = Math.min(room, stateCap - (homeTotal - e.daEdit));
   }

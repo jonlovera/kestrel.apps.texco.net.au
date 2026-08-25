@@ -49,6 +49,25 @@ export function canChangeCaps(scope: Scope): boolean {
   return scope.rule.type === "full" && scope.rule.canEditCaps === true;
 }
 
+/** A dollar of tolerance: the caps carry cents, and floats carry noise. */
+export const CAP_SUM_TOLERANCE = 1;
+
+/**
+ * The group cap is the sum of the two state caps (FY26: 2,959,288.48 =
+ * 1,593,574.32 + 1,365,714.16). Null when vCap + nCap agrees with gCap to
+ * within a dollar; otherwise the sentence /api/params puts in its history
+ * line and its response. A warning and never a refusal — the card editors
+ * commit one field at a time, so a legitimate correction is necessarily
+ * mid-way inconsistent for one save. Here rather than in the route so the
+ * rule is testable without a request.
+ */
+export function capsWarning(p: { vCap: number; nCap: number; gCap: number }): string | null {
+  const gap = p.vCap + p.nCap - p.gCap;
+  if (Math.abs(gap) <= CAP_SUM_TOLERANCE) return null;
+  const f = (n: number) => Math.round(n).toLocaleString("en-AU");
+  return `VIC + NSW caps (${f(p.vCap + p.nCap)}) differ from the group cap (${f(p.gCap)}) by ${f(gap)}`;
+}
+
 /**
  * Produce the effective dataset the calc engine sees. Identity when the
  * modifier is 1 (same employee objects, bit-identical figures).

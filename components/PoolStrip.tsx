@@ -17,6 +17,12 @@ export type PoolSummary =
       value: number;
       cap?: number;
       remaining?: number;
+      /**
+       * the waterfall that reaches the headline (Total cap → carve-outs), as
+       * plain figures — see PoolCard's `buildUp`, where the cards turn the
+       * editable row into an input; here it is only ever read
+       */
+      buildUp?: { key: string; label: string; value: number }[];
       /** further figures shown inside the same card — see PoolCard's `lines` */
       lines?: { label: string; value: number }[];
       over: boolean;
@@ -35,9 +41,17 @@ export function PoolStrip({ summary }: { summary: PoolSummary }) {
   const items =
     summary.kind === "editor"
       ? summary.items.flatMap((it) => [
+        // a card's build-up and extra figures become their own entries here:
+        // the collapsed strip is one line of everything, so nothing should
+        // vanish with it. Build-up first, headline after, the same order the
+        // card reads in.
+        ...(it.buildUp ?? []).map((b) => ({
+          key: `${it.key}:${b.key}`,
+          title: b.label,
+          value: fmt(b.value),
+          alert: false,
+        })),
         { key: it.key, title: it.title, value: fmt(it.value), alert: it.over },
-        // a card's extra figures become their own entries here: the collapsed
-        // strip is one line of everything, so nothing should vanish with it
         ...(it.lines ?? []).map((l) => ({
           key: `${it.key}:${l.label}`,
           title: l.label,

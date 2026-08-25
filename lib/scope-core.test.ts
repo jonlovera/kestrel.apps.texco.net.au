@@ -150,6 +150,19 @@ describe("a lead sees their own pool and nothing wider", () => {
     expect(h.remaining).toBeCloseTo(h.pool - h.allocated, 12);
   });
 
+  it("a whole-state lead's header is the state's BINDING cap when the dataset carries a carve (FY26)", () => {
+    // getEffectiveDataset attaches the carve server-side; the payload builder
+    // just has to let it through to the header, and nowhere else
+    const carved = buildPayloadCore({ ...data, vCarve: 1000 }, {}, vicScopeNoPkg, user);
+    if (carved.mode !== "readonly") throw new Error("expected readonly");
+    expect(carved.managerPool.pool).toBeCloseTo(vic.managerPool.pool - 1000, 8);
+    expect(carved.managerPool.allocated).toBeCloseTo(vic.managerPool.allocated, 8);
+    const json = JSON.stringify(carved);
+    expect(json).not.toContain("vCarve");
+    expect(json).not.toContain("vCap");
+    expect(json).not.toContain(String(data.vCap));
+  });
+
   it("Allocated is the figure the table footer totals, so the two agree", () => {
     // same definition, and the payload carries the rows it was measured over
     const fromRows = vic.rows.reduce((s, r) => s + (r.final ?? 0), 0);

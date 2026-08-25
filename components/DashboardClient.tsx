@@ -42,6 +42,12 @@ import EmployeeAddModal from "./EmployeeAddModal";
 import FiltersMenu from "./FiltersMenu";
 import AccountMenu from "./AccountMenu";
 import EditableText from "./EditableText";
+import {
+  statePoolOf,
+  bindingStateCap,
+  attachFy26Carves,
+  FY26_CARVE_OUTS,
+} from "@/lib/fy26-caps";
 import Dropzone from "./Dropzone";
 import { ViewAsExitButton, type ViewAsState } from "./ViewAsBar";
 import { useScrollCollapse } from "@/lib/use-scroll-collapse";
@@ -56,25 +62,23 @@ type Tab = "ALL" | "VIC" | "NSW" | "SHARED" | "HISTORY";
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 /**
- * TEMPORARY — pinned pool-card headlines for the admin view.
+ * The one remaining pinned headline. The Shared Services card shows the
+ * finance model's 308,047 INSTEAD of the derived figure (live population reads
+ * 307,613 — which population the card should cover is open with Dee,
+ * docs/bonus-reconciliation.md §8 Q5). Display only: substituted where the
+ * card's value is read, and nothing else moves.
  *
- * These three figures come from the finance model and are shown INSTEAD of the
- * derived ones on the VIC pool, NSW pool and Shared Services cards. Display
- * only: substituted where each card's value is read, and nothing else. No
- * calculation is affected — poolCardTotals still computes the real figures, the
- * Cap and Remaining lines still use them, and no payout moves.
+ * The VIC and NSW headlines used to be pinned here too (1,343,396 and
+ * 1,194,970). They now DERIVE, from the live total cap through the FY26
+ * carve-outs (lib/fy26-caps.ts's statePoolOf), so a cap edit moves the
+ * headline one-for-one and the build-up rows above it always sum to it. That
+ * is what made the August 2026 cap corruption invisible: a pinned headline
+ * reads the same whatever is stored underneath.
  *
- * Group total is deliberately absent and still derives: no pinned value was
- * given for it.
- *
- * TO REMOVE: delete this const and restore the three `cards.*` references it
- * replaces in poolSummary (search for PINNED_CARD_HEADLINES). Anything else that
- * disagrees with these numbers — Remaining, the tabs, "Total bonuses", a grant
- * ceiling — is the derivation still telling the truth underneath.
+ * TO REMOVE: delete this const and restore the `cards.shared` reference it
+ * replaces in poolSummary (search for PINNED_CARD_HEADLINES).
  */
 const PINNED_CARD_HEADLINES = {
-  vic: 1_343_396,
-  nsw: 1_194_970,
   shared: 308_047,
 } as const;
 
@@ -755,6 +759,16 @@ export default function DashboardClient({
     return { emps: e, pool: p };
   }, [isEditor, employees, overrides, params]);
 
+  /**
+   * The caps a GRANT is bounded by: the raw params plus the FY26 carve-outs
+   * (lib/fy26-caps.ts), which capRoom nets off each state's cap internally.
+   * The server attaches the very same constants in getEffectiveDataset, so an
+   * admin's type-time clamp here and /api/state's gate 4 are one identity in
+   * two processes — neither is tighter than the other. Raw `params` still feeds
+   * the engine above (the scales run on the total caps, as the workbook's do).
+   */
+  const boundCaps = useMemo(() => attachFy26Carves(params), [params]);
+
   // ── shared UI state ──
   const [activeTab, setActiveTab] = useState<Tab>("ALL");
   const [search, setSearch] = useState("");
@@ -839,6 +853,13 @@ export default function DashboardClient({
         const data = await res.json().catch(() => ({}));
         setDsError(data.error ?? "That change could not be saved.");
         return false;
+      }
+      // /api/params saves but WARNS when the state caps stop summing to the
+      // group cap (lib/params-apply.ts's capsWarning). Said here, where the
+      // person is looking at the cards, as well as in the history line.
+      if (path === "params") {
+        const data = await res.json().catch(() => ({}));
+        if (typeof data.warning === "string") setNotice(data.warning);
       }
       // deliberately does not touch saveStatus: that now belongs to the Save
       // button, which is about the overrides doc alone
@@ -1190,10 +1211,11 @@ export default function DashboardClient({
    * only a change to some other row moves it.
    *
    * It agrees with what /api/state's gate 4 will decide. For a whole-state
-   * lead the two are identical arithmetic — their pool IS the state cap and
-   * their rows ARE that state's rows, so `pool - others` is exactly the
+   * lead the two are identical arithmetic — their pool IS the state's binding
+   * cap (total cap less its FY26 carve-out, lib/manager-pool.ts's rulePool)
+   * and their rows ARE that state's rows, so `pool - others` is exactly the
    * home-state bound the server applies (lib/calc.ts's capRoom under
-   * CapBound "state"). For a narrower scope this is the tighter of the two,
+   * CapBound "state", netting the same carve). For a narrower scope this is the tighter of the two,
    * which is the honest answer: their budget is their own pool, and gate 3
    * would refuse anything above it regardless of what a state cap allowed.
    *
@@ -1238,7 +1260,7 @@ export default function DashboardClient({
       if (!emp || emp.locked) return;
       // VIC site managers are deliberately not adjustable; NSW ones are.
       if (!isDaEditable(rowRule(emp))) return;
-      const ceiling = pool ? daHeadroom(emp, emps, params) : Infinity;
+      const ceiling = pool ? daHeadroom(emp, emps, boundCaps) : Infinity;
       const held = clampDa(num, emp.daEdit, ceiling);
       num = held.value;
       if (held.clamped) heldName = `${emp.gn} ${emp.sn}`;
@@ -1283,13 +1305,13 @@ export default function DashboardClient({
         if (!emp || emp.locked) return null;
         // no ceiling badge on a cell that isn't adjustable in the first place
         if (!isDaEditable(rowRule(emp))) return null;
-        return show(daHeadroom(emp, emps, params));
+        return show(daHeadroom(emp, emps, boundCaps));
       }
       const row = rowById.get(id);
       if (!row || row.locked || !isDaEditable(row)) return null;
       return show(leadDaBounds(row, overrides).ceiling);
     },
-    [isEditor, pool, empById, emps, params, rowById, leadDaBounds, overrides]
+    [isEditor, pool, empById, emps, boundCaps, rowById, leadDaBounds, overrides]
   );
 
   /**
@@ -1547,13 +1569,19 @@ export default function DashboardClient({
     // from each cap (lib/calc.ts's getVicAlloc/getNswAlloc are the per-pool
     // figures). So the cap footers read as a guide, not a reconciliation.
     // One definition, in lib/calc.ts, so these six figures are testable rather
-    // than four filters buried in a memo. The state headlines are shown NET of
-    // the shared-services money their own cap carries (owner decision, 26 Aug
-    // 2026) — see poolCardTotals for why that money was invisible before.
+    // than four filters buried in a memo.
     const cards = poolCardTotals(emps, pool, params);
-    // The cap footers below stay on the UNREDUCED home-state totals, which is
-    // what capRoom and /api/state's gate 4 actually enforce. A "remaining"
-    // derived from the net figure would advertise room the save then refuses.
+    // The cap footers below measure the UNREDUCED home-state totals against
+    // each state's BINDING cap — total cap less shared services
+    // (lib/fy26-caps.ts's bindingStateCap, owner decision 25 Aug 2026) — which
+    // is exactly what capRoom and /api/state's gate 4 enforce once the carves
+    // are attached (boundCaps above / getEffectiveDataset on the server). A
+    // "remaining" derived from any other pair would advertise room the save
+    // then refuses, or refuse room the save would allow.
+    //
+    // Deliberately NOT the state-pool headline: the four part-split staff are
+    // VIC-home rows, so their whole payouts are already in vicHome, and netting
+    // the split-state carve as well would charge them twice.
     const vicHome = cards.vic + cards.vicOther;
     const nswHome = cards.nsw + cards.nswOther;
     const groupTotal = cards.group;
@@ -1574,27 +1602,51 @@ export default function DashboardClient({
     // Half-a-cent slack so float noise never paints a card red.
     const over = (value: number, cap: number) => value > cap + 0.005;
     const { vCap, nCap, gCap } = params;
+    const vicBinding = bindingStateCap("VIC", vCap);
+    const nswBinding = bindingStateCap("NSW", nCap);
     const t = copy.poolTitles;
+
+    // Each state card's HEADLINE is the state pool of Dee Gibson's signed-off
+    // waterfall: the TOTAL cap (params.vCap / nCap, the editable figure) less
+    // the shared-services and split-state carve-outs (lib/fy26-caps.ts). The
+    // build-up rows are that waterfall, so they sum to the headline exactly
+    // and a cap edit moves the headline one-for-one.
+    //
+    // Fixed carve-out constants, deliberately NOT poolCardTotals's live
+    // vicPool/nswPool: that figure churns with every override and rests on a
+    // part-split methodology still open with Dee (docs/bonus-reconciliation.md
+    // §4.1), so rows built from it could never be made to sum to a stable
+    // headline. The live figures stay in `cards` for anyone who needs them.
+    //
+    // The engine nets NOTHING for shared services: computeScalesAndBonuses's
+    // `shared` parameter defaults to ZERO_SHARED and no call site passes it,
+    // so the deduction here is a display of the model and not a second copy of
+    // one the calc already makes.
+    const buildUp = (st: "VIC" | "NSW", cap: number) => [
+      { key: "cap", label: "Total cap", value: cap },
+      { key: "ss", label: "Less shared services", value: FY26_CARVE_OUTS[st].sharedServices },
+      { key: "split", label: "Less split state", value: FY26_CARVE_OUTS[st].splitState },
+    ];
     return {
       kind: "editor",
       items: [
         {
           key: "vic",
           title: t.vic,
-          // PINNED_CARD_HEADLINES — display only; cards.vicPool is the derived figure
-          value: PINNED_CARD_HEADLINES.vic,
+          value: statePoolOf("VIC", vCap),
+          buildUp: buildUp("VIC", vCap),
           cap: vCap,
-          remaining: vCap - vicHome,
-          over: over(vicHome, vCap),
+          remaining: vicBinding - vicHome,
+          over: over(vicHome, vicBinding),
         },
         {
           key: "nsw",
           title: t.nsw,
-          // PINNED_CARD_HEADLINES — display only; cards.nswPool is the derived figure
-          value: PINNED_CARD_HEADLINES.nsw,
+          value: statePoolOf("NSW", nCap),
+          buildUp: buildUp("NSW", nCap),
           cap: nCap,
-          remaining: nCap - nswHome,
-          over: over(nswHome, nCap),
+          remaining: nswBinding - nswHome,
+          over: over(nswHome, nswBinding),
         },
         {
           key: "shared",
@@ -1643,63 +1695,75 @@ export default function DashboardClient({
       ));
     }
 
-    // The cap itself, underneath the total — visible to every admin, but
-    // only ever an input for the ones holding canEditCapsNow (its own grant,
-    // separate from isEditor). The server decides again on every write
-    // (lib/params-apply.ts's canChangeCaps), this only renders the affordance.
-    const capFooter = (
-      label: string,
-      cap: number,
-      remaining: number | undefined,
-      onCommit: (next: string) => void
-    ) => (
-      <div className="mt-1.5 space-y-0.5 text-[11px] text-brand-70">
-        <div className="flex items-center gap-1">
-          Cap:
-          <EditableText
-            value={fmt(cap)}
-            editing={canEditCapsNow}
-            disabled={dsBusy}
-            label={label}
-            onCommit={onCommit}
-            inputClassName="w-[110px] font-bold"
-          />
-        </div>
-        {typeof remaining === "number" && (
-          <div className="flex items-center gap-1">
-            Remaining:
-            <span className={remaining < 0 ? "font-bold text-red-600" : "font-semibold text-brand-95"}>
-              {fmt(remaining)}
-            </span>
-          </div>
-        )}
-      </div>
+    // The cap itself — visible to every admin, but only ever an input for the
+    // ones holding canEditCapsNow (its own grant, separate from isEditor). The
+    // server decides again on every write (lib/params-apply.ts's
+    // canChangeCaps), this only renders the affordance.
+    //
+    // Editing shows the EXACT stored figure, cents and all, not fmt()'s whole
+    // dollars: the input's text is what gets committed back on blur, so a
+    // rounded display would silently re-truncate the cap on every edit —
+    // which is precisely how VIC lost its $0.32 in August 2026. Read-only
+    // renderings keep fmt.
+    const capInput = (label: string, cap: number, onCommit: (next: string) => void) => (
+      <EditableText
+        value={canEditCapsNow ? String(cap) : fmt(cap)}
+        editing={canEditCapsNow}
+        disabled={dsBusy}
+        label={label}
+        onCommit={onCommit}
+        inputClassName="w-[130px] text-right font-bold"
+      />
     );
+    const remainingLine = (remaining: number | undefined) =>
+      typeof remaining === "number" ? (
+        <div className="mt-1.5 flex items-center gap-1 text-[11px] text-brand-70">
+          Remaining:
+          <span className={remaining < 0 ? "font-bold text-red-600" : "font-semibold text-brand-95"}>
+            {fmt(remaining)}
+          </span>
+        </div>
+      ) : null;
     const capCommits: Record<string, { label: string; commit: (next: string) => void }> = {
-      vic: { label: "VIC pool cap", commit: (next) => updateParams({ vCap: parseDaInput(next) }) },
-      nsw: { label: "NSW pool cap", commit: (next) => updateParams({ nCap: parseDaInput(next) }) },
-      group: { label: "Group pool cap", commit: (next) => updateParams({ gCap: parseDaInput(next) }) },
+      vic: { label: "VIC total cap", commit: (next) => updateParams({ vCap: parseDaInput(next) }) },
+      nsw: { label: "NSW total cap", commit: (next) => updateParams({ nCap: parseDaInput(next) }) },
+      group: { label: "Group cap", commit: (next) => updateParams({ gCap: parseDaInput(next) }) },
     };
 
-    return poolSummary.items.map((it) => (
-      <PoolCard
-        key={it.key}
-        title={it.title}
-        value={fmt(it.value)}
-        lines={it.lines?.map((l) => ({ label: l.label, value: fmt(l.value) }))}
-        footer={
-          it.cap !== undefined && capCommits[it.key]
-            ? capFooter(
-              capCommits[it.key].label,
-              it.cap,
-              "remaining" in it && typeof it.remaining === "number" ? it.remaining : undefined,
-              capCommits[it.key].commit
-            )
-            : undefined
-        }
-        tone={it.over ? "alert" : "normal"}
-      />
-    ));
+    return poolSummary.items.map((it) => {
+      const editor = it.cap !== undefined ? capCommits[it.key] : undefined;
+      const remaining = "remaining" in it && typeof it.remaining === "number" ? it.remaining : undefined;
+      // A state card carries its editor IN the build-up, on the "Total cap"
+      // row the headline derives from; the footer is then Remaining alone. The
+      // group card has no build-up, so its editor stays a footer line.
+      const buildUp = it.buildUp?.map((b) =>
+        b.key === "cap" && editor && it.cap !== undefined
+          ? { key: b.key, label: b.label, value: capInput(editor.label, it.cap, editor.commit) }
+          : { key: b.key, label: b.label, value: fmt(b.value) }
+      );
+      const footer = (
+        <>
+          {!buildUp && editor && it.cap !== undefined && (
+            <div className="mt-1.5 flex items-center gap-1 text-[11px] text-brand-70">
+              Group cap: {' '}
+              {it.cap !== undefined ? fmt(it.cap) : "0"}
+            </div>
+          )}
+          {remainingLine(remaining)}
+        </>
+      );
+      return (
+        <PoolCard
+          key={it.key}
+          title={it.title}
+          value={fmt(it.value)}
+          buildUp={buildUp}
+          lines={it.lines?.map((l) => ({ label: l.label, value: fmt(l.value) }))}
+          footer={footer}
+          tone={it.over ? "alert" : "normal"}
+        />
+      );
+    });
     // updateParams is recreated every render and would defeat the memo; it
     // only ever reads the same `params` poolSummary already derives from.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1733,8 +1797,12 @@ export default function DashboardClient({
     let remaining: number;
     if (isEditor) {
       // Admin redistribution is state-tab scoped and spends that state's room
-      // under its cap.
-      remaining = activeTab === "VIC" ? params.vCap - allocated : params.nCap - allocated;
+      // under its BINDING cap — the same figure the card's Remaining shows and
+      // gate 4 enforces.
+      remaining =
+        activeTab === "VIC"
+          ? bindingStateCap("VIC", params.vCap) - allocated
+          : bindingStateCap("NSW", params.nCap) - allocated;
     } else {
       if (!mgrPool) return null;
       remaining = canMeasure ? mgrPool.pool - allocated : mgrPool.remaining;

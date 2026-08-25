@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { saveParams, appendHistory } from "@/lib/store";
 import { getParams } from "@/lib/data";
 import { takeSnapshot } from "@/lib/snapshots";
-import { ParamsSchema, canChangeCaps } from "@/lib/params-apply";
+import { ParamsSchema, canChangeCaps, capsWarning } from "@/lib/params-apply";
 import { requireWriter, noStore } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
@@ -68,6 +68,19 @@ export async function POST(req: Request) {
     return noStore(NextResponse.json({ ok: true, params, unchanged: true }));
   }
 
+  // The group cap is the sum of the two state caps (FY26: 2,959,288.48 =
+  // 1,593,574.32 + 1,365,714.16). A save that leaves them disagreeing is how
+  // both of the August 2026 cap corruptions got in unnoticed — one state cap
+  // overwritten with a pool figure while the group cap kept the truth. A
+  // WARNING, deliberately not a refusal: the card editors commit one field at
+  // a time, so a legitimate correction is necessarily mid-way inconsistent
+  // for one save. It goes into the history line, where the next reader sees
+  // it, and back to the caller, who is looking at the cards right now.
+  const warning = capsWarning(params);
+  const summary =
+    `Changed scheme parameters: ${changes.join("; ")}` +
+    (warning ? ` — WARNING: ${warning}` : "");
+
   await takeSnapshot(email, "params");
   await saveParams(params);
   await appendHistory([
@@ -75,13 +88,17 @@ export async function POST(req: Request) {
       ts: new Date().toISOString(),
       actor: email,
       kind: "params",
-      summary: `Changed scheme parameters: ${changes.join("; ")}`,
+      summary,
     },
   ]);
   console.log(
-    `[audit] params-change by=${email} ${changes.join("; ")} ts=${new Date().toISOString()}`
+    `[audit] params-change by=${email} ${changes.join("; ")}${
+      warning ? ` warning="${warning}"` : ""
+    } ts=${new Date().toISOString()}`
   );
   revalidatePath("/");
 
-  return noStore(NextResponse.json({ ok: true, params }));
+  return noStore(
+    NextResponse.json(warning ? { ok: true, params, warning } : { ok: true, params })
+  );
 }

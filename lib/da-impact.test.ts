@@ -205,6 +205,36 @@ describe("daHeadroom", () => {
   });
 });
 
+describe("a carve-out on the caps (FY26)", () => {
+  // VIC cap 1500 less a 200 carve = a binding cap of 1300; the rows hold 1200
+  const carved: Dataset = { ...data, vCarve: 200 };
+
+  it("tightens the headroom by exactly the carve", () => {
+    const { rows } = pooled({}, carved);
+    expect(daHeadroom(row(rows, "A"), rows, carved)).toBe(100);
+    expect(daHeadroom(row(rows, "A"), rows, data)).toBe(300);
+  });
+
+  it("reports the BINDING cap on the impact, so the confirmation matches the refusal", () => {
+    const impact = daImpact(carved.emp, carved, {}, { A: { daEdit: 100 } });
+    expect(impact.pools).toEqual([
+      { key: "VIC", before: 1200, after: 1300, cap: 1300 },
+      { key: "GROUP", before: 1200, after: 1300, cap: 5000 },
+    ]);
+    expect(impact.grants[0].headroom).toBe(100);
+  });
+
+  it("the group figure and a Shared Services row carry no carve", () => {
+    const withShared: Dataset = {
+      ...carved,
+      emp: [...carved.emp, emp({ id: "S", st: "SHARED", vp: 0.5, np: 0.5 })],
+    };
+    const impact = daImpact(withShared.emp, withShared, {}, { S: { daEdit: 50 } });
+    expect(impact.pools.find((p) => p.key === "SHARED")!.cap).toBeNull();
+    expect(impact.pools.find((p) => p.key === "GROUP")!.cap).toBe(5000);
+  });
+});
+
 describe("clampDa", () => {
   it("passes an amount inside the ceiling through untouched", () => {
     expect(clampDa(500, 0, 800)).toEqual({ value: 500, clamped: false });
