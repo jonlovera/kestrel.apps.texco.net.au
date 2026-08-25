@@ -17,6 +17,8 @@ export type PoolSummary =
       value: number;
       cap?: number;
       remaining?: number;
+      /** further figures shown inside the same card — see PoolCard's `lines` */
+      lines?: { label: string; value: number }[];
       over: boolean;
     }[];
   }
@@ -32,12 +34,17 @@ export type PoolSummary =
 export function PoolStrip({ summary }: { summary: PoolSummary }) {
   const items =
     summary.kind === "editor"
-      ? summary.items.map((it) => ({
-        key: it.key,
-        title: it.title,
-        value: fmt(it.value),
-        alert: it.over,
-      }))
+      ? summary.items.flatMap((it) => [
+        { key: it.key, title: it.title, value: fmt(it.value), alert: it.over },
+        // a card's extra figures become their own entries here: the collapsed
+        // strip is one line of everything, so nothing should vanish with it
+        ...(it.lines ?? []).map((l) => ({
+          key: `${it.key}:${l.label}`,
+          title: l.label,
+          value: fmt(l.value),
+          alert: false,
+        })),
+      ])
       : summary.items.map((it) => ({
         key: it.key,
         title: it.title,

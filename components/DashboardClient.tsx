@@ -1571,17 +1571,17 @@ export default function DashboardClient({
           remaining: nCap - nswHome,
           over: over(nswHome, nCap),
         },
-        { key: "shared", title: "Shared Services", value: cards.shared, over: false },
         {
-          key: "vicOther",
-          title: "VIC SS Other Portion",
-          value: cards.vicOther,
-          over: false,
-        },
-        {
-          key: "nswOther",
-          title: "NSW SS Other Portion",
-          value: cards.nswOther,
+          key: "shared",
+          title: "Shared Services",
+          value: cards.shared,
+          // One box for the three shared figures rather than a card each: the
+          // two portions are the same money seen per cap, so they belong beside
+          // the total they come out of.
+          lines: [
+            { label: "VIC SS Other Portion", value: cards.vicOther },
+            { label: "NSW SS Other Portion", value: cards.nswOther },
+          ],
           over: false,
         },
         {
@@ -1654,6 +1654,7 @@ export default function DashboardClient({
         key={it.key}
         title={it.title}
         value={fmt(it.value)}
+        lines={it.lines?.map((l) => ({ label: l.label, value: fmt(l.value) }))}
         footer={
           it.cap !== undefined && capCommits[it.key]
             ? capFooter(

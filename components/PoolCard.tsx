@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 export function PoolCard({
   title,
   value,
+  lines,
   footer,
   /**
    * Colours the figure. `alert` is for a manager's Remaining at or below zero:
@@ -16,6 +17,12 @@ export function PoolCard({
 }: {
   title: string;
   value: string;
+  /**
+   * Further figures belonging to the same box, under the headline one. Shared
+   * Services uses it to carry the two SS Other portions rather than spending a
+   * card each on them.
+   */
+  lines?: { label: string; value: string }[];
   /** The editable pool-cap line, for the cards that have one. */
   footer?: ReactNode;
   tone?: "normal" | "alert";
@@ -30,6 +37,21 @@ export function PoolCard({
       >
         {value}
       </div>
+      {lines && lines.length > 0 && (
+        <div className="mt-2 space-y-1 border-t border-neutral-100 pt-2">
+          {lines.map((l) => (
+            <div
+              key={l.label}
+              className="flex items-baseline justify-between gap-3 text-[11px]"
+            >
+              <span className="text-brand-70">{l.label}</span>
+              <span className="font-bold tabular-nums text-brand-95">
+                {l.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       {footer}
     </div>
   );
