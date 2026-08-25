@@ -1573,14 +1573,20 @@ export default function DashboardClient({
         },
         {
           key: "shared",
-          title: "Shared Services",
+          title: "Shared Services (corporate split)",
           value: cards.shared,
-          // One box for the three shared figures rather than a card each: the
-          // two portions are the same money seen per cap, so they belong beside
-          // the total they come out of.
+          // The two lines are NOT a breakdown of the headline — they cover a
+          // different population. The headline is everyone on Shared Services;
+          // the lines are the PART-SPLIT staff, the few on their own ratio
+          // rather than the corporate one, attributed per cap. They deliberately
+          // do not sum to it.
+          //
+          // No ratio in the label: no such constant exists in the code, the
+          // corporate ratio is inferred from the data (see poolCardTotals), and
+          // a hardcoded "61/39" would go stale the moment one changed.
           lines: [
-            { label: "VIC SS Other Portion", value: cards.vicOther },
-            { label: "NSW SS Other Portion", value: cards.nswOther },
+            { label: "Part-split staff, VIC", value: cards.vicPartSplit },
+            { label: "Part-split staff, NSW", value: cards.nswPartSplit },
           ],
           over: false,
         },

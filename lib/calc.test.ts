@@ -1343,6 +1343,110 @@ describe("poolCardTotals", () => {
     expect(t.nsw).toBeCloseTo(cardTotal(emps, "NSW") - t.nswOther, 10);
   });
 
+  /**
+   * Part-split staff: the split rows NOT on the corporate ratio, which is
+   * inferred as the modal vp. The main FIXTURE has a single split row, so these
+   * build their own — several on one ratio plus one differing.
+   */
+  describe("part-split staff", () => {
+    const mk = (id: string, vp: number, bipm = 1000): Employee =>
+      makeEmp({ id, st: "SHARED", vp, np: 1 - vp, bipm, pkg: bipm * 10 });
+    /** four on 0.6 (corporate) and one on 0.9 (part-split) */
+    const MIXED: Employee[] = [
+      makeEmp({ id: "V", bipm: 500, pkg: 5000 }), // wholly VIC, not split
+      mk("C1", 0.6), mk("C2", 0.6), mk("C3", 0.6), mk("C4", 0.6),
+      mk("P1", 0.9, 2000),
+    ];
+    const ROOM: Caps = { vCap: 100_000, nCap: 100_000, gCap: 200_000 };
+    function mixed(emp: Employee[] = MIXED, caps: Caps = ROOM) {
+      const emps = applyOverrides(emp, {});
+      const pool = computeScalesAndBonuses(emps, caps);
+      return { emps, pool, caps, t: poolCardTotals(emps, pool, caps), byId: Object.fromEntries(emps.map((e) => [e.id, e])) };
+    }
+    const frac = (e: CalcEmployee, pool: PoolState) => {
+      const wv = e.vp * pool.vicScale;
+      const wn = e.np * pool.nswScale;
+      return wv / (wv + wn);
+    };
+
+    it("counts only the rows off the corporate ratio", () => {
+      const { t, pool, byId } = mixed();
+      const p1 = byId.P1;
+      expect(t.vicPartSplit).toBeCloseTo(p1.finalBonus * frac(p1, pool), 8);
+      expect(t.nswPartSplit).toBeCloseTo(p1.finalBonus * (1 - frac(p1, pool)), 8);
+      // the four on 0.6 are the corporate block and contribute nothing
+      for (const id of ["C1", "C2", "C3", "C4"]) {
+        expect(byId[id].finalBonus).toBeGreaterThan(0);
+      }
+    });
+
+    it("attributes by the scales, not the raw split", () => {
+      // needs a VIC pool under pressure: with room to spare both scales clamp
+      // to 1 and the weighting degenerates to the raw split, which would make
+      // this assertion vacuous
+      const TIGHT: Caps = { vCap: 2000, nCap: 100_000, gCap: 200_000 };
+      const { t, pool, byId } = mixed(MIXED, TIGHT);
+      expect(pool.vicScale).toBeLessThan(1);
+      const p1 = byId.P1;
+      const weighted = frac(p1, pool);
+      expect(weighted).not.toBeCloseTo(0.9, 2);
+      expect(t.vicPartSplit).toBeCloseTo(p1.finalBonus * weighted, 8);
+      // and emphatically not the figure the raw split would have given
+      expect(t.vicPartSplit).not.toBeCloseTo(p1.finalBonus * 0.9, 2);
+    });
+
+    it("reports nothing when every split row shares one ratio", () => {
+      const { t } = mixed(MIXED.filter((e) => e.id !== "P1"));
+      expect(t.vicPartSplit).toBe(0);
+      expect(t.nswPartSplit).toBe(0);
+    });
+
+    it("reports nothing when nobody splits at all", () => {
+      const { t } = mixed([makeEmp({ id: "V", bipm: 500, pkg: 5000 })]);
+      expect(t.vicPartSplit).toBe(0);
+      expect(t.nswPartSplit).toBe(0);
+    });
+
+    it("ignores a row that draws on one pool only", () => {
+      // V is wholly VIC: not in the split population, so it can never be
+      // part-split however the ratios fall
+      const { t, byId, pool } = mixed();
+      expect(byId.V.np).toBe(0);
+      const p1 = byId.P1;
+      expect(t.vicPartSplit + t.nswPartSplit).toBeCloseTo(p1.finalBonus, 8);
+      void pool;
+    });
+
+    it("breaks a tie deterministically rather than by iteration order", () => {
+      // two ratios, two rows each, equal payouts: the lower vp is corporate, so
+      // the higher one is what shows as part-split — and it does not flip when
+      // the rows are fed in the opposite order
+      const tie: Employee[] = [mk("A1", 0.5), mk("A2", 0.5), mk("B1", 0.8), mk("B2", 0.8)];
+      const forward = mixed(tie);
+      const backward = mixed([...tie].reverse());
+      expect(forward.t.vicPartSplit).toBeCloseTo(backward.t.vicPartSplit, 10);
+      expect(forward.t.nswPartSplit).toBeCloseTo(backward.t.nswPartSplit, 10);
+      // 0.5 is corporate (lower vp wins the tie), so the 0.8 pair is part-split
+      const eight = forward.emps.filter((e) => e.vp === 0.8);
+      expect(forward.t.vicPartSplit + forward.t.nswPartSplit).toBeCloseTo(
+        eight.reduce((s, e) => s + e.finalBonus, 0),
+        8
+      );
+    });
+
+    it("leaves every other field untouched", () => {
+      const { t, emps } = mixed();
+      const home = (st: string) => emps.reduce((s, e) => (e.st === st ? s + e.finalBonus : s), 0);
+      expect(t.shared).toBeCloseTo(home("SHARED"), 10);
+      expect(t.group).toBeCloseTo(emps.reduce((s, e) => s + e.finalBonus, 0), 10);
+      expect(t.vic).toBeCloseTo(home("VIC") - t.vicOther, 10);
+      expect(t.nsw).toBeCloseTo(home("NSW") - t.nswOther, 10);
+      // and the headline pair still closes over the WHOLE split population
+      const splitTotal = emps.reduce((s, e) => (e.vp > 0 && e.np > 0 ? s + e.finalBonus : s), 0);
+      expect(t.vicPool + t.nswPool).toBeCloseTo(ROOM.vCap + ROOM.nCap - splitTotal, 8);
+    });
+  });
+
   it("is display only: it never reports a figure a cap is enforced against", () => {
     // the cap is enforced on Σ payout by HOME state, which is the net figure
     // plus what the cap carries — the identity the cards' footers rely on

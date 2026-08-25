@@ -593,6 +593,14 @@ export interface PoolCardTotals {
   vicPool: number;
   /** THE NSW CARD'S HEADLINE: nCap less the same, for NSW. */
   nswPool: number;
+  /**
+   * The VIC share of the PART-SPLIT staff — those on their own ratio rather than
+   * the corporate one. A different population from `vicOther`, and deliberately
+   * not a breakdown of `shared`.
+   */
+  vicPartSplit: number;
+  /** The NSW share of the same part-split staff. */
+  nswPartSplit: number;
 }
 
 /**
@@ -635,6 +643,9 @@ export function poolCardTotals(
   // is the definition working as intended, not drift to be corrected.
   let vicCarried = 0;
   let nswCarried = 0;
+  // Every split row, with its attribution, kept for the part-split pass below:
+  // the corporate ratio is not known until all of them have been seen.
+  const splitRows: { payout: number; vp: number; fracVic: number }[] = [];
   for (const e of emps) {
     group += e.finalBonus;
     if (e.st === "VIC") vicHome += e.finalBonus;
@@ -657,8 +668,31 @@ export function poolCardTotals(
       const fracVic = wSum > 0 ? wVic / wSum : e.vp / (e.vp + e.np);
       vicCarried += e.finalBonus * fracVic;
       nswCarried += e.finalBonus * (1 - fracVic);
+      splitRows.push({ payout: e.finalBonus, vp: e.vp, fracVic });
     }
   }
+
+  // PART-SPLIT STAFF: the split rows that are NOT on the corporate ratio.
+  //
+  // The corporate ratio is INFERRED from the data — the modal vp across the
+  // split population — rather than read from a configured value, and that is
+  // intended. A future hire on a novel split is classified as part-split
+  // automatically, with nothing to remember to update; and if the corporate
+  // ratio itself ever changes for everybody, the classification follows it
+  // instead of stranding the whole block as "part-split". The trade is that
+  // "corporate" is whatever most people share, which is exactly what it means.
+  //
+  // Note the state label plays no part: every split row today carries
+  // st === "SHARED", so `st` cannot separate these two groups — only vp can.
+  const corporateVp = modalVp(splitRows);
+  let vicPartSplit = 0;
+  let nswPartSplit = 0;
+  for (const r of splitRows) {
+    if (r.vp === corporateVp) continue;
+    vicPartSplit += r.payout * r.fracVic;
+    nswPartSplit += r.payout * (1 - r.fracVic);
+  }
+
   return {
     vic: vicHome - vicOther,
     nsw: nswHome - nswOther,
@@ -668,7 +702,42 @@ export function poolCardTotals(
     nswOther,
     vicPool: caps.vCap - vicCarried,
     nswPool: caps.nCap - nswCarried,
+    vicPartSplit,
+    nswPartSplit,
   };
+}
+
+/**
+ * The ratio most of the split population shares — "corporate" by weight of
+ * numbers. Undefined when nobody splits, which leaves every part-split figure
+ * at 0 rather than inventing a group.
+ *
+ * Tie-broken deterministically: most rows wins, then the larger total payout,
+ * then the lower vp. Without that, "corporate" would be whichever ratio the
+ * iteration happened to reach first once two groups were the same size.
+ */
+function modalVp(
+  rows: readonly { payout: number; vp: number }[]
+): number | undefined {
+  const byVp = new Map<number, { count: number; payout: number }>();
+  for (const r of rows) {
+    const seen = byVp.get(r.vp) ?? { count: 0, payout: 0 };
+    seen.count += 1;
+    seen.payout += r.payout;
+    byVp.set(r.vp, seen);
+  }
+  let best: { vp: number; count: number; payout: number } | undefined;
+  for (const [vp, { count, payout }] of byVp) {
+    if (
+      !best ||
+      count > best.count ||
+      (count === best.count && payout > best.payout) ||
+      (count === best.count && payout === best.payout && vp < best.vp)
+    ) {
+      best = { vp, count, payout };
+    }
+  }
+  return best?.vp;
 }
 
 /** Prototype input parsing: "90" and "0.9" both mean 90%. */
