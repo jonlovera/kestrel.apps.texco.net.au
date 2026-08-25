@@ -572,7 +572,7 @@ export function sumAllocated<T>(
   return rows.reduce((s, r) => s + final(r), 0);
 }
 
-/** The six figures an admin's pool cards show. See poolCardTotals. */
+/** The figures an admin's pool cards show. See poolCardTotals. */
 export interface PoolCardTotals {
   /** the VIC card: VIC-home payouts, less the VIC cap's shared draw */
   vic: number;
@@ -586,6 +586,13 @@ export interface PoolCardTotals {
   vicOther: number;
   /** NSW cap money going to people who are not on the NSW card */
   nswOther: number;
+  /**
+   * THE VIC CARD'S HEADLINE: vCap less the payouts the VIC cap is carrying for
+   * people whose cost splits across both states. See poolCardTotals.
+   */
+  vicPool: number;
+  /** THE NSW CARD'S HEADLINE: nCap less the same, for NSW. */
+  nswPool: number;
 }
 
 /**
@@ -609,13 +616,25 @@ export interface PoolCardTotals {
  * cards' cap footers keep using the unreduced figure — a "remaining" derived
  * from `vic` would advertise room the save then refuses.
  */
-export function poolCardTotals(emps: readonly CalcEmployee[]): PoolCardTotals {
+export function poolCardTotals(
+  emps: readonly CalcEmployee[],
+  pool: PoolState,
+  caps: Caps
+): PoolCardTotals {
   let vicHome = 0;
   let nswHome = 0;
   let shared = 0;
   let group = 0;
   let vicOther = 0;
   let nswOther = 0;
+  // What each cap is carrying for people whose cost splits across both states.
+  //
+  // These charge the PAYOUT, not a locked amount — nothing here reads the lock
+  // flag. So a split employee who is unlocked and re-priced moves both figures:
+  // they track what is being paid today, not what was frozen at some point. That
+  // is the definition working as intended, not drift to be corrected.
+  let vicCarried = 0;
+  let nswCarried = 0;
   for (const e of emps) {
     group += e.finalBonus;
     if (e.st === "VIC") vicHome += e.finalBonus;
@@ -623,6 +642,22 @@ export function poolCardTotals(emps: readonly CalcEmployee[]): PoolCardTotals {
     if (e.st === "NSW") nswHome += e.finalBonus;
     else nswOther += e.finalBonus * e.np;
     if (e.st === "SHARED") shared += e.finalBonus;
+
+    // Only a genuinely split row is apportioned; a wholly-one-state row is
+    // already counted whole on its own card.
+    if (e.vp > 0 && e.np > 0) {
+      const wVic = e.vp * pool.vicScale;
+      const wNsw = e.np * pool.nswScale;
+      const wSum = wVic + wNsw;
+      // Weighted by what each pool would actually pay them, which is why the
+      // scales are read rather than the raw split. wSum can only be 0 if BOTH
+      // scales are 0 (vp and np are both positive here); the raw split is the
+      // fallback then, so the payout stays wholly attributed instead of landing
+      // entirely on NSW. Same two-step this had before 0442ce9 removed it.
+      const fracVic = wSum > 0 ? wVic / wSum : e.vp / (e.vp + e.np);
+      vicCarried += e.finalBonus * fracVic;
+      nswCarried += e.finalBonus * (1 - fracVic);
+    }
   }
   return {
     vic: vicHome - vicOther,
@@ -631,6 +666,8 @@ export function poolCardTotals(emps: readonly CalcEmployee[]): PoolCardTotals {
     group,
     vicOther,
     nswOther,
+    vicPool: caps.vCap - vicCarried,
+    nswPool: caps.nCap - nswCarried,
   };
 }
 

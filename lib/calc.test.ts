@@ -1226,8 +1226,8 @@ describe.skipIf(!existsSync(PROD_FIXTURE))(
  */
 describe("poolCardTotals", () => {
   it("carries a shared row's payout into the state cards it is funded by", () => {
-    const { emps, byId } = run();
-    const t = poolCardTotals(emps);
+    const { emps, byId, pool } = run();
+    const t = poolCardTotals(emps, pool, CAPS);
     // E is the only row funded from a cap it does not appear on
     expect(t.vicOther).toBeCloseTo(byId.E.finalBonus * 0.6, 10);
     expect(t.nswOther).toBeCloseTo(byId.E.finalBonus * 0.4, 10);
@@ -1236,16 +1236,16 @@ describe("poolCardTotals", () => {
   });
 
   it("shows each state net of the money its own cap carries", () => {
-    const { emps, byId } = run();
-    const t = poolCardTotals(emps);
+    const { emps, byId, pool } = run();
+    const t = poolCardTotals(emps, pool, CAPS);
     const vicHome = byId.A.finalBonus + byId.B.finalBonus + byId.C.finalBonus + byId.F.finalBonus;
     expect(t.vic).toBeCloseTo(vicHome - t.vicOther, 10);
     expect(t.nsw).toBeCloseTo(byId.D.finalBonus - t.nswOther, 10);
   });
 
   it("leaves Shared Services and the group total exactly as they were", () => {
-    const { emps, byId } = run();
-    const t = poolCardTotals(emps);
+    const { emps, byId, pool } = run();
+    const t = poolCardTotals(emps, pool, CAPS);
     expect(t.shared).toBeCloseTo(byId.E.finalBonus, 10);
     expect(t.group).toBeCloseTo(cardTotal(emps), 10);
   });
@@ -1258,9 +1258,9 @@ describe("poolCardTotals", () => {
       e.id === "B" ? { ...e, vp: 0.5, np: 0.5 } : e
     );
     const emps = applyOverrides(crossed, {});
-    computeScalesAndBonuses(emps, CAPS);
+    const pool = computeScalesAndBonuses(emps, CAPS);
     const b = emps.find((e) => e.id === "B")!;
-    const t = poolCardTotals(emps);
+    const t = poolCardTotals(emps, pool, CAPS);
     // B is VIC-home, so its NSW half is money the NSW cap carries for a row
     // that never appears on the NSW card
     expect(t.nswOther).toBeCloseTo(
@@ -1271,11 +1271,83 @@ describe("poolCardTotals", () => {
     expect(t.vicOther).toBeCloseTo(emps.find((e) => e.id === "E")!.finalBonus * 0.6, 10);
   });
 
+  /** Σ payout over the rows the carried figures apportion. */
+  const splitPayout = (emps: CalcEmployee[]) =>
+    emps.reduce((s, e) => (e.vp > 0 && e.np > 0 ? s + e.finalBonus : s), 0);
+
+  it("charges each cap the split payouts it carries, weighted by the scales", () => {
+    const { emps, pool, byId } = run();
+    const t = poolCardTotals(emps, pool, CAPS);
+    // E is the fixture's only split row (0.6/0.4)
+    const wVic = 0.6 * pool.vicScale;
+    const wNsw = 0.4 * pool.nswScale;
+    const fracVic = wVic / (wVic + wNsw);
+    expect(t.vicPool).toBeCloseTo(CAPS.vCap - byId.E.finalBonus * fracVic, 8);
+    expect(t.nswPool).toBeCloseTo(CAPS.nCap - byId.E.finalBonus * (1 - fracVic), 8);
+    // and the weighting is NOT the raw split, because the scales differ
+    expect(fracVic).not.toBeCloseTo(0.6, 3);
+  });
+
+  it("closes: the two headlines account for every dollar of split payout", () => {
+    // vicCarried + nswCarried is exactly the split rows' payout, so this holds
+    // by construction — a failure means money was lost or double-counted
+    const { emps, pool } = run();
+    const t = poolCardTotals(emps, pool, CAPS);
+    expect(t.vicPool + t.nswPool).toBeCloseTo(
+      CAPS.vCap + CAPS.nCap - splitPayout(emps),
+      8
+    );
+  });
+
+  it("apportions nothing for a row that draws on only one pool", () => {
+    // A is wholly VIC and D wholly NSW: neither is carried by the other cap,
+    // and neither is apportioned at all
+    const { emps, pool, byId } = run();
+    const t = poolCardTotals(emps, pool, CAPS);
+    expect(splitPayout(emps)).toBeCloseTo(byId.E.finalBonus, 10);
+    // F has no pool exposure either way, so it cannot be apportioned
+    expect(byId.F.vp + byId.F.np).toBe(0);
+    expect(t.vicPool + t.nswPool).toBeCloseTo(
+      CAPS.vCap + CAPS.nCap - byId.E.finalBonus,
+      8
+    );
+  });
+
+  it("falls back to the raw split when both scales are zero", () => {
+    // both caps at zero drives both scales to 0, so the weighting has nothing
+    // to say — the payout must still be wholly attributed, on the raw split,
+    // rather than landing entirely on NSW
+    const zero: Caps = { vCap: 0, nCap: 0, gCap: 0 };
+    const emps = applyOverrides(FIXTURE, {});
+    const pool = computeScalesAndBonuses(emps, zero);
+    expect(pool.vicScale).toBe(0);
+    const t = poolCardTotals(emps, pool, zero);
+    const e = emps.find((x) => x.id === "E")!;
+    // nswScale is pinned at 1 (NSW_FULL_ENTITLEMENT), so force the degenerate
+    // case directly rather than pretending the fixture can produce it
+    const forced = poolCardTotals(emps, { ...pool, nswScale: 0 }, zero);
+    expect(forced.vicPool).toBeCloseTo(0 - e.finalBonus * 0.6, 8);
+    expect(forced.nswPool).toBeCloseTo(0 - e.finalBonus * 0.4, 8);
+    expect(t.vicPool + t.nswPool).toBeCloseTo(-splitPayout(emps), 8);
+  });
+
+  it("leaves every pre-existing field exactly as it was", () => {
+    // the additive guarantee: the new arguments changed no old figure
+    const { emps, pool, byId } = run();
+    const t = poolCardTotals(emps, pool, CAPS);
+    expect(t.shared).toBeCloseTo(byId.E.finalBonus, 10);
+    expect(t.group).toBeCloseTo(cardTotal(emps), 10);
+    expect(t.vicOther).toBeCloseTo(byId.E.finalBonus * 0.6, 10);
+    expect(t.nswOther).toBeCloseTo(byId.E.finalBonus * 0.4, 10);
+    expect(t.vic).toBeCloseTo(cardTotal(emps, "VIC") - t.vicOther, 10);
+    expect(t.nsw).toBeCloseTo(cardTotal(emps, "NSW") - t.nswOther, 10);
+  });
+
   it("is display only: it never reports a figure a cap is enforced against", () => {
     // the cap is enforced on Σ payout by HOME state, which is the net figure
     // plus what the cap carries — the identity the cards' footers rely on
-    const { emps } = run();
-    const t = poolCardTotals(emps);
+    const { emps, pool } = run();
+    const t = poolCardTotals(emps, pool, CAPS);
     const vicHome = cardTotal(emps, "VIC");
     expect(t.vic + t.vicOther).toBeCloseTo(vicHome, 10);
     expect(t.nsw + t.nswOther).toBeCloseTo(cardTotal(emps, "NSW"), 10);

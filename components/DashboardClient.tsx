@@ -1527,7 +1527,7 @@ export default function DashboardClient({
     // than four filters buried in a memo. The state headlines are shown NET of
     // the shared-services money their own cap carries (owner decision, 26 Aug
     // 2026) — see poolCardTotals for why that money was invisible before.
-    const cards = poolCardTotals(emps);
+    const cards = poolCardTotals(emps, pool, params);
     // The cap footers below stay on the UNREDUCED home-state totals, which is
     // what capRoom and /api/state's gate 4 actually enforce. A "remaining"
     // derived from the net figure would advertise room the save then refuses.
@@ -1558,7 +1558,7 @@ export default function DashboardClient({
         {
           key: "vic",
           title: t.vic,
-          value: cards.vic,
+          value: cards.vicPool,
           cap: vCap,
           remaining: vCap - vicHome,
           over: over(vicHome, vCap),
@@ -1566,7 +1566,7 @@ export default function DashboardClient({
         {
           key: "nsw",
           title: t.nsw,
-          value: cards.nsw,
+          value: cards.nswPool,
           cap: nCap,
           remaining: nCap - nswHome,
           over: over(nswHome, nCap),
@@ -1630,7 +1630,7 @@ export default function DashboardClient({
             disabled={dsBusy}
             label={label}
             onCommit={onCommit}
-            inputClassName="w-[110px]"
+            inputClassName="w-[110px] font-bold"
           />
         </div>
         {typeof remaining === "number" && (
