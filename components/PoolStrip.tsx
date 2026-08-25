@@ -34,37 +34,37 @@ export type PoolSummary =
   };
 
 /**
- * The collapsed form of the pool cards: one thin line of the same figures, so
- * "remaining to allocate" stays on screen while the table has the room.
+ * The collapsed form of the pool cards: one thin line of the figures that
+ * matter while the table has the room, so "how much is left" stays on screen.
+ *
+ * An admin's strip is deliberately NOT everything the cards hold (owner
+ * decision, 26 Aug 2026): the build-up rows and the Shared Services lines made
+ * it three lines of eleven numbers. It shows four — Total cap (the group cap),
+ * the two state pools, and the group total — in that order. A manager's strip
+ * is their four header figures as before.
  */
 export function PoolStrip({ summary }: { summary: PoolSummary }) {
-  const items =
-    summary.kind === "editor"
-      ? summary.items.flatMap((it) => [
-        // a card's build-up and extra figures become their own entries here:
-        // the collapsed strip is one line of everything, so nothing should
-        // vanish with it. Build-up first, headline after, the same order the
-        // card reads in.
-        ...(it.buildUp ?? []).map((b) => ({
-          key: `${it.key}:${b.key}`,
-          title: b.label,
-          value: fmt(b.value),
-          alert: false,
-        })),
-        { key: it.key, title: it.title, value: fmt(it.value), alert: it.over },
-        ...(it.lines ?? []).map((l) => ({
-          key: `${it.key}:${l.label}`,
-          title: l.label,
-          value: fmt(l.value),
-          alert: false,
-        })),
-      ])
-      : summary.items.map((it) => ({
-        key: it.key,
-        title: it.title,
-        value: it.value,
-        alert: it.alert ?? false,
-      }));
+  let items: { key: string; title: string; value: string; alert: boolean }[];
+  if (summary.kind === "editor") {
+    const by = (key: string) => summary.items.find((it) => it.key === key);
+    const vic = by("vic");
+    const nsw = by("nsw");
+    const group = by("group");
+    items = [];
+    if (group?.cap !== undefined)
+      items.push({ key: "cap", title: "Total cap", value: fmt(group.cap), alert: false });
+    for (const it of [vic, nsw, group]) {
+      if (!it) continue;
+      items.push({ key: it.key, title: it.title, value: fmt(it.value), alert: it.over });
+    }
+  } else {
+    items = summary.items.map((it) => ({
+      key: it.key,
+      title: it.title,
+      value: it.value,
+      alert: it.alert ?? false,
+    }));
+  }
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t-2 border-brand-orange bg-white px-4 py-1.5 text-[12px] shadow-sm">
