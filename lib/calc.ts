@@ -396,17 +396,23 @@ export function computeScalesAndBonuses(
 
     // THE PAYOUT — one expression, every row, and `locked` is not in it.
     //
-    // `baseAmount` is the stored figure. Two fallbacks while it is being
-    // introduced over live data, neither of which reads the lock flag:
-    //  - `lockedFinal`, for the 49 rows frozen before 25 Aug 2026. It was
-    //    stored as calc+DA at lock time, so the base it implies is that figure
-    //    less the amount. Only a locked row can carry one (/api/state deletes
-    //    it from any unlocked row), which is what lets this be read
-    //    unconditionally — and is what makes lock and unlock number-neutral
-    //    for those rows without waiting for the seed.
-    //  - the advisory figure, for every row that has never been locked. Their
-    //    payout has always been calc + amount, so this changes nothing for
-    //    them, and a lock taken from here on needs no frozen figure at all.
+    // `baseAmount` is the stored figure, and every row in the live document has
+    // one: it was seeded by scripts/seed-base-amounts.ts, and both paths that
+    // create a row write one (/api/dataset's add, and seedImportedBases for an
+    // import). Two fallbacks behind it, neither reading the lock flag, and both
+    // permanent rather than transitional:
+    //  - `lockedFinal`, for a row frozen before 25 Aug 2026. It was stored as
+    //    calc+DA at lock time, so the base it implies is that figure less the
+    //    amount. Only a locked row can ever carry one, which is what lets it be
+    //    read unconditionally — and is what made lock and unlock
+    //    number-neutral for those rows before the seed ran at all.
+    //  - the advisory figure. This is the last derivation in the payout path
+    //    and it STAYS, because /admin/snapshots can restore any of the 127
+    //    documents taken before `baseAmount` existed. Without this leg such a
+    //    restore would pay every single person $0 — the fallback is what keeps
+    //    an old restore point meaning what it meant when it was taken. It is
+    //    also the honest answer for a row nobody has priced yet: what the
+    //    formula says they are owed.
     const base =
       e.baseAmount ??
       (e.lockedFinal !== undefined ? e.lockedFinal - e.daEdit : e.calcBonus);

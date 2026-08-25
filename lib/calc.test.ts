@@ -1132,6 +1132,20 @@ describe("locking and unlocking move no money", () => {
     }
   });
 
+  it("an unpriced row is paid what the formula says it is owed", () => {
+    // The last derivation in the payout path, and it is deliberate: every live
+    // row carries a stored base, but /admin/snapshots can restore a document
+    // taken before the field existed. Without this, such a restore would pay
+    // everybody $0.
+    const preSeed = run({ A: { daEdit: 100 } }); // no baseAmount anywhere
+    expect(preSeed.byId.A.baseAmount).toBeUndefined();
+    expect(preSeed.byId.A.finalBonus).toBeCloseTo(preSeed.byId.A.calcBonus + 100, 10);
+    expect(preSeed.byId.B.finalBonus).toBeCloseTo(preSeed.byId.B.calcBonus, 10);
+    // ...and a stored base takes precedence over it wherever there is one
+    const priced = run({ A: { daEdit: 100, baseAmount: 1000 } });
+    expect(priced.byId.A.finalBonus).toBeCloseTo(1100, 10);
+  });
+
   it("an IPM edit moves the advisory figure and not the payout", () => {
     // the other half of the contract: amounts are stored, so recalculation is
     // never a side effect of an edit

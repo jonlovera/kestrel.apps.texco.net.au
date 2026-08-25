@@ -3,10 +3,11 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getDataset, getParams } from "@/lib/data";
 import { requireWriter, noStore } from "@/lib/api-guard";
-import { saveStoredDatasetCas, appendHistory } from "@/lib/store";
+import { saveStoredDatasetCas, appendHistory, loadOverrides, seedOverrideBases } from "@/lib/store";
 import { takeSnapshot } from "@/lib/snapshots";
 import { applyDatasetPatch, DatasetPatchSchema } from "@/lib/dataset-edit";
 import { applyParams } from "@/lib/params-apply";
+import { applyOverrides, computeScalesAndBonuses } from "@/lib/calc";
 
 export const dynamic = "force-dynamic";
 
@@ -82,6 +83,31 @@ export async function POST(req: Request) {
       )
     );
   }
+  // A payout is a STORED figure (lib/schema.ts), so a person who has just been
+  // added needs one written before anything reads them — otherwise they fall
+  // back to the advisory calculation, which is the last derivation left in the
+  // model. The figure stored is the one they were going to be paid anyway
+  // (their entitlement at the prevailing scale), so nobody's money moves; it is
+  // recorded rather than re-derived on every read. No version bump, so open
+  // editors keep their unsaved work — see seedOverrideBases.
+  if (patch.op === "add") {
+    try {
+      const effectiveNow = applyParams(result.dataset, params);
+      const stored = await loadOverrides();
+      const priced = applyOverrides(effectiveNow.emp, stored);
+      computeScalesAndBonuses(priced, effectiveNow);
+      const added = priced.find((e) => e.id === patch.employee.id);
+      if (added) {
+        await seedOverrideBases({ [added.id]: added.calcBonus });
+      }
+    } catch (err) {
+      // The roster save already succeeded and is the point of the request. An
+      // unpriced row still reads correctly through the fallback, so this is
+      // worth a loud log and not a failed response.
+      console.error("[dataset-write] failed to store a base for the new row:", err);
+    }
+  }
+
   await appendHistory(result.history);
 
   console.log(

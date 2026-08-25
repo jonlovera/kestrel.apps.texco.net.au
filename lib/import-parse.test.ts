@@ -6,10 +6,17 @@ import {
   buildImportPreview,
   candidateDataset,
   filterImportedLocks,
+  seedImportedBases,
   FIELD_LABELS,
 } from "./import-parse";
 import { deriveFacets } from "./dataset-edit";
-import { DatasetSchema, type Dataset, type Employee } from "./schema";
+import { applyOverrides, computeScalesAndBonuses } from "./calc";
+import {
+  DatasetSchema,
+  type Dataset,
+  type Employee,
+  type Overrides,
+} from "./schema";
 
 const HEADERS = Object.values(FIELD_LABELS); // friendly labels
 const goodRow = [
@@ -355,5 +362,74 @@ describe("filterImportedLocks", () => {
 
   it("keeps nothing when the sheet carries no locks", () => {
     expect(filterImportedLocks([mk("A")], {})).toEqual([]);
+  });
+});
+
+/**
+ * What payout each row carries out of an import. The case that matters most is
+ * the middle one: a new roster moves the advisory calculation and leaves a
+ * settled payout alone, because a payout is stored and only an explicit
+ * redistribution rewrites it.
+ */
+describe("seedImportedBases", () => {
+  const mk = (id: string, over: Partial<Employee> = {}): Employee => ({
+    id, sn: "S", gn: id, pos: "P", dept: "D", mgr: "M", cat: "C",
+    st: "VIC", vp: 1, np: 0, pkg: 4000, bp: 0.1, ipm: 1, bipm: 400,
+    da: 0, f25: 0, sm: 0,
+    ...over,
+  });
+  const roster = [mk("KEEP"), mk("NEW"), mk("SHEETLOCK")];
+  const caps = { vCap: 1500, nCap: 1000, gCap: 5000 };
+
+  /** Price the roster the way the route does before calling the seeder. */
+  function priced(overrides: Overrides) {
+    const rows = applyOverrides(roster, overrides);
+    computeScalesAndBonuses(rows, caps);
+    return rows;
+  }
+
+  it("leaves a settled payout alone — an import moves Calc, not Final", () => {
+    const stored: Overrides = { KEEP: { baseAmount: 999 } };
+    const out = seedImportedBases(priced(stored), stored, new Map());
+    expect(out.KEEP.baseAmount).toBe(999);
+  });
+
+  it("gives a row new to the roster its entitlement", () => {
+    const out = seedImportedBases(priced({}), {}, new Map());
+    // the pool covers everyone here, so the scale is 1 and entitlement is bipm
+    expect(out.NEW.baseAmount).toBeCloseTo(400, 8);
+  });
+
+  it("takes the sheet's locked figure as the payout, discretionary backed out", () => {
+    const stored: Overrides = { SHEETLOCK: { daEdit: 250 } };
+    const out = seedImportedBases(
+      priced(stored),
+      stored,
+      new Map([["SHEETLOCK", 1000]])
+    );
+    // base 750 + the row's own 250 = the 1,000 the sheet stated
+    expect(out.SHEETLOCK.baseAmount).toBeCloseTo(750, 8);
+    expect(out.SHEETLOCK.baseAmount! + out.SHEETLOCK.daEdit!).toBeCloseTo(1000, 8);
+  });
+
+  it("the sheet's figure wins over a stored one, as every imported figure does", () => {
+    const stored: Overrides = { SHEETLOCK: { baseAmount: 1 } };
+    const out = seedImportedBases(
+      priced(stored),
+      stored,
+      new Map([["SHEETLOCK", 1000]])
+    );
+    expect(out.SHEETLOCK.baseAmount).toBeCloseTo(1000, 8);
+  });
+
+  it("every row leaves an import with a stored payout, and none is mutated in place", () => {
+    const stored: Overrides = { KEEP: { baseAmount: 999 } };
+    const out = seedImportedBases(priced(stored), stored, new Map());
+    for (const e of roster) expect(out[e.id].baseAmount).toBeTypeOf("number");
+    expect(stored.NEW).toBeUndefined(); // the input document is untouched
+  });
+
+  it("prices nothing it was not given", () => {
+    expect(seedImportedBases([], {}, new Map())).toEqual({});
   });
 });

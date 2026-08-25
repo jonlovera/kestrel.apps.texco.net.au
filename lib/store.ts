@@ -295,6 +295,48 @@ export function saveOverridesForce(doc: Overrides): Promise<number> {
   return saveDocForce(OVERRIDES_KEY, OVERRIDES_FILE, OVERRIDES_VER_FILE, doc);
 }
 
+/**
+ * Give rows a stored `baseAmount` without touching anything else — and WITHOUT
+ * bumping the version.
+ *
+ * A payout is a stored figure (lib/schema.ts), so a row that has just been
+ * created needs one written before anyone reads it. That write is bookkeeping,
+ * not an edit: it changes no payout (the figure stored is the one the row was
+ * already going to be paid), so it must not 409 every open editor and cost them
+ * their unsaved scratch — which is exactly what a version bump would do, and why
+ * this exists rather than reusing saveOverridesForce.
+ *
+ * Only fills gaps. A row that already has a base is left alone, so this can
+ * never overwrite a figure somebody settled.
+ */
+export async function seedOverrideBases(
+  bases: Record<string, number>
+): Promise<number> {
+  const ids = Object.keys(bases);
+  if (ids.length === 0) return 0;
+  const stored = await loadOverrides();
+  const next: Overrides = { ...stored };
+  let written = 0;
+  for (const id of ids) {
+    if (next[id]?.baseAmount !== undefined) continue;
+    next[id] = { ...next[id], baseAmount: bases[id] };
+    written += 1;
+  }
+  if (written === 0) return 0;
+  const client = sql();
+  if (client) {
+    await client`INSERT INTO kestrel_docs (key, doc, version)
+      VALUES (${OVERRIDES_KEY}, ${JSON.stringify(next)}::jsonb, 1)
+      ON CONFLICT (key) DO UPDATE
+        SET doc = EXCLUDED.doc, updated_at = now()`;
+  } else if (process.env.NODE_ENV === "development") {
+    await devWrite(OVERRIDES_FILE, next);
+  } else {
+    throw new Error(NO_DB);
+  }
+  return written;
+}
+
 // ── access-rule overlay (managed from /admin) ────────────────────────────────
 const ACCESS_KEY = "kestrel:access:fy26";
 const ACCESS_FILE = "access.json";

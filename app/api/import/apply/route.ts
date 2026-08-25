@@ -3,6 +3,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireWriter } from "@/lib/api-guard";
 import { getDataset } from "@/lib/data";
+import { applyParams, defaultParams } from "@/lib/params-apply";
+import { applyOverrides, computeScalesAndBonuses } from "@/lib/calc";
 import {
   loadOverrides,
   saveStoredDataset,
@@ -13,7 +15,12 @@ import {
 } from "@/lib/store";
 import { takeSnapshot } from "@/lib/snapshots";
 import { EmployeeSchema, type Overrides } from "@/lib/schema";
-import { buildImportPreview, candidateDataset, filterImportedLocks } from "@/lib/import-parse";
+import {
+  buildImportPreview,
+  candidateDataset,
+  filterImportedLocks,
+  seedImportedBases,
+} from "@/lib/import-parse";
 import { fmt } from "@/lib/fmt";
 
 export const dynamic = "force-dynamic";
@@ -78,7 +85,7 @@ export async function POST(req: Request) {
   await takeSnapshot(email, "import");
   await saveStoredDataset(candidate);
   const survivingIds = new Set(candidate.emp.map((e) => e.id));
-  const survivingOverrides: Overrides = Object.fromEntries(
+  let survivingOverrides: Overrides = Object.fromEntries(
     Object.entries(overrides).filter(([id]) => survivingIds.has(id))
   );
 
@@ -90,12 +97,46 @@ export async function POST(req: Request) {
   // be locked (the rule /api/state enforces on every save), so a lock written
   // here would be invisible in the UI and stripped, then reported as
   // "Unlocked" in history, by the next ordinary save.
+  //
+  // The amount lands in `baseAmount`, not the retired `lockedFinal`: it is a
+  // payout the spreadsheet is stating, and a payout is `baseAmount + daEdit`
+  // (lib/schema.ts). Backing the row's own discretionary amount out of it keeps
+  // the total exactly what the sheet says. The lock itself is now just the
+  // boolean — it carries no figure.
   const importedLocks = filterImportedLocks(candidate.emp, body.lockedAmounts);
   const skippedLocks = Object.keys(body.lockedAmounts).filter(
     (id) => survivingIds.has(id) && !importedLocks.some(([kept]) => kept === id)
   ).length;
-  for (const [id, amount] of importedLocks) {
-    survivingOverrides[id] = { ...survivingOverrides[id], locked: true, lockedFinal: amount };
+  const lockedAmountById = new Map(importedLocks);
+  for (const [id] of importedLocks) {
+    survivingOverrides[id] = { ...survivingOverrides[id], locked: true };
+  }
+
+  // Every row leaves an import with a stored payout. An existing row keeps the
+  // one it had — a new roster moves the advisory calculation, never a settled
+  // payout, which is the whole point of storing it (recalculation happens when
+  // somebody presses Redistribute, never as a side effect of importing). A row
+  // the sheet locked takes the sheet's figure, and a row new to the roster takes
+  // its entitlement at the prevailing scale.
+  {
+    // Price against the caps that will actually be in force once this import
+    // finishes, not the ones on the way out. A saved params doc shadows the
+    // dataset's caps, and the block below updates it from the sheet — so when
+    // the sheet carries caps, those are the effective ones, and reading the
+    // stored doc here would price a new row against caps about to be replaced.
+    const storedParams = (await loadParams()) ?? defaultParams(candidate);
+    const effectiveParams = body.caps
+      ? {
+          ...storedParams,
+          vCap: candidate.vCap,
+          nCap: candidate.nCap,
+          gCap: candidate.gCap,
+        }
+      : storedParams;
+    const effective = applyParams(candidate, effectiveParams);
+    const priced = applyOverrides(effective.emp, survivingOverrides);
+    computeScalesAndBonuses(priced, effective);
+    survivingOverrides = seedImportedBases(priced, survivingOverrides, lockedAmountById);
   }
 
   // Force-write bumps the version so open editors reload cleanly.

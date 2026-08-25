@@ -16,6 +16,7 @@ import {
   type Dataset,
 } from "./schema";
 import { applyOverrides, computeScalesAndBonuses, isLockable, rowRule } from "./calc";
+import type { CalcEmployee } from "./calc";
 import { deriveFacets, isSplit } from "./dataset-edit";
 import { isModelWorkbook, readModelWorkbook } from "./import-model";
 import {
@@ -389,6 +390,45 @@ function preserveSplitHomeState(current: Employee[], incoming: Employee[]): Empl
       isSplit(e.vp);
     return keep ? { ...e, st: cur.st } : e;
   });
+}
+
+/**
+ * What payout every row carries once an import lands.
+ *
+ * A payout is a STORED figure (`baseAmount + daEdit`, lib/schema.ts), so an
+ * import has to say what each row's is. Three cases, in order:
+ *
+ *  1. The sheet locked the row — its figure is the payout the spreadsheet is
+ *     stating, so the row's own discretionary amount is backed out of it and the
+ *     remainder stored. The sheet wins here, as it does for every other figure
+ *     it carries.
+ *  2. The row already has a stored payout — it keeps it. A new roster moves
+ *     package, bonus % and IPM, so it moves the ADVISORY calculation; it does
+ *     not move a settled payout. That is the model working as intended
+ *     (recalculation happens when somebody presses Redistribute, never as a side
+ *     effect of importing), and it is the case worth reading twice.
+ *  3. Neither — a row new to the roster — takes its entitlement at the
+ *     prevailing scale, which is what it would have been paid anyway.
+ *
+ * `rows` must already be priced (applyOverrides + computeScalesAndBonuses over
+ * the candidate roster), because cases 1 and 3 need daEdit and calcBonus.
+ * Returns a new document; nothing is mutated.
+ */
+export function seedImportedBases(
+  rows: readonly CalcEmployee[],
+  overrides: Overrides,
+  lockedAmounts: ReadonlyMap<string, number>
+): Overrides {
+  const next: Overrides = { ...overrides };
+  for (const row of rows) {
+    const sheetAmount = lockedAmounts.get(row.id);
+    if (sheetAmount !== undefined) {
+      next[row.id] = { ...next[row.id], baseAmount: sheetAmount - row.daEdit };
+    } else if (next[row.id]?.baseAmount === undefined) {
+      next[row.id] = { ...next[row.id], baseAmount: row.calcBonus };
+    }
+  }
+  return next;
 }
 
 /**
