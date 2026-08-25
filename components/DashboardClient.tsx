@@ -2149,7 +2149,7 @@ export default function DashboardClient({
                 <span className="bg-neutral-100 px-2.5 py-1">
                   Showing: {visibleRows.length} / {allRows.length}
                 </span>
-                {typeof totFinal === "number" && (
+                {/* {typeof totFinal === "number" && (
                   <span className="bg-neutral-100 px-2.5 py-1">
                     Total bonuses: {fmt(totFinal)}
                     {(activeTab === "VIC" ||
@@ -2163,7 +2163,7 @@ export default function DashboardClient({
                         </span>
                       )}
                   </span>
-                )}
+                )} */}
               </div>
             </>
           )}
