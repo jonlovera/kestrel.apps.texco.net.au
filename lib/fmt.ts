@@ -16,6 +16,16 @@ export function fmtPctWhole(v: number): string {
 }
 
 /**
+ * A percentage with only the decimals it actually has, up to two: 0.9 → "90%",
+ * 0.875 → "87.5%", 0.095 → "9.5%". For figures a person typed — IPM, bonus %,
+ * a split — where rounding to a whole percent would show them something other
+ * than what they entered (an IPM of 87.5% used to read "88%").
+ */
+export function fmtPctSmart(v: number): string {
+  return +(v * 100).toFixed(2) + "%";
+}
+
+/**
  * Config-driven formatting for the column presentation settings.
  * Currency keeps the prototype's `($1,234)` negative style.
  */
@@ -34,7 +44,16 @@ export function fmtValue(
     return v < 0 ? `–$${abs}` : `$${abs}`;
   }
   if (format === "percent") {
-    return (v * 100).toLocaleString("en-AU", opts) + "%";
+    // `decimals` is the minimum shown; a figure carrying more precision than
+    // that keeps up to two places rather than being rounded away, so an IPM of
+    // 87.5% reads "87.5%" in a column configured for whole percentages while
+    // 90% still reads "90%".
+    return (
+      (v * 100).toLocaleString("en-AU", {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: Math.max(decimals, 2),
+      }) + "%"
+    );
   }
   return v.toLocaleString("en-AU", opts);
 }

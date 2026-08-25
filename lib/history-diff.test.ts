@@ -43,9 +43,14 @@ describe("diffOverrides", () => {
     expect(e.summary).toBe("Set Discretionary for Alan Bidychak: $5,000 → $0");
   });
 
-  it("percent fields format as whole percents", () => {
+  it("percent fields format without spurious decimals", () => {
     const [e] = diff({}, { ABCDE: { ipmEdit: 0.75 } });
     expect(e.summary).toBe("Set IPM% for Alan Bidychak: 90% → 75%");
+  });
+
+  it("keeps the decimals a person typed: 87.5% is not \"88%\"", () => {
+    const [e] = diff({}, { ABCDE: { ipmEdit: 0.875 } });
+    expect(e.summary).toBe("Set IPM% for Alan Bidychak: 90% → 87.5%");
   });
 
   it("lock and unlock produce lock-kind entries", () => {

@@ -21,7 +21,7 @@ import {
   daImpact,
   type DaGrant,
 } from "@/lib/da-impact";
-import { fmt } from "@/lib/fmt";
+import { fmt, fmtPctSmart } from "@/lib/fmt";
 
 export const dynamic = "force-dynamic";
 
@@ -284,7 +284,7 @@ export async function POST(req: Request) {
         ts,
         actor: email,
         kind: "edit" as const,
-        summary: `Re-priced ${c.name}'s fixed bonus: ${fmt(c.from)} → ${fmt(c.to)} (IPM ${Math.round(c.ipmFrom * 100)}% → ${Math.round(c.ipmTo * 100)}%)`,
+        summary: `Re-priced ${c.name}'s fixed bonus: ${fmt(c.from)} → ${fmt(c.to)} (IPM ${fmtPctSmart(c.ipmFrom)} → ${fmtPctSmart(c.ipmTo)})`,
         empId: c.empId,
         field: "baseAmount",
         from: Math.round(c.from),

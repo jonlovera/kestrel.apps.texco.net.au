@@ -6,7 +6,8 @@ import { isDaEditable, isIpmEditable, isLockable, type AdjustAllowance } from "@
 import { signatureRouteFor, signatoriesFor } from "@/lib/letter-blocks";
 import type { DisplayRow } from "@/lib/payload-types";
 import type { ColumnFormat } from "@/lib/columns";
-import { fmtValue } from "@/lib/fmt";
+import {
+  fmtPctSmart, fmtValue } from "@/lib/fmt";
 import LetterButton from "./LetterButton";
 
 /**
@@ -316,7 +317,7 @@ export default function EmployeeTable({
             type="text"
             data-row={rowIdx}
             data-col={c.key}
-            defaultValue={`${Math.round(r.ipm! * 100)}%`}
+            defaultValue={fmtPctSmart(r.ipm!)}
             disabled={busy}
             onFocus={(e) => e.target.select()}
             onBlur={(e) => handlers.updateIPM(r.id, r.ipm!, e.target.value)}
@@ -349,7 +350,7 @@ export default function EmployeeTable({
             type="text"
             data-row={rowIdx}
             data-col={c.key}
-            defaultValue={`${Math.round(v * 100)}%`}
+            defaultValue={fmtPctSmart(v)}
             disabled={busy}
             onFocus={(e) => e.target.select()}
             onBlur={(e) => handlers.updateSplit(r.id, field, v, e.target.value)}

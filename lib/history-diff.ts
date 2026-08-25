@@ -1,5 +1,5 @@
 import type { Employee, Overrides, HistoryEntry } from "./schema";
-import { fmt, fmtPctWhole } from "./fmt";
+import { fmt, fmtPctSmart } from "./fmt";
 
 /**
  * One field-level change to the overrides doc, in structured form. The
@@ -38,8 +38,8 @@ export function overrideChanges(
       label: string;
       show: (v: number) => string;
     }[] = [
-      { key: "bpEdit", field: "bp", label: "Bonus%", show: fmtPctWhole },
-      { key: "ipmEdit", field: "ipm", label: "IPM%", show: fmtPctWhole },
+      { key: "bpEdit", field: "bp", label: "Bonus%", show: fmtPctSmart },
+      { key: "ipmEdit", field: "ipm", label: "IPM%", show: fmtPctSmart },
       { key: "daEdit", field: "da", label: "Discretionary", show: fmt },
     ];
 

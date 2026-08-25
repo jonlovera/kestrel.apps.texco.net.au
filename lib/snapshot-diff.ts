@@ -17,7 +17,7 @@
 import type { Employee, Snapshot } from "./schema";
 import { z } from "zod";
 import { overrideChanges } from "./history-diff";
-import { fmt, fmtPctWhole } from "./fmt";
+import { fmt, fmtPctSmart } from "./fmt";
 import { ParamsSchema, type Params } from "./params-apply";
 import {
   ColumnConfigSchema,
@@ -71,7 +71,7 @@ const MAX_LINES = 1000;
 // ── employee fields ──────────────────────────────────────────────────────────
 
 const money = (v: number) => fmt(v);
-const pct = (v: number) => fmtPctWhole(v);
+const pct = (v: number) => fmtPctSmart(v);
 const text = (v: string | number) => String(v);
 
 /** Label + rendering per comparable employee field (id is the join key). */

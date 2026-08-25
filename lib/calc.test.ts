@@ -824,6 +824,11 @@ describe("edge guards", () => {
   it("percent input parsing matches the prototype ('90' → 0.9, '0.9' → 0.9)", () => {
     expect(parsePercentInput("90")).toBe(0.9);
     expect(parsePercentInput("90%")).toBe(0.9);
+    // decimals survive: an IPM can be 87.5%
+    expect(parsePercentInput("87.5")).toBe(0.875);
+    expect(parsePercentInput("87.5%")).toBe(0.875);
+    expect(parsePercentInput("0.875")).toBe(0.875);
+    expect(parsePercentInput("12.25 %")).toBe(0.1225);
     expect(parsePercentInput("0.9")).toBe(0.9);
     expect(parsePercentInput("abc")).toBeNull();
     // negatives are allowed: a DA may deliberately reduce a final bonus

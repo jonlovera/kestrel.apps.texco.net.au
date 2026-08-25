@@ -1423,7 +1423,9 @@ export default function DashboardClient({
    */
   function updateIPM(id: string, current: number, raw: string) {
     const next = parsePercentInput(raw);
-    if (next === null || Math.round(next * 100) === Math.round(current * 100)) return;
+    // Compared at the precision typed, not at whole percentages: 90% → 87.5%
+    // used to be dismissed here as "no change" and silently dropped.
+    if (next === null || Math.abs(next - current) < 1e-6) return;
     if (isEditor) {
       const emp = empById.get(id);
       if (!emp || emp.locked) return;
@@ -1458,7 +1460,7 @@ export default function DashboardClient({
    */
   function updateSplit(id: string, field: "vp" | "np", current: number, raw: string) {
     const next = parsePercentInput(raw);
-    if (next === null || Math.round(next * 100) === Math.round(current * 100)) return;
+    if (next === null || Math.abs(next - current) < 1e-6) return;
     void patchDataset({ op: "field", id, field, value: next });
   }
 
