@@ -572,6 +572,68 @@ export function sumAllocated<T>(
   return rows.reduce((s, r) => s + final(r), 0);
 }
 
+/** The six figures an admin's pool cards show. See poolCardTotals. */
+export interface PoolCardTotals {
+  /** the VIC card: VIC-home payouts, less the VIC cap's shared draw */
+  vic: number;
+  /** the NSW card: NSW-home payouts, less the NSW cap's shared draw */
+  nsw: number;
+  /** Σ payout over Shared Services rows */
+  shared: number;
+  /** Σ payout over everyone */
+  group: number;
+  /** VIC cap money going to people who are not on the VIC card */
+  vicOther: number;
+  /** NSW cap money going to people who are not on the NSW card */
+  nswOther: number;
+}
+
+/**
+ * What the admin pool cards display (owner decision, 26 August 2026).
+ *
+ * The cards group whole payouts by HOME STATE, so no shared-services person has
+ * ever appeared on a state's card — while that state's CAP quietly funds their
+ * vp/np fraction. `vicOther`/`nswOther` are that carried money, and each state's
+ * headline figure is shown net of it.
+ *
+ * `st !== "VIC"` rather than `st === "SHARED"` deliberately: if a VIC-home person
+ * is ever given an NSW share, their NSW money lands in `nswOther` rather than
+ * disappearing — which is the gap these two cards exist to close.
+ *
+ * `final × vp`, not getVicAlloc: that reports the engine's pool draw with
+ * discretionary amounts excluded, and a payout is a stored figure the cap funds
+ * in full.
+ *
+ * DISPLAY ONLY. Nothing here bounds a grant. The caps are enforced against Σ
+ * payout by home state (capRoom, and /api/state's gate 4), which is why the
+ * cards' cap footers keep using the unreduced figure — a "remaining" derived
+ * from `vic` would advertise room the save then refuses.
+ */
+export function poolCardTotals(emps: readonly CalcEmployee[]): PoolCardTotals {
+  let vicHome = 0;
+  let nswHome = 0;
+  let shared = 0;
+  let group = 0;
+  let vicOther = 0;
+  let nswOther = 0;
+  for (const e of emps) {
+    group += e.finalBonus;
+    if (e.st === "VIC") vicHome += e.finalBonus;
+    else vicOther += e.finalBonus * e.vp;
+    if (e.st === "NSW") nswHome += e.finalBonus;
+    else nswOther += e.finalBonus * e.np;
+    if (e.st === "SHARED") shared += e.finalBonus;
+  }
+  return {
+    vic: vicHome - vicOther,
+    nsw: nswHome - nswOther,
+    shared,
+    group,
+    vicOther,
+    nswOther,
+  };
+}
+
 /** Prototype input parsing: "90" and "0.9" both mean 90%. */
 export function parsePercentInput(val: string): number | null {
   const num = parseFloat(val.replace(/[^\d.]/g, ""));

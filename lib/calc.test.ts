@@ -14,6 +14,7 @@ import {
   isLockable,
   parsePercentInput,
   parseDaInput,
+  poolCardTotals,
   type Caps,
   type CalcEmployee,
   type PoolState,
@@ -1217,3 +1218,66 @@ describe.skipIf(!existsSync(PROD_FIXTURE))(
     });
   }
 );
+
+/**
+ * The admin pool cards (owner decision, 26 August 2026). FIXTURE: A/B are VIC
+ * (wholly), C is a VIC site manager, D is NSW, E is SHARED split 60/40, F draws
+ * from no pool at all.
+ */
+describe("poolCardTotals", () => {
+  it("carries a shared row's payout into the state cards it is funded by", () => {
+    const { emps, byId } = run();
+    const t = poolCardTotals(emps);
+    // E is the only row funded from a cap it does not appear on
+    expect(t.vicOther).toBeCloseTo(byId.E.finalBonus * 0.6, 10);
+    expect(t.nswOther).toBeCloseTo(byId.E.finalBonus * 0.4, 10);
+    // F has no pool exposure, so it contributes to neither
+    expect(byId.F.finalBonus).toBe(0);
+  });
+
+  it("shows each state net of the money its own cap carries", () => {
+    const { emps, byId } = run();
+    const t = poolCardTotals(emps);
+    const vicHome = byId.A.finalBonus + byId.B.finalBonus + byId.C.finalBonus + byId.F.finalBonus;
+    expect(t.vic).toBeCloseTo(vicHome - t.vicOther, 10);
+    expect(t.nsw).toBeCloseTo(byId.D.finalBonus - t.nswOther, 10);
+  });
+
+  it("leaves Shared Services and the group total exactly as they were", () => {
+    const { emps, byId } = run();
+    const t = poolCardTotals(emps);
+    expect(t.shared).toBeCloseTo(byId.E.finalBonus, 10);
+    expect(t.group).toBeCloseTo(cardTotal(emps), 10);
+  });
+
+  it("puts a VIC person's NSW share in nswOther and takes it out of nsw", () => {
+    // the generalisation the `st !== ` form buys: nobody on the roster is like
+    // this today, but if a VIC-home person is given an NSW share their NSW money
+    // must land somewhere rather than vanishing
+    const crossed = FIXTURE.map((e) =>
+      e.id === "B" ? { ...e, vp: 0.5, np: 0.5 } : e
+    );
+    const emps = applyOverrides(crossed, {});
+    computeScalesAndBonuses(emps, CAPS);
+    const b = emps.find((e) => e.id === "B")!;
+    const t = poolCardTotals(emps);
+    // B is VIC-home, so its NSW half is money the NSW cap carries for a row
+    // that never appears on the NSW card
+    expect(t.nswOther).toBeCloseTo(
+      b.finalBonus * 0.5 + emps.find((e) => e.id === "E")!.finalBonus * 0.4,
+      10
+    );
+    // ...and B's VIC half is not in vicOther: B IS on the VIC card
+    expect(t.vicOther).toBeCloseTo(emps.find((e) => e.id === "E")!.finalBonus * 0.6, 10);
+  });
+
+  it("is display only: it never reports a figure a cap is enforced against", () => {
+    // the cap is enforced on Σ payout by HOME state, which is the net figure
+    // plus what the cap carries — the identity the cards' footers rely on
+    const { emps } = run();
+    const t = poolCardTotals(emps);
+    const vicHome = cardTotal(emps, "VIC");
+    expect(t.vic + t.vicOther).toBeCloseTo(vicHome, 10);
+    expect(t.nsw + t.nswOther).toBeCloseTo(cardTotal(emps, "NSW"), 10);
+  });
+});

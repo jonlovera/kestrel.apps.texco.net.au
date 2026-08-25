@@ -23,6 +23,7 @@ import {
   parsePercentInput,
   rowRule,
   parseDaInput,
+  poolCardTotals,
   sumAllocated,
   type CalcEmployee,
   type PoolState,
@@ -1522,10 +1523,17 @@ export default function DashboardClient({
     // under the state they belong to, while the engine funds the fractions
     // from each cap (lib/calc.ts's getVicAlloc/getNswAlloc are the per-pool
     // figures). So the cap footers read as a guide, not a reconciliation.
-    const vicTotal = emps.filter((e) => e.st === "VIC").reduce((s, e) => s + e.finalBonus, 0);
-    const nswTotal = emps.filter((e) => e.st === "NSW").reduce((s, e) => s + e.finalBonus, 0);
-    const sharedTotal = emps.filter((e) => e.st === "SHARED").reduce((s, e) => s + e.finalBonus, 0);
-    const groupTotal = emps.reduce((s, e) => s + e.finalBonus, 0);
+    // One definition, in lib/calc.ts, so these six figures are testable rather
+    // than four filters buried in a memo. The state headlines are shown NET of
+    // the shared-services money their own cap carries (owner decision, 26 Aug
+    // 2026) — see poolCardTotals for why that money was invisible before.
+    const cards = poolCardTotals(emps);
+    // The cap footers below stay on the UNREDUCED home-state totals, which is
+    // what capRoom and /api/state's gate 4 actually enforce. A "remaining"
+    // derived from the net figure would advertise room the save then refuses.
+    const vicHome = cards.vic + cards.vicOther;
+    const nswHome = cards.nsw + cards.nswOther;
+    const groupTotal = cards.group;
 
     // A figure goes red when it exceeds its cap. An ADMIN's own edit cannot
     // cause that: theirs is clamped at type time to the room left under both
@@ -1550,20 +1558,32 @@ export default function DashboardClient({
         {
           key: "vic",
           title: t.vic,
-          value: vicTotal,
+          value: cards.vic,
           cap: vCap,
-          remaining: vCap - vicTotal,
-          over: over(vicTotal, vCap),
+          remaining: vCap - vicHome,
+          over: over(vicHome, vCap),
         },
         {
           key: "nsw",
           title: t.nsw,
-          value: nswTotal,
+          value: cards.nsw,
           cap: nCap,
-          remaining: nCap - nswTotal,
-          over: over(nswTotal, nCap),
+          remaining: nCap - nswHome,
+          over: over(nswHome, nCap),
         },
-        { key: "shared", title: "Shared Services", value: sharedTotal, over: false },
+        { key: "shared", title: "Shared Services", value: cards.shared, over: false },
+        {
+          key: "vicOther",
+          title: "VIC SS Other Portion",
+          value: cards.vicOther,
+          over: false,
+        },
+        {
+          key: "nswOther",
+          title: "NSW SS Other Portion",
+          value: cards.nswOther,
+          over: false,
+        },
         {
           key: "group",
           title: t.group,
