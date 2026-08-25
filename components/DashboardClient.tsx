@@ -56,6 +56,29 @@ type Tab = "ALL" | "VIC" | "NSW" | "SHARED" | "HISTORY";
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 /**
+ * TEMPORARY — pinned pool-card headlines for the admin view.
+ *
+ * These three figures come from the finance model and are shown INSTEAD of the
+ * derived ones on the VIC pool, NSW pool and Shared Services cards. Display
+ * only: substituted where each card's value is read, and nothing else. No
+ * calculation is affected — poolCardTotals still computes the real figures, the
+ * Cap and Remaining lines still use them, and no payout moves.
+ *
+ * Group total is deliberately absent and still derives: no pinned value was
+ * given for it.
+ *
+ * TO REMOVE: delete this const and restore the three `cards.*` references it
+ * replaces in poolSummary (search for PINNED_CARD_HEADLINES). Anything else that
+ * disagrees with these numbers — Remaining, the tabs, "Total bonuses", a grant
+ * ceiling — is the derivation still telling the truth underneath.
+ */
+const PINNED_CARD_HEADLINES = {
+  vic: 1_343_396,
+  nsw: 1_194_970,
+  shared: 308_047,
+} as const;
+
+/**
  * Which columns can be typed into, and down which write path.
  *
  * Bonus % left this list when it became spreadsheet-only, and so did package,
@@ -1558,7 +1581,8 @@ export default function DashboardClient({
         {
           key: "vic",
           title: t.vic,
-          value: cards.vicPool,
+          // PINNED_CARD_HEADLINES — display only; cards.vicPool is the derived figure
+          value: PINNED_CARD_HEADLINES.vic,
           cap: vCap,
           remaining: vCap - vicHome,
           over: over(vicHome, vCap),
@@ -1566,7 +1590,8 @@ export default function DashboardClient({
         {
           key: "nsw",
           title: t.nsw,
-          value: cards.nswPool,
+          // PINNED_CARD_HEADLINES — display only; cards.nswPool is the derived figure
+          value: PINNED_CARD_HEADLINES.nsw,
           cap: nCap,
           remaining: nCap - nswHome,
           over: over(nswHome, nCap),
@@ -1574,7 +1599,8 @@ export default function DashboardClient({
         {
           key: "shared",
           title: "Shared Services (corporate split)",
-          value: cards.shared,
+          // PINNED_CARD_HEADLINES — display only; cards.shared is the derived figure
+          value: PINNED_CARD_HEADLINES.shared,
           // The two lines are NOT a breakdown of the headline — they cover a
           // different population. The headline is everyone on Shared Services;
           // the lines are the PART-SPLIT staff, the few on their own ratio
