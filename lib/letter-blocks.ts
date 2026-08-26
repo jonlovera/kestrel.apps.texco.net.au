@@ -74,6 +74,28 @@ export const BLOCKS: readonly (readonly Signatory[])[] = [
 ];
 
 /**
+ * The title printed under a signatory, where the template's is out of date.
+ *
+ * The template is the master for everything else it states, and lib/letter-docx.ts
+ * reads each signatory's title straight out of it — but a title is a fact about a
+ * person that changes on its own schedule, and the master is re-supplied by hand.
+ * Correcting it in the .docx would be reverted by the next copy HR hands over
+ * without anybody noticing, which is the failure this file is written to avoid
+ * everywhere else. So the correction lives here, where it is visible and tested.
+ *
+ * Clint Cassar signs as General Manager, Construction (owner, 26 August 2026);
+ * the template still prints the "Director" he held when it was written.
+ *
+ * An entry here must name a signatory whose block prints ONE title per name —
+ * lib/letter-docx.ts refuses to apply an override to a title Word has split
+ * across runs (Scott Griffin's "Director" + ", NSW"), rather than write a
+ * mangled line onto a letter going out over a signature.
+ */
+export const TITLE_OVERRIDES: Partial<Record<Signatory, string>> = {
+  "Clint Cassar": "General Manager, Construction",
+};
+
+/**
  * Spreadsheet spelling → template spelling, for the SAME person.
  *
  * Deliberately separate from the routing below, because it is a different kind

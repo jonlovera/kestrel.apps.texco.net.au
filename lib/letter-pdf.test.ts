@@ -39,7 +39,8 @@ describe.skipIf(!converterReady() || !existsSync(TEMPLATE))(
       st: "VIC",
       mgr: "Clint Cassar",
       finalBonus: 24571,
-      pkg: 185000,
+      salaryPackage: 185000,
+      increased: false,
     };
 
     it("turns a finished letter into a real PDF", async () => {

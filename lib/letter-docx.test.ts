@@ -11,7 +11,12 @@ import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import JSZip from "jszip";
-import { buildLetter, letterFilename, type LetterEmployee } from "./letter-docx";
+import {
+  buildLetter,
+  letterFilename,
+  OPENING_PARAGRAPH,
+  type LetterEmployee,
+} from "./letter-docx";
 import { SIGNATORIES, signatureRouteFor } from "./letter-blocks";
 
 const TEMPLATE = join(__dirname, "templates", "remuneration-letter.docx");
@@ -29,7 +34,16 @@ async function mediaIn(bytes: Uint8Array): Promise<string[]> {
 }
 
 function emp(over: Partial<LetterEmployee> = {}): LetterEmployee {
-  return { gn: "Ann", sn: "Alpha", st: "VIC", mgr: "Clint Cassar", finalBonus: 24571, pkg: 185000, ...over };
+  return {
+    gn: "Ann",
+    sn: "Alpha",
+    st: "VIC",
+    mgr: "Clint Cassar",
+    finalBonus: 24571,
+    salaryPackage: 185000,
+    increased: false,
+    ...over,
+  };
 }
 
 /** Build a letter and pull back the pieces the assertions look at. */
@@ -100,28 +114,103 @@ describe.skipIf(!template)("buildLetter", () => {
   });
 
   describe("the FY27 review section", () => {
-    it("states the Eligible Salary being held, not the bonus", async () => {
+    it("states the package being held, not the bonus", async () => {
       // Two different figures in two different sentences — the bug a blanket
       // [Amount] replace would introduce is putting the bonus in both.
-      const l = await letter(emp({ pkg: 185000, finalBonus: 24571 }));
+      const l = await letter(emp({ salaryPackage: 185000, finalBonus: 24571 }));
       expect(l.flat).toContain("salary package will remain at $185,000 (gross)");
       expect(l.flat).toContain("bonus of $24,571 (gross)");
     });
 
-    it("drops the increase paragraph until there is data to drive it", async () => {
-      const l = await letter(emp());
+    it("drops the increase paragraph for somebody held at their package", async () => {
+      const l = await letter(emp({ increased: false }));
       expect(l.flat).not.toContain("will increase to");
       expect(l.flat).toContain("will remain at");
+    });
+
+    it("keeps the increase paragraph, and only that one, for a rise", async () => {
+      const l = await letter(emp({ increased: true, salaryPackage: 205000 }));
+      expect(l.flat).toContain(
+        "remuneration package will increase to $205,000 (gross)"
+      );
+      // the held paragraph must not survive alongside it — a letter stating
+      // both is worse than one stating neither
+      expect(l.flat).not.toContain("will remain at");
+      expect(l.flat).not.toContain("As part of this year");
+    });
+
+    it("still states the bonus separately on an increase letter", async () => {
+      const l = await letter(
+        emp({ increased: true, salaryPackage: 205000, finalBonus: 24571 })
+      );
+      expect(l.flat).toContain("bonus of $24,571 (gross)");
+      expect(l.flat).toContain("increase to $205,000 (gross)");
     });
 
     it("strips the [No Increase] marker, which Word split across two runs", async () => {
       // `[No ` and `Increase]` are separate runs, so no single-run replace can
       // see the marker — and leaving it in opens the paragraph with editorial
       // scaffolding in a letter going to an employee.
-      const l = await letter(emp());
+      const l = await letter(emp({ increased: false }));
       expect(l.flat).not.toContain("[No Increase]");
       expect(l.flat).not.toContain("Increase]");
       expect(l.flat).toContain("As part of this year");
+    });
+
+    it("corrects the template's typo in the increase sentence", async () => {
+      // The increase paragraph was dropped from every letter until the review
+      // arrived to drive it, so this had never reached a finished document.
+      const l = await letter(emp({ increased: true }));
+      expect(l.flat).toContain("will be reflected in the pay run");
+      expect(l.flat).not.toContain("reflected the in the pay run");
+    });
+
+    it("strips the [Increase] marker, which Word also split", async () => {
+      const l = await letter(emp({ increased: true }));
+      expect(l.flat).not.toContain("[Increase]");
+      expect(l.flat).not.toContain("Increase]");
+      expect(l.flat).toContain("We are pleased to inform you");
+    });
+  });
+
+  describe("the opening paragraph", () => {
+    it("uses the current wording, not the template's", async () => {
+      const l = await letter(emp());
+      expect(l.flat).toContain(OPENING_PARAGRAPH);
+      // the copy this replaced, which the template still carries
+      expect(l.flat).not.toContain("the importance of consistency, sound delivery");
+    });
+
+    it("refuses to build a letter if the template lost that paragraph", async () => {
+      // Superseded copy on a letter that otherwise looks perfect is exactly the
+      // silent-wrongness this module refuses everywhere else.
+      const zip = await JSZip.loadAsync(template!);
+      const doc = await zip.file("word/document.xml")!.async("string");
+      zip.file(
+        "word/document.xml",
+        doc.replace("Thank you for the part you have played", "Thanks for everything")
+      );
+      const broken = await zip.generateAsync({ type: "uint8array" });
+      await expect(letter(emp(), broken)).rejects.toThrow(/opening paragraph/);
+    });
+  });
+
+  describe("signature titles", () => {
+    it("prints Clint Cassar's current title, not the template's", async () => {
+      const l = await letter(emp({ mgr: "Clint Cassar" }));
+      expect(l.signed).toEqual(["Clint Cassar", "Jonathan Glick"]);
+      expect(l.body.split("\n")).toContain("General Manager, Construction");
+      // his co-signatory keeps the title the template gives him
+      expect(l.body.split("\n")).toContain("Delivery Manager, VIC");
+      expect(l.body.split("\n")).not.toContain("Director");
+    });
+
+    it("leaves a block with no override exactly as the template has it", async () => {
+      // Scott Griffin's title is split across runs ("Director" + ", NSW"), so
+      // this is also the case that would break if overrides were applied blindly
+      const l = await letter(emp({ st: "NSW", mgr: "Tom McCreanor" }));
+      expect(l.signed).toEqual(["Scott Griffin"]);
+      expect(l.flat).toContain("Director, NSW");
     });
   });
 

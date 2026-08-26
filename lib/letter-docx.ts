@@ -38,6 +38,7 @@
 import JSZip from "jszip";
 import {
   BLOCKS,
+  TITLE_OVERRIDES,
   signatoriesFor,
   type SignatureRoute,
   type Signatory,
@@ -55,12 +56,24 @@ export interface LetterEmployee {
   /** the frozen final bonus — the figure the FY26 award paragraph states */
   finalBonus: number;
   /**
-   * Eligible Salary, which the FY27 review paragraph states as the package
-   * being held for the coming year. The table's "Eligible Salary" column and
-   * the figure the whole bonus calculation is built on (lib/schema.ts's `pkg`),
-   * NOT the informational "Total Package" beside it.
+   * The remuneration package the FY27 review paragraph states: what the person
+   * moves TO when `increased`, and what they are held AT when not.
+   *
+   * This is the ACTUAL total salary package, not `pkg` / Eligible Salary, which
+   * is what this field used to carry. Those are different figures — Eligible
+   * Salary is the bonus calculation's input and is prorated for eligibility —
+   * and stating it here told people their package was a number they had never
+   * been paid (owner, 26 August 2026). The caller resolves it, in order of
+   * authority: the FY27 remuneration review (lib/remuneration.ts), then the
+   * roster's `totalPkg`, and only then `pkg`.
    */
-  pkg: number;
+  salaryPackage: number;
+  /**
+   * Which of the template's two alternative FY27 paragraphs this letter takes.
+   * True keeps "your remuneration package will increase to …"; false keeps
+   * "your salary package will remain at …". Both state `salaryPackage`.
+   */
+  increased: boolean;
 }
 
 export interface LetterOptions {
@@ -164,6 +177,77 @@ function stripLeading(xml: string, marker: string): string {
     left = left.slice(eaten);
     return `${open}${encode(plain.slice(eaten))}${close}`;
   });
+}
+
+/**
+ * The letter's opening paragraph (owner, 26 August 2026), replacing the copy the
+ * template was written with.
+ *
+ * Held here rather than corrected in the .docx for the same reason
+ * TITLE_OVERRIDES is: the master is re-supplied by hand, and a correction made
+ * inside it is reverted by the next copy with nothing to show that it happened.
+ */
+export const OPENING_PARAGRAPH =
+  "Thank you for the part you have played in our success this year. It has been " +
+  "another solid year for Texco, particularly in what remains a tight and highly " +
+  "competitive market. As our team continues to grow, the collective effort, " +
+  "contribution and high standards of delivery across the business are helping us " +
+  "maintain our reputation, win new work and continue to build on our success. " +
+  "Your contribution to that effort has not gone unnoticed.";
+
+/** The words the opening paragraph is FOUND by — stable across both wordings. */
+const OPENING_ANCHOR = "Thank you for the part you have played";
+
+/**
+ * Corrections to the template's own sentences, applied wherever they are found.
+ *
+ * "reflected the in the pay run" sat in the increase paragraph, which was
+ * dropped from every letter until the FY27 review arrived to drive it — so the
+ * typo had never reached a finished document and nobody had cause to catch it
+ * (owner, 26 August 2026).
+ *
+ * Unlike OPENING_PARAGRAPH these are NOT required to match. A fix that finds
+ * nothing means the template has since been corrected upstream, which is the
+ * outcome to want, not one to throw on. Each `find` must be long enough to be
+ * unambiguous and must sit inside a single run — Word splits a line wherever
+ * formatting changes, and a phrase spanning a boundary is not there to match.
+ */
+const WORDING_FIXES: readonly { find: string; replace: string }[] = [
+  { find: "reflected the in the pay run", replace: "reflected in the pay run" },
+];
+
+/** Apply every correction that this paragraph happens to carry. */
+function applyWordingFixes(xml: string): string {
+  return WORDING_FIXES.reduce(
+    (acc, { find, replace }) => acc.split(encode(find)).join(encode(replace)),
+    xml
+  );
+}
+
+/**
+ * Replace a paragraph's entire text, however many runs Word has split it into.
+ *
+ * The whole replacement goes into the first run and the rest are EMPTIED rather
+ * than deleted — the same reasoning as stripLeading: the runs sit between paired
+ * <w:proofErr> elements and removing one of a pair produces a document Word
+ * offers to repair. Emptying keeps the first run's formatting, which is the
+ * paragraph's body formatting, for the whole sentence.
+ */
+function replaceParagraphText(xml: string, value: string): string {
+  let first = true;
+  return xml.replace(
+    /(<w:t(?: [^>]*)?>)([\s\S]*?)(<\/w:t>)/g,
+    (_whole, open: string, _mid: string, close: string) => {
+      if (!first) return `${open}${close}`;
+      first = false;
+      // xml:space="preserve" matters: without it Word trims the run, and this
+      // sentence has no leading space to lose but the next edit might.
+      const tag = open.includes("xml:space")
+        ? open
+        : open.replace("<w:t", '<w:t xml:space="preserve"');
+      return `${tag}${encode(value)}${close}`;
+    }
+  );
 }
 
 /**
@@ -348,8 +432,13 @@ function swapSlot(
   paras[block.titleIdx].xml = replaceNthText(paras[block.titleIdx].xml, slot, title);
 }
 
-/** The title printed under a signatory, taken from wherever they already sign. */
+/**
+ * The title printed under a signatory: the correction in TITLE_OVERRIDES where
+ * there is one, otherwise whatever the template already prints for them.
+ */
 function titleOf(paras: Para[], blocks: FoundBlock[], who: Signatory): string {
+  const override = TITLE_OVERRIDES[who];
+  if (override) return override;
   for (const b of blocks) {
     const slot = BLOCKS[b.index].indexOf(who);
     if (slot < 0) continue;
@@ -357,6 +446,45 @@ function titleOf(paras: Para[], blocks: FoundBlock[], who: Signatory): string {
     if (titles[slot]) return titles[slot];
   }
   throw new TemplateError(`no title found for ${who}`);
+}
+
+/**
+ * Apply TITLE_OVERRIDES to the block this letter keeps.
+ *
+ * Only the surviving block needs it — the other eight are deleted — and only
+ * the slots that actually carry an override, because writing a title back
+ * unchanged is not free: replaceNthText addresses the nth <w:t>, and a title
+ * Word has split across runs (Scott Griffin's is "Director" + ", NSW") would be
+ * written into the first run with the remainder left dangling after it. So a
+ * mismatch between names and title runs throws instead, rather than putting a
+ * mangled line under somebody's signature.
+ *
+ * Runs after the swaps, so an overridden signatory substituted into a slot is
+ * corrected too — swapSlot writes titleOf's answer, and this agrees with it.
+ */
+function applyTitleOverrides(
+  paras: Para[],
+  block: FoundBlock,
+  signatories: readonly Signatory[]
+): void {
+  const overridden = signatories
+    .map((who, slot) => ({ slot, title: TITLE_OVERRIDES[who], who }))
+    .filter((x): x is { slot: number; title: string; who: Signatory } => !!x.title);
+  if (overridden.length === 0) return;
+
+  const runs = textsOf(paras[block.titleIdx].xml).filter((t) => t.trim());
+  if (runs.length !== signatories.length) {
+    throw new TemplateError(
+      `cannot set ${overridden
+        .map((o) => o.who)
+        .join(" and ")}'s title: the template prints ${runs.length} title run(s) for ${
+        signatories.length
+      } name(s) in this block, so which run belongs to whom is not decidable`
+    );
+  }
+  for (const { slot, title } of overridden) {
+    paras[block.titleIdx].xml = replaceNthText(paras[block.titleIdx].xml, slot, title);
+  }
 }
 
 /** Australian long form: 25 August 2026. */
@@ -397,6 +525,7 @@ export async function buildLetter(
 
   // ── the person ────────────────────────────────────────────────────────────
   const drop = new Set<number>();
+  let openingFound = false;
 
   paras.forEach((p, i) => {
     // The date line, which is the letter's own date rather than the template's.
@@ -416,28 +545,60 @@ export async function buildLetter(
     if (p.text.includes("Employee Bonus Scheme for the period")) {
       paras[i].xml = fillIn(paras[i].xml, "[Amount]", fmt(emp.finalBonus));
     }
-    // THE FY27 REVIEW, until there is remuneration data to drive it (owner,
-    // 25 August 2026). The template offers two alternative paragraphs and every
-    // letter currently takes the "no increase" one, stating the salary that is
-    // being held: the increase paragraph is dropped, and the "[No Increase]"
-    // marker comes off so what is left reads as a finished sentence rather than
-    // a template someone forgot to tidy.
+    // THE FY27 REVIEW. The template offers two alternative paragraphs and the
+    // letter keeps exactly one of them: the person either moved package or was
+    // held at theirs, and `increased` is the FY27 remuneration review's answer
+    // (lib/remuneration.ts, via /api/letter). The other is dropped, and the kept
+    // one loses its marker so what remains reads as a finished sentence rather
+    // than a template someone forgot to tidy.
     //
-    // When increases arrive this is where they land — keep whichever paragraph
-    // matches the person and strip its marker the same way. The two are told
-    // apart by what they SAY ("will increase to" / "will remain at") rather
-    // than by their markers, which are split across runs and cannot be matched.
+    // The two are told apart by what they SAY ("will increase to" / "will
+    // remain at") rather than by their markers, which Word split across runs
+    // and which no single-run match can see.
+    //
+    // Both state `salaryPackage` — the actual total package. Each [Amount] is
+    // still filled from its OWN paragraph, never blanket-replaced, which is
+    // what keeps the bonus out of the salary sentence.
     if (p.text.includes("remuneration package will increase to")) {
-      drop.add(i);
+      if (emp.increased) {
+        paras[i].xml = fillIn(
+          stripLeading(paras[i].xml, "[Increase]"),
+          "[Amount]",
+          fmt(emp.salaryPackage)
+        );
+      } else {
+        drop.add(i);
+      }
     }
     if (p.text.includes("salary package will remain at")) {
-      paras[i].xml = fillIn(
-        stripLeading(paras[i].xml, "[No Increase]"),
-        "[Amount]",
-        fmt(emp.pkg)
-      );
+      if (emp.increased) {
+        drop.add(i);
+      } else {
+        paras[i].xml = fillIn(
+          stripLeading(paras[i].xml, "[No Increase]"),
+          "[Amount]",
+          fmt(emp.salaryPackage)
+        );
+      }
     }
+    // The opening paragraph, replaced wholesale with the current wording
+    // (OPENING_PARAGRAPH). Matched on the words both versions open with.
+    if (p.text.trimStart().startsWith(OPENING_ANCHOR)) {
+      paras[i].xml = replaceParagraphText(p.xml, OPENING_PARAGRAPH);
+      openingFound = true;
+    }
+    // Last, so it also reaches sentences the branches above have just rewritten.
+    paras[i].xml = applyWordingFixes(paras[i].xml);
   });
+
+  // A letter that opens with superseded copy would look completely fine, which
+  // is exactly the outcome this module is written to refuse — the same reason
+  // a missing signature block throws rather than degrading.
+  if (!openingFound) {
+    throw new TemplateError(
+      `template no longer has an opening paragraph starting "${OPENING_ANCHOR}" — it has been edited, and the letter's wording cannot be applied`
+    );
+  }
 
   // ── the address: keep the office this person belongs to ───────────────────
   // A SHARED row keeps both, deliberately: their cost is split across the two
@@ -473,6 +634,7 @@ export async function buildLetter(
       swapSlot(paras, keep, slot, now, titleOf(paras, blocks, now), reg);
     }
   });
+  applyTitleOverrides(paras, keep, wanted);
 
   // ── stitch the document back together ─────────────────────────────────────
   let out = "";

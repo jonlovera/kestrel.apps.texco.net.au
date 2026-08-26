@@ -28,6 +28,10 @@ import { ParamsSchema, type Params } from "./params-apply";
 import { StoredCopySchema, resolveCopy, type Copy } from "./copy";
 import { IdentityUsersSchema, type IdentityUsers } from "./identity-schema";
 import {
+  PackageIncreaseDocSchema,
+  type PackageIncreaseDoc,
+} from "./remuneration";
+import {
   PageviewEntrySchema,
   AnonVisitEntrySchema,
   type PageviewEntry,
@@ -450,6 +454,28 @@ export function loadIdentityUsers(): Promise<IdentityUsers> {
 
 export function saveIdentityUsers(users: IdentityUsers): Promise<void> {
   return saveDoc(IDENTITY_USERS_KEY, IDENTITY_USERS_FILE, users);
+}
+
+// ── FY27 remuneration review (uploaded on /admin/package-increase) ──────────
+// Who moved package and by how much (lib/remuneration.ts). Unversioned: it has
+// one writer, an admin dropping the master workbook, and a re-upload replaces
+// the document wholesale — there is no concurrent-edit problem to arbitrate.
+// It feeds no payout, so it is deliberately absent from the snapshot state.
+const PACKAGES_KEY = "kestrel:packages:fy27";
+const PACKAGES_FILE = "packages.json";
+
+/** null = nothing uploaded yet; the page shows its empty state. */
+export function loadPackageIncreases(): Promise<PackageIncreaseDoc | null> {
+  return loadDoc<PackageIncreaseDoc | null>(
+    PACKAGES_KEY,
+    PACKAGES_FILE,
+    PackageIncreaseDocSchema as z.ZodType<PackageIncreaseDoc | null>,
+    null
+  );
+}
+
+export function savePackageIncreases(doc: PackageIncreaseDoc): Promise<void> {
+  return saveDoc(PACKAGES_KEY, PACKAGES_FILE, doc);
 }
 
 // ── snapshots (newest first, kept forever, read a page at a time) ────────────

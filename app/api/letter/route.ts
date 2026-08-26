@@ -2,13 +2,14 @@ import { NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getEffectiveDataset } from "@/lib/data";
-import { loadOverrides } from "@/lib/store";
+import { loadOverrides, loadPackageIncreases } from "@/lib/store";
 import { resolveViewer } from "@/lib/view-as";
 import { canDownloadLetters } from "@/lib/write-scope";
 import { ruleMatches } from "@/lib/access-rules";
 import { applyOverrides, computeScalesAndBonuses } from "@/lib/calc";
 import { signatureRouteFor, signatoriesFor } from "@/lib/letter-blocks";
 import { buildLetter, letterFilename, type LetterFormat } from "@/lib/letter-docx";
+import { resolveLetterPackage } from "@/lib/remuneration";
 import { convertToPdf, converterReady, PdfConversionError } from "@/lib/letter-pdf";
 
 export const dynamic = "force-dynamic";
@@ -78,9 +79,14 @@ export async function GET(req: Request) {
     return deny("not-granted", "You don't have access to download letters.");
   }
 
-  const [data, overrides] = await Promise.all([
+  const [data, overrides, review] = await Promise.all([
     getEffectiveDataset(),
     loadOverrides(),
+    // The FY27 remuneration review, uploaded on /admin/package-increase. Absent
+    // until somebody has uploaded one, which resolveLetterPackage treats as
+    // "nobody reviewed" rather than as an error: every letter then states the
+    // roster's own package and takes the "held" paragraph, as it did before.
+    loadPackageIncreases(),
   ]);
   const rows = applyOverrides(data.emp, overrides);
   computeScalesAndBonuses(rows, data);
@@ -114,7 +120,13 @@ export async function GET(req: Request) {
   const template = await readFile(
     join(process.cwd(), "lib", "templates", "remuneration-letter.docx")
   );
-  const docx = await buildLetter(template, emp, route);
+  const reviewed = review?.rows.find((r) => r.id === emp.id);
+  const { salaryPackage, increased } = resolveLetterPackage(reviewed, emp);
+  const docx = await buildLetter(
+    template,
+    { ...emp, salaryPackage, increased },
+    route
+  );
 
   // The conversion is LAST, after every gate and after the letter itself is
   // built, so a refusal never costs anyone a LibreOffice cold start.

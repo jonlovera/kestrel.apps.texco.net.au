@@ -96,6 +96,12 @@ export default function AccountMenu({
           )}
 
           {isEditor && !viewingAs && (
+            <Link href="/admin/package-increase" className={itemCls}>
+              Package increase
+            </Link>
+          )}
+
+          {isEditor && !viewingAs && (
             <Link href="/admin" className={itemCls}>
               Admin
             </Link>
