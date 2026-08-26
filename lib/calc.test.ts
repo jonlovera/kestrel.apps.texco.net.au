@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { clampDa } from "./da-impact";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Employee, Overrides } from "./schema";
@@ -7,6 +8,7 @@ import {
   computeScalesAndBonuses,
   getVicAlloc,
   getNswAlloc,
+  floorCents,
   getMaxDA,
   inStateHomeTotal,
   isCarveFunded,
@@ -583,9 +585,13 @@ describe("getMaxDA is the room left under the caps", () => {
     expect(Math.floor(1000 - cardTotal(base.emps, "VIC"))).toBe(104);
     expect(cardTotal(base.emps)).toBeCloseTo(1580, 8);
     expect(getMaxDA(base.byId.A, base.emps, CAPS)).toBe(-80);
-    // lift the group cap alone and the state cap becomes the binding one
+    // lift the group cap alone and the state cap becomes the binding one —
+    // to the cent (104.34 of room), since 26 Aug 2026
     const lifted: Caps = { ...CAPS, gCap: 10_000 };
-    expect(getMaxDA(base.byId.A, base.emps, lifted)).toBe(104);
+    expect(getMaxDA(base.byId.A, base.emps, lifted)).toBe(
+      floorCents(1000 - cardTotal(base.emps, "VIC"))
+    );
+    expect(getMaxDA(base.byId.A, base.emps, lifted)).toBeCloseTo(104.34, 2);
   });
 });
 
@@ -605,8 +611,10 @@ describe("getMaxDA under CapBound 'state' (what bounds a scoped lead)", () => {
     const base = run();
     // the very case the block above pins: nothing grantable under "both"...
     expect(getMaxDA(base.byId.A, base.emps, CAPS)).toBe(-80);
-    // ...while VIC's own card still has 104 of room, which is now A's ceiling
-    expect(getMaxDA(base.byId.A, base.emps, CAPS, "state")).toBe(104);
+    // ...while VIC's own card still has 104.34 of room, which is now A's ceiling
+    expect(getMaxDA(base.byId.A, base.emps, CAPS, "state")).toBe(
+      floorCents(1000 - cardTotal(base.emps, "VIC"))
+    );
   });
 
   it("defaults to 'both', so a caller that has not thought about it is stricter", () => {
@@ -638,7 +646,10 @@ describe("getMaxDA under CapBound 'state' (what bounds a scoped lead)", () => {
   it("still refuses once the state's OWN card is full", () => {
     // the bound is relaxed, not removed — a lead cannot overrun their state
     const full = run({ A: { daEdit: 104 } });
-    expect(getMaxDA(full.byId.B, full.emps, CAPS, "state")).toBe(0);
+    // 34¢ of room is left: nothing a whole-dollar grant can take
+    const room = getMaxDA(full.byId.B, full.emps, CAPS, "state");
+    expect(room).toBeCloseTo(0.34, 2);
+    expect(clampDa(1, 0, room)).toEqual({ value: 0, clamped: true });
   });
 });
 
@@ -693,7 +704,7 @@ describe("a carve-out tightens the state bound by exactly the carve", () => {
     const groupRoom = 200_000 - (cardTotal(carved.emps) - carved.byId.A.daEdit);
     const stateRoom = 75_000 - (cardTotal(carved.emps, "VIC") - carved.byId.A.daEdit);
     expect(stateRoom).toBeLessThan(groupRoom);
-    expect(getMaxDA(carved.byId.A, carved.emps, CARVED)).toBe(Math.floor(stateRoom));
+    expect(getMaxDA(carved.byId.A, carved.emps, CARVED)).toBe(floorCents(stateRoom));
   });
 
   it("a stored total past the carved cap reads as no room, even though it is under the raw cap", () => {
@@ -751,7 +762,7 @@ describe("carve-funded rows do not count against a state pool", () => {
       );
     }
     expect(getMaxDA(with_.byId.A, with_.emps, ROOM, "state")).toBe(
-      Math.floor(100_000 - (cardTotal(with_.emps, "VIC") - with_.byId.P.finalBonus))
+      floorCents(100_000 - (cardTotal(with_.emps, "VIC") - with_.byId.P.finalBonus))
     );
   });
 
@@ -759,12 +770,12 @@ describe("carve-funded rows do not count against a state pool", () => {
     const r = roomy([...FIXTURE, P]);
     expect(getMaxDA(r.byId.P, r.emps, ROOM, "state")).toBe(Infinity);
     expect(getMaxDA(r.byId.P, r.emps, ROOM, "both")).toBe(
-      Math.floor(200_000 - (cardTotal(r.emps) - r.byId.P.daEdit))
+      floorCents(200_000 - (cardTotal(r.emps) - r.byId.P.daEdit))
     );
     // and exactly as E, the SHARED split row, has always been
     expect(getMaxDA(r.byId.E, r.emps, ROOM, "state")).toBe(Infinity);
     expect(getMaxDA(r.byId.E, r.emps, ROOM, "both")).toBe(
-      Math.floor(200_000 - (cardTotal(r.emps) - r.byId.E.daEdit))
+      floorCents(200_000 - (cardTotal(r.emps) - r.byId.E.daEdit))
     );
   });
 
@@ -772,7 +783,7 @@ describe("carve-funded rows do not count against a state pool", () => {
     const carved: Caps = { ...ROOM, vCarve: 25_000 };
     const r = roomy([...FIXTURE, P]);
     expect(getMaxDA(r.byId.A, r.emps, carved, "state")).toBe(
-      Math.floor(75_000 - (cardTotal(r.emps, "VIC") - r.byId.P.finalBonus))
+      floorCents(75_000 - (cardTotal(r.emps, "VIC") - r.byId.P.finalBonus))
     );
     expect(getMaxDA(r.byId.P, r.emps, carved, "state")).toBe(Infinity);
   });

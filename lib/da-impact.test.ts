@@ -12,7 +12,7 @@
  */
 import { describe, it, expect } from "vitest";
 import type { Dataset, Employee, Overrides } from "./schema";
-import { applyOverrides, computeScalesAndBonuses } from "./calc";
+import { applyOverrides, computeScalesAndBonuses, floorCents } from "./calc";
 import {
   DA_POLICY,
   clampDa,
@@ -257,10 +257,10 @@ describe("a carve-funded row (FY26 part-split staff labelled VIC)", () => {
     expect(daHeadroom(row(rows, "A"), rows, withP)).toBe(300);
     // P is bounded by the group cap alone, and by nothing under "state"
     expect(daHeadroom(row(rows, "P"), rows, withP, "state")).toBe(Infinity);
-    expect(daHeadroom(row(rows, "P"), rows, withP)).toBe(Math.floor(5000 - cardTotal(rows)));
+    expect(daHeadroom(row(rows, "P"), rows, withP)).toBe(floorCents(5000 - cardTotal(rows)));
     const impact = daImpact(withP.emp, withP, {}, { P: { daEdit: 250 } });
     expect(impact.pools.map((p) => p.key)).toEqual(["GROUP"]);
-    expect(impact.grants[0].headroom).toBe(Math.floor(5000 - cardTotal(rows)));
+    expect(impact.grants[0].headroom).toBe(floorCents(5000 - cardTotal(rows)));
   });
 });
 

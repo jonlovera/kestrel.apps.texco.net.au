@@ -78,15 +78,13 @@ describe("the split", () => {
     expect([...got.values()].sort()).toEqual([33, 33, 34]);
   });
 
-  it("whole dollars only — no cents anywhere", () => {
-    const rows = [
-      row({ id: "A", calcBonus: 7_777 }),
-      row({ id: "B", calcBonus: 3_333 }),
-      row({ id: "C", calcBonus: 1_111 }),
-    ];
-    const got = redistribute(rows, 120_483, all(rows));
-    for (const v of got.values()) expect(Number.isInteger(v)).toBe(true);
-    expect(sum(got)).toBe(120_483);
+  it("a whole-dollar remaining gives whole-dollar shares; only a remaining with cents puts a cent on one share", () => {
+    const rows = [row({ id: "a", calcBonus: 60_000 }), row({ id: "b", calcBonus: 40_000 }), row({ id: "c", calcBonus: 1 })];
+    const whole = redistribute(rows, 1_000, all(rows));
+    for (const v of whole.values()) expect(Number.isInteger(v)).toBe(true);
+    const cents = redistribute(rows, 1_000.07, all(rows));
+    expect(Math.round(sum(cents) * 100)).toBe(100_007);
+    for (const v of cents.values()) expect(Math.round(v * 100) / 100).toBe(v); // never finer than a cent
   });
 
   it("falls back to an equal split when there is no weight to go on", () => {
@@ -155,17 +153,19 @@ describe("safety properties", () => {
     expect(sum(got) - 300).toBe(-100);
   });
 
-  it("never spends the cents: a remaining of 9,685.60 hands out 9,685, not 9,686", () => {
-    // the server floors the room it judges each grant against (getMaxDA), so
-    // rounding up would land the pool 40¢ over — a red card and, for a dollar,
-    // a refused save
+  it("spends the remaining EXACTLY, to the cent, so the card reads nil afterwards", () => {
+    // it used to round to whole dollars, which could spend 40¢ the pool did
+    // not have (red card, refused save) — or, floored, leave cents for ever
     const rows = [row({ id: "a", calcBonus: 60_000 }), row({ id: "b", calcBonus: 40_000 })];
     const shares = redistribute(rows, 9_685.6, all(rows));
-    expect(sum(shares)).toBe(9_685);
-    // and a remaining under a dollar is nothing to hand out
-    expect(redistribute(rows, 0.9, all(rows)).size).toBe(0);
-    // the same toward zero when reclaiming
-    expect(sum(redistribute(rows, -9_685.6, all(rows)))).toBe(-9_685);
+    expect(Math.round(sum(shares) * 100)).toBe(968_560);
+    // under a dollar is still money
+    expect(Math.round(sum(redistribute(rows, 0.9, all(rows))) * 100)).toBe(90);
+    // and the same to the cent when reclaiming
+    expect(Math.round(sum(redistribute(rows, -9_685.6, all(rows))) * 100)).toBe(-968_560);
+    // an existing amount with cents on it stays exact too
+    const withCents = [row({ id: "a", calcBonus: 1, daEdit: 10.55 })];
+    expect(redistribute(withCents, 5.5, all(withCents)).get("a")).toBe(16.05);
   });
 
   it("a zero remaining writes nothing at all", () => {

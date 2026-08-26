@@ -28,7 +28,7 @@ import type { Dataset, Employee, Overrides } from "./schema";
 import { ParamsSchema, applyParams } from "./params-apply";
 import type { Scope } from "./access";
 import { managerPool, managerPoolFrom, poolBreach } from "./manager-pool";
-import { applyOverrides, computeScalesAndBonuses, getMaxDA } from "./calc";
+import { applyOverrides, computeScalesAndBonuses, floorCents, getMaxDA } from "./calc";
 import { FY26_PUBLISHED, attachFy26Carves, statePoolOf } from "./fy26-caps";
 
 const FIXTURE = join(__dirname, "..", "data", "prod-fixture.json");
@@ -233,7 +233,7 @@ describe.skipIf(!existsSync(FIXTURE))(
 
       // what a lead is judged by now: their own Remaining, to the dollar
       expect(getMaxDA(row, emps, data, "state")).toBe(
-        Math.floor(p.remaining + row.daEdit)
+        floorCents(p.remaining + row.daEdit)
       );
       // ...and what used to judge them, which their header could not show
       expect(getMaxDA(row, emps, data)).toBeLessThan(
@@ -379,7 +379,7 @@ describe("poolBreach", () => {
       const row = rows.find((e) => e.id === id)!;
       const p = managerPool(lead, roomy, doc);
       expect(getMaxDA(row, rows, roomy, "state")).toBe(
-        Math.floor(p.remaining + row.daEdit)
+        floorCents(p.remaining + row.daEdit)
       );
     };
     check({}, "A");
@@ -413,7 +413,7 @@ describe("poolBreach", () => {
       const row = rows.find((e) => e.id === id)!;
       const p = managerPool(lead, carved, doc);
       expect(getMaxDA(row, rows, carved, "state")).toBe(
-        Math.floor(p.remaining + row.daEdit)
+        floorCents(p.remaining + row.daEdit)
       );
     };
     check({}, "A");
@@ -480,7 +480,7 @@ describe("poolBreach", () => {
       computeScalesAndBonuses(rows, carved);
       const row = rows.find((e) => e.id === id)!;
       const p = managerPool(lead, carved, doc);
-      expect(getMaxDA(row, rows, carved, "state")).toBe(Math.floor(p.remaining + row.daEdit));
+      expect(getMaxDA(row, rows, carved, "state")).toBe(floorCents(p.remaining + row.daEdit));
     };
     check({}, "A");
     check({ A: { daEdit: 200 } }, "B");

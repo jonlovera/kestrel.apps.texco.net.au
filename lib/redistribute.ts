@@ -98,19 +98,19 @@ export function eligible<T extends Redistributable>(
  * present with an unchanged value, so a caller can tell "no change" from
  * "changed to the same number".
  *
- * Whole dollars, summing EXACTLY to `remaining` truncated toward zero: each
- * share is floored, then the leftover dollars go one at a time to the largest
- * fractional parts (largest remainder). Dropping the remainder the way
- * getMaxDA floors would leave Remaining a few dollars short of zero, so the
- * card would never quite read nil after a press that had in fact spent
- * everything it could.
+ * Summing EXACTLY to `remaining`, to the cent, so the card reads nil after a
+ * press (owner decision, 26 Aug 2026). The whole dollars are split pro-rata —
+ * each share truncated toward zero, then the leftover dollars handed out one
+ * at a time to the largest fractional parts (largest remainder) — and the odd
+ * cents below a dollar go to the one row with the largest share. So shares
+ * stay whole-dollar figures, as typed amounts are, with a single row carrying
+ * the cents the pool had.
  *
- * Truncated, NOT rounded: the room is `pool − allocated` with cents on it, and
- * the server floors it when it judges each grant (getMaxDA). Rounding 9,685.60
- * up to 9,686 spent 40¢ the pool did not have — the card went red on a press
- * that was meant to land it exactly on nil, and the save could be refused for
- * a dollar. The cents stay as Remaining; a whole-dollar field cannot spend
- * them.
+ * It used to work in whole dollars and ROUND the remaining, which could spend
+ * up to 50¢ the pool did not have (a red card and a refused save for a
+ * dollar); flooring to dollars instead left cents on the table for ever. The
+ * server judges each share against a room floored to the cent (getMaxDA), so
+ * an exact fill is accepted.
  */
 export function redistribute<T extends Redistributable>(
   rows: readonly T[],
@@ -118,9 +118,13 @@ export function redistribute<T extends Redistributable>(
   selected: ReadonlySet<string>
 ): Map<string, number> {
   const out = new Map<string, number>();
-  const target = Math.trunc(remaining);
+  // whole dollars to split, and the cents left over (both toward zero, so a
+  // negative remaining is never over-reclaimed)
+  const totalCents = Math.trunc(Math.round(remaining * 100));
+  const target = Math.trunc(totalCents / 100);
+  const oddCents = totalCents - target * 100;
   const people = eligible(rows, selected);
-  if (people.length === 0 || target === 0) return out;
+  if (people.length === 0 || totalCents === 0) return out;
 
   const weights = people.map(weightOf);
   const totalWeight = weights.reduce((s, w) => s + w, 0);
@@ -155,9 +159,22 @@ export function redistribute<T extends Redistributable>(
     residue -= step;
   }
 
+  // The cents go to the largest share (lowest id on a tie), so exactly one
+  // figure carries them and the split is the same every time.
+  if (oddCents !== 0) {
+    let top = 0;
+    for (let i = 1; i < people.length; i++) {
+      if (Math.abs(base[i]) > Math.abs(base[top]) ||
+        (Math.abs(base[i]) === Math.abs(base[top]) && people[i].id < people[top].id))
+        top = i;
+    }
+    base[top] += oddCents / 100;
+  }
+
   people.forEach((r, i) => {
     if (base[i] === 0) return;
-    out.set(r.id, r.daEdit + base[i]);
+    // the existing amount may carry cents of its own — keep the sum exact
+    out.set(r.id, Math.round((r.daEdit + base[i]) * 100) / 100);
   });
   return out;
 }

@@ -549,7 +549,13 @@ export type CapBound = "both" | "state";
  *
  * Reads everyone's finalBonus, so call it only after computeScalesAndBonuses.
  *
- * Floored to whole dollars like the prototype. Returns 0 for a locked row (its
+ * Floored to whole CENTS — the unit a payout is stored in — not to whole
+ * dollars as the prototype did. A pool's room carries cents (the caps and the
+ * stored bases do), and a redistribution has to be able to spend exactly that
+ * room so the card reads nil afterwards (owner decision, 26 Aug 2026); a
+ * dollar floor here refused the last few cents of every such fill. What a
+ * person TYPES is still held to whole dollars (lib/da-impact.ts's clampDa).
+ * Returns 0 for a locked row (its
  * payout is frozen, so there is nothing to grant) and Infinity for a row with
  * no cap left to bound it — either it draws from no pool (vp + np === 0, and
  * /api/state strips its DA anyway) or it is a Shared Services row — or any
@@ -577,7 +583,13 @@ export function getMaxDA(
   // protects is the payout from being RECALCULATED, and nothing recalculates it;
   // a deliberate edit is what the history's grant entries record.
   if (e.vp + e.np === 0) return Infinity;
-  return Math.floor(capRoom(e, emps, caps, bound));
+  return floorCents(capRoom(e, emps, caps, bound));
+}
+
+/** Round down to the cent, tolerating the float noise a sum of payouts carries. */
+export function floorCents(v: number): number {
+  if (!Number.isFinite(v)) return v;
+  return Math.floor(v * 100 + 1e-6) / 100;
 }
 
 /**
