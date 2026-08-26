@@ -115,15 +115,22 @@ const filterApplies = (sel: string[], all: readonly string[]) =>
  * What a set of display rows allocates under a document, in one pass, without
  * waiting for the preview round trip.
  *
- * This is only possible because a discretionary amount no longer moves the
- * scale: `calc` is therefore INVARIANT under a DA edit, so
- * Σ(locked ? final : calc + da) is exact for the case that matters (a DA
- * change or a tick). It goes stale for one pass after an IPM or lock edit,
- * which does move `calc`, and that self-corrects on the next preview.
+ * A payout is a STORED figure: `baseAmount + daEdit` (lib/schema.ts, 25 Aug
+ * 2026). The row carries `final` = base + its saved amount, so under a
+ * document that changes only amounts, each row pays `(final − savedDa) +
+ * nextDa` — exact, whatever the lock says (a lock moves no money) and whatever
+ * the advisory Calc bonus has drifted to since the base was seeded.
  *
- * `canMeasure` is false for a scoped view that is not sent Calc bonus at all,
- * since then there is nothing local to add up — callers fall back to the
- * server's figure.
+ * It used to sum `locked ? final : calc + da`, from the era when an unlocked
+ * payout WAS the live derivation. Under stored payouts that overstated the VIC
+ * room by $2,316 at the 26 Aug 2026 data (18 unlocked rows whose Calc bonus
+ * had drifted from their base), so a Redistribute press spent more than the
+ * card's Remaining — the figure gate 4 then refused. Σ final by home state is
+ * what capRoom and poolCardTotals measure, so this now agrees with both.
+ *
+ * `canMeasure` is false for a scoped view that is not sent Final at all, since
+ * then there is nothing local to add up — callers fall back to the server's
+ * figure.
  *
  * ONE definition, shared by the two things that need it: the ceiling a lead's
  * Discretionary field is held to (leadDaBounds) and the budget a redistribution
@@ -145,12 +152,10 @@ function measureAllocation(
     if (!r.inHomeTotal) continue;
     const da = next[r.id]?.daEdit ?? r.da ?? 0;
     const locked = next[r.id]?.locked ?? r.locked;
-    if (locked) {
-      allocated += r.final ?? 0;
-    } else if (r.calc === undefined) {
+    if (r.final === undefined) {
       canMeasure = false;
     } else {
-      allocated += r.calc + da;
+      allocated += r.final - (r.da ?? 0) + da;
     }
     rows.push({
       id: r.id,
@@ -1253,8 +1258,8 @@ export default function DashboardClient({
       // clamp must too, or the field would hold what the save then accepts.
       if (!row.inHomeTotal) return { current, ceiling: Infinity };
       const { allocated, canMeasure } = measureAllocation(scopedRows, next);
-      // Fall back to the server's Remaining when Calc bonus isn't in the
-      // payload and there is nothing local to add up.
+      // Fall back to the server's Remaining when Final isn't in the payload
+      // and there is nothing local to add up.
       const others = canMeasure ? mgrPool.pool - allocated : mgrPool.remaining;
       return { current, ceiling: others + current };
     },
