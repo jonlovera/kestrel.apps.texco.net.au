@@ -199,6 +199,16 @@ export const OPENING_PARAGRAPH =
 const OPENING_ANCHOR = "Thank you for the part you have played";
 
 /**
+ * The FY26 award section: its heading, and the sentence that states the figure.
+ *
+ * Two distinct substrings rather than one — the heading reads "…Bonus Scheme
+ * Award" and the sentence "…Bonus Scheme for the period", so neither can match
+ * the other by accident, and the section can be removed as a whole.
+ */
+const BONUS_HEADING = "Employee Bonus Scheme Award";
+const BONUS_BODY = "Employee Bonus Scheme for the period";
+
+/**
  * Corrections to the template's own sentences, applied wherever they are found.
  *
  * "reflected the in the pay run" sat in the increase paragraph, which was
@@ -526,6 +536,10 @@ export async function buildLetter(
   // ── the person ────────────────────────────────────────────────────────────
   const drop = new Set<number>();
   let openingFound = false;
+  let bonusHeadingFound = false;
+  let bonusBodyFound = false;
+  /** Whether this letter has an award to state at all — see the FY26 branch. */
+  const statesBonus = Math.round(emp.finalBonus) !== 0;
 
   paras.forEach((p, i) => {
     // The date line, which is the letter's own date rather than the template's.
@@ -539,11 +553,28 @@ export async function buildLetter(
     if (paras[i].xml.includes("[Preferred Name]")) {
       paras[i].xml = fillIn(paras[i].xml, "[Preferred Name]", emp.gn);
     }
-    // Each [Amount] is filled from its OWN paragraph's figure — there are two
-    // in the finished letter and they are different numbers, so a blanket
-    // replace would put the bonus into the salary sentence.
-    if (p.text.includes("Employee Bonus Scheme for the period")) {
-      paras[i].xml = fillIn(paras[i].xml, "[Amount]", fmt(emp.finalBonus));
+    // THE FY26 AWARD. Each [Amount] is filled from its OWN paragraph's figure —
+    // there are two in the finished letter and they are different numbers, so a
+    // blanket replace would put the bonus into the salary sentence.
+    //
+    // With nothing to award, the whole section goes — heading and sentence both
+    // (owner, 26 August 2026). "We're pleased to advise that you will receive a
+    // bonus of $0" is not a sentence to send anybody, and deleting only the
+    // figure would leave a heading standing over nothing.
+    //
+    // The test is what the letter would PRINT, not the raw figure: fmt rounds,
+    // so a residual fraction of a cent shows as "$0" and must count as none. A
+    // genuinely negative award is a real figure and is stated as one.
+    if (p.text.includes(BONUS_BODY)) {
+      bonusBodyFound = true;
+      if (statesBonus) {
+        paras[i].xml = fillIn(paras[i].xml, "[Amount]", fmt(emp.finalBonus));
+      } else {
+        drop.add(i);
+      }
+    } else if (p.text.includes(BONUS_HEADING)) {
+      bonusHeadingFound = true;
+      if (!statesBonus) drop.add(i);
     }
     // THE FY27 REVIEW. The template offers two alternative paragraphs and the
     // letter keeps exactly one of them: the person either moved package or was
@@ -597,6 +628,14 @@ export async function buildLetter(
   if (!openingFound) {
     throw new TemplateError(
       `template no longer has an opening paragraph starting "${OPENING_ANCHOR}" — it has been edited, and the letter's wording cannot be applied`
+    );
+  }
+  // Only when the section is being removed: half a removal is a heading with
+  // nothing under it, or a stray "$0" sentence under no heading. Either would
+  // go out looking like a mistake nobody made on purpose.
+  if (!statesBonus && !(bonusHeadingFound && bonusBodyFound)) {
+    throw new TemplateError(
+      `template no longer has both parts of the FY26 award section ("${BONUS_HEADING}" and "${BONUS_BODY}"), so it cannot be removed cleanly for a letter with no award`
     );
   }
 

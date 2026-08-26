@@ -173,6 +173,63 @@ describe.skipIf(!template)("buildLetter", () => {
     });
   });
 
+  describe("the FY26 award section", () => {
+    it("states the award when there is one", async () => {
+      const l = await letter(emp({ finalBonus: 24571 }));
+      expect(l.flat).toContain("FY26 Employee Bonus Scheme Award");
+      expect(l.flat).toContain("bonus of $24,571 (gross)");
+    });
+
+    it("drops the whole section when the award is nothing", async () => {
+      // heading and sentence both — a heading standing over nothing is as wrong
+      // as the "$0" sentence it was introducing
+      const l = await letter(emp({ finalBonus: 0 }));
+      expect(l.flat).not.toContain("FY26 Employee Bonus Scheme Award");
+      expect(l.flat).not.toContain("you will receive a bonus of");
+      expect(l.flat).not.toContain("$0");
+      // and the letter is otherwise intact
+      expect(l.flat).toContain("FY27 Remuneration Review");
+      expect(l.flat).toContain("will remain at $185,000 (gross)");
+      expect(l.flat).toContain("Kind regards");
+      expect(l.signed).toEqual(["Clint Cassar", "Jonathan Glick"]);
+    });
+
+    it("drops it for a figure that merely rounds to nothing", async () => {
+      // fmt rounds, so this would have printed "$0" too
+      const l = await letter(emp({ finalBonus: 0.4 }));
+      expect(l.flat).not.toContain("FY26 Employee Bonus Scheme Award");
+    });
+
+    it("keeps a negative award, which is a real figure", async () => {
+      const l = await letter(emp({ finalBonus: -1500 }));
+      expect(l.flat).toContain("FY26 Employee Bonus Scheme Award");
+      expect(l.flat).toContain("(gross)");
+    });
+
+    it("leaves no square-bracketed marker behind on a no-award letter", async () => {
+      const l = await letter(emp({ finalBonus: 0 }));
+      expect(l.flat).not.toMatch(/\[[A-Za-z ]+\]/);
+    });
+
+    it("refuses to half-remove the section if the template changed", async () => {
+      const zip = await JSZip.loadAsync(template!);
+      const doc = await zip.file("word/document.xml")!.async("string");
+      // Word split the heading as `FY2` + `6 Employee Bonus Scheme Award`, so
+      // the tampering has to stay inside one run to actually land — which is
+      // the same reason the heading is detected on joined text, not on the XML.
+      zip.file(
+        "word/document.xml",
+        doc.replace("6 Employee Bonus Scheme Award", "6 Award")
+      );
+      const broken = await zip.generateAsync({ type: "uint8array" });
+      await expect(letter(emp({ finalBonus: 0 }), broken)).rejects.toThrow(
+        /FY26 award section/
+      );
+      // an ordinary letter is unaffected — nothing is being removed
+      await expect(letter(emp({ finalBonus: 24571 }), broken)).resolves.toBeTruthy();
+    });
+  });
+
   describe("the opening paragraph", () => {
     it("uses the current wording, not the template's", async () => {
       const l = await letter(emp());
