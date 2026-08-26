@@ -98,11 +98,19 @@ export function eligible<T extends Redistributable>(
  * present with an unchanged value, so a caller can tell "no change" from
  * "changed to the same number".
  *
- * Whole dollars, summing to `remaining` EXACTLY: each share is floored, then
- * the leftover dollars go one at a time to the largest fractional parts
- * (largest remainder). Dropping the remainder the way getMaxDA floors would
- * leave Remaining a few dollars short of zero, so the card would never quite
- * read nil after a press that had in fact spent everything it could.
+ * Whole dollars, summing EXACTLY to `remaining` truncated toward zero: each
+ * share is floored, then the leftover dollars go one at a time to the largest
+ * fractional parts (largest remainder). Dropping the remainder the way
+ * getMaxDA floors would leave Remaining a few dollars short of zero, so the
+ * card would never quite read nil after a press that had in fact spent
+ * everything it could.
+ *
+ * Truncated, NOT rounded: the room is `pool − allocated` with cents on it, and
+ * the server floors it when it judges each grant (getMaxDA). Rounding 9,685.60
+ * up to 9,686 spent 40¢ the pool did not have — the card went red on a press
+ * that was meant to land it exactly on nil, and the save could be refused for
+ * a dollar. The cents stay as Remaining; a whole-dollar field cannot spend
+ * them.
  */
 export function redistribute<T extends Redistributable>(
   rows: readonly T[],
@@ -110,7 +118,7 @@ export function redistribute<T extends Redistributable>(
   selected: ReadonlySet<string>
 ): Map<string, number> {
   const out = new Map<string, number>();
-  const target = Math.round(remaining);
+  const target = Math.trunc(remaining);
   const people = eligible(rows, selected);
   if (people.length === 0 || target === 0) return out;
 

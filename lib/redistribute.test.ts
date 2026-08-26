@@ -155,6 +155,19 @@ describe("safety properties", () => {
     expect(sum(got) - 300).toBe(-100);
   });
 
+  it("never spends the cents: a remaining of 9,685.60 hands out 9,685, not 9,686", () => {
+    // the server floors the room it judges each grant against (getMaxDA), so
+    // rounding up would land the pool 40¢ over — a red card and, for a dollar,
+    // a refused save
+    const rows = [row({ id: "a", calcBonus: 60_000 }), row({ id: "b", calcBonus: 40_000 })];
+    const shares = redistribute(rows, 9_685.6, all(rows));
+    expect(sum(shares)).toBe(9_685);
+    // and a remaining under a dollar is nothing to hand out
+    expect(redistribute(rows, 0.9, all(rows)).size).toBe(0);
+    // the same toward zero when reclaiming
+    expect(sum(redistribute(rows, -9_685.6, all(rows)))).toBe(-9_685);
+  });
+
   it("a zero remaining writes nothing at all", () => {
     expect(redistribute([row({ id: "A" })], 0, new Set(["A"])).size).toBe(0);
   });
