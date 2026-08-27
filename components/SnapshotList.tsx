@@ -27,6 +27,7 @@ const REASON_LABELS: Record<string, string> = {
   params: "Parameter change",
   columns: "Column change",
   copy: "Wording change",
+  manual: "Taken by hand",
 };
 
 const when = (ts: string) =>
@@ -45,6 +46,8 @@ export default function SnapshotList({
   pageCount,
   total,
   restoreAction,
+  snapshotAction,
+  restoreBackupAction,
 }: {
   snapshots: SnapshotRow[];
   /** 1-based page currently shown */
@@ -53,8 +56,24 @@ export default function SnapshotList({
   /** total snapshots kept, across all pages */
   total: number;
   restoreAction: (formData: FormData) => Promise<void>;
+  /** takes a snapshot on demand, so a restore point can be marked deliberately */
+  snapshotAction: () => Promise<void>;
+  /** validates and restores an uploaded backup file; returns why if it refused */
+  restoreBackupAction: (
+    formData: FormData
+  ) => Promise<{ error: string } | { ok: true }>;
 }) {
   const [pending, startTransition] = useTransition();
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupError, setBackupError] = useState<string | null>(null);
+  /**
+   * Typed, not clicked. Restoring from a file rewrites every figure and every
+   * access rule from something the server cannot authenticate, so it asks for
+   * more deliberateness than the row-level restore's confirm() — this is the
+   * one action whose only way back is the pre-restore snapshot.
+   */
+  const [confirmWord, setConfirmWord] = useState("");
+  const CONFIRM = "RESTORE";
   const [openTs, setOpenTs] = useState<string | null>(null);
   const open = openTs ? (snapshots.find((s) => s.ts === openTs) ?? null) : null;
 
@@ -83,6 +102,84 @@ export default function SnapshotList({
           snapshot is kept, newest first, 25 to a page; download any of them
           to keep a copy off the platform.
         </p>
+
+        <div className="mb-4 border border-neutral-200 bg-white p-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => startTransition(() => void snapshotAction())}
+              className="border-2 border-neutral-300 px-3.5 py-1.5 text-[11px] font-bold tracking-wide text-brand-70 transition-colors hover:border-brand-orange hover:text-brand-orange disabled:opacity-50"
+            >
+              Take a snapshot now
+            </button>
+            <a
+              href="/api/backup"
+              className="border-2 border-neutral-300 px-3.5 py-1.5 text-[11px] font-bold tracking-wide text-brand-70 transition-colors hover:border-brand-orange hover:text-brand-orange"
+            >
+              Download full backup
+            </a>
+            <span className="text-[12px] text-brand-70">
+              A snapshot is a restore point kept here. The backup is one file
+              holding everything — including every salary and the access rules —
+              that survives losing the database. Treat it like the source
+              spreadsheet.
+            </span>
+          </div>
+
+          <details className="mt-3 border-t border-neutral-100 pt-3">
+            <summary className="cursor-pointer text-[12px] font-semibold text-brand-70">
+              Restore from a backup file…
+            </summary>
+            <form
+              action={(fd) => {
+                setBackupError(null);
+                setBackupBusy(true);
+                void restoreBackupAction(fd)
+                  .then((r) => {
+                    if ("error" in r) setBackupError(r.error);
+                    else setConfirmWord("");
+                  })
+                  .finally(() => setBackupBusy(false));
+              }}
+              className="mt-2 flex flex-wrap items-center gap-3"
+            >
+              <input
+                type="file"
+                name="file"
+                accept="application/json,.json"
+                required
+                className="text-[12px]"
+              />
+              <input
+                type="text"
+                value={confirmWord}
+                onChange={(e) => setConfirmWord(e.target.value)}
+                placeholder={`Type ${CONFIRM}`}
+                aria-label={`Type ${CONFIRM} to confirm`}
+                className="border border-neutral-300 px-2 py-1 text-[12px] outline-none focus:border-brand-orange"
+              />
+              <button
+                type="submit"
+                disabled={backupBusy || confirmWord !== CONFIRM}
+                className="border-2 border-red-300 px-3.5 py-1.5 text-[11px] font-bold tracking-wide text-red-700 transition-colors hover:border-red-600 disabled:opacity-40"
+              >
+                {backupBusy ? "Restoring…" : "Restore everything from this file"}
+              </button>
+              <span className="w-full text-[12px] text-brand-70">
+                Replaces all data, edits, parameters, columns, wording and
+                access rules with the file&apos;s. A snapshot is taken first so
+                this can be undone, and you keep your own access whatever the
+                file says. The audit history is never overwritten.
+              </span>
+              {backupError && (
+                <p className="w-full border border-red-300 bg-red-50 px-3 py-2 text-[12px] text-red-700">
+                  {backupError}
+                </p>
+              )}
+            </form>
+          </details>
+        </div>
 
         <div className="overflow-x-auto shadow-sm">
           <table className="w-full border-collapse bg-white text-[13px]">

@@ -1,6 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    serverActions: {
+      // Restoring a backup uploads the whole file through a server action, and
+      // the default cap is 1MB: state is ~60KB but the audit log it carries is
+      // capped at 2000 entries (~400KB) and the dataset grows with headcount.
+      // Under the default today, without much room — this is free insurance.
+      bodySizeLimit: "8mb",
+    },
+  },
   // The remuneration letter template is read from disk at request time, so it
   // has to be traced into the serverless bundle — nothing imports it, and the
   // tracer only follows imports.

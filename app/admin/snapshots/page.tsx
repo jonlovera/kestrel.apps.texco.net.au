@@ -10,7 +10,8 @@ import {
   loadAccessOverlay,
 } from "@/lib/store";
 import { getDataset } from "@/lib/data";
-import { restoreSnapshot } from "@/lib/snapshots";
+import { restoreSnapshot, takeSnapshot, applyState } from "@/lib/snapshots";
+import { BackupSchema, describeBackupProblem } from "@/lib/backup";
 import { snapshotPageWindow } from "@/lib/snapshots-core";
 import { diffSnapshotStates, type SnapshotDiffSummary } from "@/lib/snapshot-diff";
 import type { Overrides, Snapshot } from "@/lib/schema";
@@ -124,6 +125,73 @@ export default async function SnapshotsPage({
     revalidatePath("/admin/snapshots");
   }
 
+  /**
+   * Take a snapshot on demand.
+   *
+   * Snapshots are otherwise a side effect of changing something, so there was
+   * no way to mark a restore point BEFORE doing something risky. `reason` is a
+   * free string on SnapshotSchema and shouldCoalesce only ever coalesces
+   * `autosave`, so "manual" always lands even when nothing has changed since
+   * the last one — which is the case this exists for.
+   *
+   * No history entry: the snapshot appears in the list below with this actor
+   * and reason, and that IS the record.
+   */
+  async function snapshotAction() {
+    "use server";
+    const actor = await requireAdminPage();
+    await takeSnapshot(actor, "manual");
+    revalidatePath("/admin/snapshots");
+  }
+
+  /**
+   * Restore everything from an uploaded backup file.
+   *
+   * The most dangerous control in the app: it rewrites every figure and every
+   * access rule from a file the server has no way to authenticate. Three
+   * things stand between a misclick and that —
+   *
+   *  1. the typed confirmation the form requires before it will submit;
+   *  2. full validation BEFORE anything is written, so a bad file changes
+   *     nothing rather than half-changing everything;
+   *  3. a pre-restore snapshot, so this is as undoable as any other restore.
+   *
+   * applyState carries the guard that matters most: whatever the file says
+   * about access, the admin running it keeps the access they hold right now.
+   * A backup whose overlay omits them cannot lock them out of their own app.
+   */
+  async function restoreBackupAction(formData: FormData) {
+    "use server";
+    const actor = await requireAdminPage();
+
+    const file = formData.get("file");
+    if (!(file instanceof File) || file.size === 0) {
+      return { error: "Choose a backup file first." };
+    }
+
+    let raw: unknown;
+    try {
+      raw = JSON.parse(await file.text());
+    } catch {
+      return { error: "That file isn't valid JSON. Nothing has been changed." };
+    }
+
+    const parsed = BackupSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { error: describeBackupProblem(raw) };
+    }
+
+    await takeSnapshot(actor, "pre-restore");
+    await applyState(
+      parsed.data.state,
+      actor,
+      `backup file taken ${new Date(parsed.data.takenAt).toLocaleString("en-AU")} by ${parsed.data.takenBy}`
+    );
+    revalidatePath("/");
+    revalidatePath("/admin/snapshots");
+    return { ok: true as const };
+  }
+
   console.log(
     `[audit] pageview page=admin/snapshots email=${email} ts=${new Date().toISOString()}`
   );
@@ -142,6 +210,8 @@ export default async function SnapshotsPage({
       pageCount={pageCount}
       total={total}
       restoreAction={restoreAction}
+      snapshotAction={snapshotAction}
+      restoreBackupAction={restoreBackupAction}
     />
   );
 }
