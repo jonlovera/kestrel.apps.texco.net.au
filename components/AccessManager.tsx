@@ -106,6 +106,20 @@ export default function AccessManager({
    */
   const [canEditVicSiteManagers, setCanEditVicSiteManagers] = useState(false);
   /**
+   * Full access only — whether this admin may press Recalculate, the one
+   * action that re-derives the Scale Factor and re-bases every eligible payout
+   * at once. Its own grant for the same reason `canEditCaps` is, and defaults
+   * to unticked: most admins never need it, and it moves everybody's money.
+   */
+  const [canRecalculatePool, setCanRecalculatePool] = useState(false);
+  /**
+   * Full access only — whether this admin may take a committed bonus back to
+   * merely locked. Deliberately separate from the ability to issue one: the
+   * person who commits an amount is not automatically the person who may
+   * un-commit it. Defaults to unticked.
+   */
+  const [canRevokeIssued, setCanRevokeIssued] = useState(false);
+  /**
    * Whether this person may download a locked employee's remuneration letter.
    * Offered on every rule type, full access included — unlike Can lock, an
    * admin does not get this for being an admin (lib/access-rules.ts explains
@@ -146,6 +160,12 @@ export default function AccessManager({
     setCanEditVicSiteManagers(
       row.rule.type === "full" ? row.rule.canEditVicSiteManagers : false
     );
+    setCanRecalculatePool(
+      row.rule.type === "full" ? row.rule.canRecalculatePool : false
+    );
+    setCanRevokeIssued(
+      row.rule.type === "full" ? row.rule.canRevokeIssued : false
+    );
     setCanDownloadLetter(row.rule.canDownloadLetter);
     setActAs([...row.rule.canActAs]);
     window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
@@ -162,6 +182,8 @@ export default function AccessManager({
     setEditable([...EDITABLE_FIELDS]);
     setCanLock(true);
     setCanEditCaps(false);
+    setCanRecalculatePool(false);
+    setCanRevokeIssued(false);
     setCanDownloadLetter(false);
     setActAs([]);
     setError("");
@@ -201,7 +223,15 @@ export default function AccessManager({
     const canActAs = actAs.filter((e) => e !== email.trim().toLowerCase());
     const rule: GrantingRule =
       type === "full"
-        ? { type: "full", canEditCaps, canEditVicSiteManagers, canActAs, canDownloadLetter }
+        ? {
+            type: "full",
+            canEditCaps,
+            canEditVicSiteManagers,
+            canRecalculatePool,
+            canRevokeIssued,
+            canActAs,
+            canDownloadLetter,
+          }
         : type === "state"
           ? {
               type: "state",
@@ -256,6 +286,8 @@ export default function AccessManager({
         "Everyone · all fields · can edit" +
         (rule.canEditCaps ? ", can edit pool caps" : "") +
         (rule.canEditVicSiteManagers ? ", can adjust VIC site managers" : "") +
+        (rule.canRecalculatePool ? ", can recalculate the pool" : "") +
+        (rule.canRevokeIssued ? ", can revert issued bonuses" : "") +
         acting
       );
     // describeEditing rather than a literal: this used to assert "can set IPM
@@ -630,6 +662,55 @@ export default function AccessManager({
                   Separate from full access itself — most admins won&apos;t
                   need this. Unticked by default even for a new full-access
                   grant.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {type === "full" && (
+            <div className="mb-4">
+              <div className="mb-1 text-[11px] font-semibold tracking-wide text-brand-70">
+                Can recalculate the pool
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-1.5 text-[13px]">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-brand-orange"
+                    checked={canRecalculatePool}
+                    onChange={() => setCanRecalculatePool((v) => !v)}
+                  />
+                  Can re-derive the Scale Factor and re-base every eligible
+                  bonus
+                </label>
+                <span className="text-[12px] text-brand-70">
+                  The only action that moves everybody&apos;s bonus at once.
+                  Separate from full access itself and unticked by default —
+                  grant it deliberately.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {type === "full" && (
+            <div className="mb-4">
+              <div className="mb-1 text-[11px] font-semibold tracking-wide text-brand-70">
+                Can revert issued bonuses
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-1.5 text-[13px]">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-brand-orange"
+                    checked={canRevokeIssued}
+                    onChange={() => setCanRevokeIssued((v) => !v)}
+                  />
+                  Can take a committed bonus back to locked
+                </label>
+                <span className="text-[12px] text-brand-70">
+                  Issuing is meant to be final. This is the key to that door,
+                  for a mis-click — separate from the ability to issue, and
+                  unticked by default.
                 </span>
               </div>
             </div>

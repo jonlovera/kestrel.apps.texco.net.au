@@ -11,7 +11,7 @@ import {
   rewriteActAsReferences,
 } from "./access-rules";
 
-const full: AccessRule = { type: "full", canEditCaps: false, canEditVicSiteManagers: false, canActAs: [], canDownloadLetter: false };
+const full: AccessRule = { type: "full", canEditCaps: false, canEditVicSiteManagers: false, canRecalculatePool: false, canRevokeIssued: false, canActAs: [], canDownloadLetter: false };
 const vic: AccessRule = {
   type: "state",
   states: ["VIC"],
@@ -133,7 +133,7 @@ describe("describeEditing", () => {
   });
 
   it("full access is never read only", () => {
-    expect(describeEditing({ type: "full", canEditCaps: false, canEditVicSiteManagers: false, canActAs: [], canDownloadLetter: false })).toBe("can edit");
+    expect(describeEditing({ type: "full", canEditCaps: false, canEditVicSiteManagers: false, canRecalculatePool: false, canRevokeIssued: false, canActAs: [], canDownloadLetter: false })).toBe("can edit");
   });
 });
 
@@ -229,17 +229,17 @@ describe("the canActAs delegation", () => {
       describeRule({ ...vic, canActAs: ["jglick@texco.net.au"], canDownloadLetter: false })
     ).toBe("VIC / can set Discretionary; can act for jglick@texco.net.au");
     expect(
-      describeRule({ type: "full", canEditCaps: false, canEditVicSiteManagers: false, canActAs: ["jglick@texco.net.au"], canDownloadLetter: false })
+      describeRule({ type: "full", canEditCaps: false, canEditVicSiteManagers: false, canRecalculatePool: false, canRevokeIssued: false, canActAs: ["jglick@texco.net.au"], canDownloadLetter: false })
     ).toBe("full access; can act for jglick@texco.net.au");
     expect(describeRule(vic)).not.toContain("can act for");
   });
 
   it("describeRule names the VIC site managers grant — sixteen fixed bonuses hang off it", () => {
     expect(
-      describeRule({ type: "full", canEditCaps: false, canEditVicSiteManagers: true, canActAs: [], canDownloadLetter: false })
+      describeRule({ type: "full", canEditCaps: false, canEditVicSiteManagers: true, canRecalculatePool: false, canRevokeIssued: false, canActAs: [], canDownloadLetter: false })
     ).toBe("full access; can adjust VIC site managers");
     expect(
-      describeRule({ type: "full", canEditCaps: false, canEditVicSiteManagers: true, canActAs: ["jglick@texco.net.au"], canDownloadLetter: true })
+      describeRule({ type: "full", canEditCaps: false, canEditVicSiteManagers: true, canRecalculatePool: false, canRevokeIssued: false, canActAs: ["jglick@texco.net.au"], canDownloadLetter: true })
     ).toBe("full access; can adjust VIC site managers; can download letters; can act for jglick@texco.net.au");
   });
 
@@ -287,5 +287,108 @@ describe("the canActAs delegation", () => {
     const miss = rewriteActAsReferences(overlay, "absent@texco.net.au", "new@texco.net.au");
     expect(miss.changed).toEqual([]);
     expect(miss.overlay).toEqual(overlay);
+  });
+});
+
+
+/**
+ * `canRecalculatePool` — the grant for the one press that re-bases every
+ * eligible bonus. Modelled on `canEditCaps`: full rules only, defaulted false,
+ * and never conferred by full access alone.
+ */
+describe("canRecalculatePool", () => {
+  it("defaults to false on a full rule that does not mention it", () => {
+    const parsed = AccessRuleSchema.parse({ type: "full" });
+    expect(parsed).toMatchObject({ canRecalculatePool: false });
+  });
+
+  it("a stored rule written before the grant existed parses, ungranted", () => {
+    // The parse-safety that matters: one unparseable rule revokes the whole
+    // overlay, so an older document must come back valid and NOT granted.
+    const parsed = AccessRuleSchema.parse({
+      type: "full",
+      canEditCaps: true,
+      canEditVicSiteManagers: true,
+      canActAs: [],
+      canDownloadLetter: true,
+    });
+    expect(parsed).toMatchObject({ canEditCaps: true, canRecalculatePool: false });
+  });
+
+  it("is carried through when granted", () => {
+    const parsed = AccessRuleSchema.parse({ type: "full", canRecalculatePool: true });
+    expect(parsed).toMatchObject({ canRecalculatePool: true });
+  });
+
+  it("is not offered on a lead rule at all", () => {
+    const parsed = AccessRuleSchema.parse({
+      type: "state",
+      states: ["VIC"],
+      visibleFields: ["final"],
+      editableFields: ["da"],
+      canRecalculatePool: true, canRevokeIssued: false,
+    });
+    expect(parsed).not.toHaveProperty("canRecalculatePool");
+  });
+
+  it("the access record says so, so a granted rule is visible on sight", () => {
+    const granted = AccessRuleSchema.parse({ type: "full", canRecalculatePool: true });
+    expect(describeRule(granted)).toContain("can recalculate the pool");
+    const plain = AccessRuleSchema.parse({ type: "full" });
+    expect(describeRule(plain)).not.toContain("can recalculate the pool");
+  });
+});
+
+
+/**
+ * `canRevokeIssued` — the key to the one-way door. Same shape as the other
+ * narrow grants: full rules only, defaulted false, never conferred by full
+ * access, and never by the ability to issue.
+ */
+describe("canRevokeIssued", () => {
+  it("defaults to false on a full rule that does not mention it", () => {
+    expect(AccessRuleSchema.parse({ type: "full" })).toMatchObject({
+      canRevokeIssued: false,
+    });
+  });
+
+  it("a rule stored before the grant existed parses, ungranted", () => {
+    const parsed = AccessRuleSchema.parse({
+      type: "full",
+      canEditCaps: true,
+      canEditVicSiteManagers: true,
+      canRecalculatePool: true,
+      canActAs: [],
+      canDownloadLetter: true,
+    });
+    expect(parsed).toMatchObject({
+      canRecalculatePool: true,
+      canRevokeIssued: false,
+    });
+  });
+
+  it("is carried through when granted", () => {
+    expect(AccessRuleSchema.parse({ type: "full", canRevokeIssued: true })).toMatchObject({
+      canRevokeIssued: true,
+    });
+  });
+
+  it("is not offered on a lead rule at all", () => {
+    const parsed = AccessRuleSchema.parse({
+      type: "state",
+      states: ["VIC"],
+      visibleFields: ["final"],
+      editableFields: ["da"],
+      canRevokeIssued: true,
+    });
+    expect(parsed).not.toHaveProperty("canRevokeIssued");
+  });
+
+  it("the access record says so, so a granted rule is visible on sight", () => {
+    const granted = AccessRuleSchema.parse({ type: "full", canRevokeIssued: true });
+    expect(describeRule(granted)).toContain("can revert issued bonuses");
+    expect(describeRule(AccessRuleSchema.parse({ type: "full" }))).not.toContain(
+      "can revert issued bonuses"
+    );
   });
 });

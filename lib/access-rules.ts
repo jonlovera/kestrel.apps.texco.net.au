@@ -67,6 +67,40 @@ const canEditCaps = z.boolean().default(false);
 const canEditVicSiteManagers = z.boolean().default(false);
 
 /**
+ * May press RECALCULATE THE POOL: re-derive the Scale Factor from Potential
+ * Bonus at 100% IPM and re-base every eligible payout in one operation
+ * (lib/recalculate.ts). The one action in the app that deliberately moves
+ * everybody's money at once, which is exactly why it is a grant of its own and
+ * NOT implied by full access — the same reasoning as `canEditCaps`, and the
+ * owner asked for it explicitly.
+ *
+ * Full rules only: a lead is never sent the caps the operation runs on, and it
+ * spans both pools rather than anyone's scope. Defaults to false so every
+ * stored rule keeps parsing and nobody acquires it by having been an admin
+ * first.
+ */
+const canRecalculatePool = z.boolean().default(false);
+
+/**
+ * May REVERT an issued bonus — take a committed amount back to merely locked
+ * (lib/schema.ts's `issued`).
+ *
+ * Issuing is deliberately a one-way door: the amount has been communicated, so
+ * nothing in the ordinary run of the app can move it. That is the right default
+ * and it stays the default. But a one-way door with no key at all makes a
+ * mis-click unrecoverable except by restoring a snapshot, which rolls back
+ * everybody else's work too — so the key exists, and it is held separately from
+ * the ability to issue in the first place. The person who can commit an amount
+ * is not automatically the person who can un-commit one.
+ *
+ * Full rules only, and not implied by full access, for the same reason
+ * `canEditCaps` and `canRecalculatePool` are not. Defaults to false so every
+ * stored rule keeps parsing and nobody acquires it by having been an admin
+ * first.
+ */
+const canRevokeIssued = z.boolean().default(false);
+
+/**
  * May download a person's remuneration letter once their bonus is locked.
  *
  * Granted on EVERY rule shape including `full`, which is the one place this
@@ -101,6 +135,8 @@ export const AccessRuleSchema = z.discriminatedUnion("type", [
     type: z.literal("full"),
     canEditCaps,
     canEditVicSiteManagers,
+    canRecalculatePool,
+    canRevokeIssued,
     canActAs,
     canDownloadLetter,
   }),
@@ -190,7 +226,20 @@ export function describeRule(rule: AccessRule): string {
     rule.type === "full" && rule.canEditVicSiteManagers
       ? "; can adjust VIC site managers"
       : "";
-  if (rule.type === "full") return `full access${vicSms}${extras}`;
+  // And again: this one press re-bases every eligible payout in the scheme, so
+  // the entry that granted it has to say so.
+  const recalc =
+    rule.type === "full" && rule.canRecalculatePool
+      ? "; can recalculate the pool"
+      : "";
+  // Same reasoning again: this one undoes a commitment, so the record of who
+  // holds it has to say so.
+  const revoke =
+    rule.type === "full" && rule.canRevokeIssued
+      ? "; can revert issued bonuses"
+      : "";
+  if (rule.type === "full")
+    return `full access${vicSms}${recalc}${revoke}${extras}`;
   // The history has to record what they may CHANGE, not just what they see:
   // a rule going read-only is the whole point of the entry.
   const editing = describeEditing(rule);

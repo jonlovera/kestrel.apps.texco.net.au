@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NUMERIC_FIELDS, type NumericField } from "@/lib/access-types";
 import { isDaEditable, isIpmEditable, isLockable, type AdjustAllowance } from "@/lib/calc";
 import { signatureRouteFor, signatoriesFor } from "@/lib/letter-blocks";
 import type { DisplayRow } from "@/lib/payload-types";
 import type { ColumnFormat } from "@/lib/columns";
 import {
-  fmtPctSmart, fmtValue } from "@/lib/fmt";
+  fmt, fmtPctSmart, fmtValue } from "@/lib/fmt";
 import LetterButton from "./LetterButton";
 
 /**
@@ -41,6 +41,23 @@ export interface TableHandlers {
   updateDatasetFigure: (id: string, current: number, raw: string) => void;
   updateSplit: (id: string, field: "vp" | "np", current: number, raw: string) => void;
   toggleLock: (id: string) => void;
+  /**
+   * Commits this row's Final bonus permanently. Reports its own refusals, for
+   * the same reason letterBlocked exists: whether the row's lock has been SAVED
+   * is something only the dashboard can see.
+   */
+  markIssued: (id: string) => void;
+  /**
+   * Takes a committed bonus back to locked. Offered only to the holders of the
+   * `canRevokeIssued` grant; the server decides again on every request.
+   */
+  revertIssued: (id: string) => void;
+  /** id of the row currently being issued, or null */
+  issuing: string | null;
+  /** whether to offer the Issue action at all (the lock grant governs it) */
+  canIssue: boolean;
+  /** whether to offer the Revert action on an issued row (its own grant) */
+  canRevert: boolean;
   renameColumn: (key: string, label: string) => void;
   /** opens the per-person edit modal (state change, remove from model) */
   editEmployee: (id: string) => void;
@@ -212,6 +229,21 @@ export default function EmployeeTable({
   // Which discretionary cell has focus, so its ceiling can be shown. Local
   // because it is presentation only — nothing outside the table cares.
   const [daFocus, setDaFocus] = useState<string | null>(null);
+  /**
+   * The row whose Issue (or Revert) button is armed and waiting for a second
+   * click. Issuing commits an amount that ordinary editing can never move
+   * again, and the button sits beside a padlock people toggle all day — so it
+   * asks twice. The arming lapses on its own after a few seconds, because a
+   * control left armed behind a scroll is a trap of a different kind.
+   */
+  const [arming, setArming] = useState<{ id: string; action: "issue" | "revert" } | null>(null);
+  useEffect(() => {
+    if (!arming) return;
+    const t = setTimeout(() => setArming(null), 4000);
+    return () => clearTimeout(t);
+  }, [arming]);
+  const armed = (id: string, action: "issue" | "revert") =>
+    arming?.id === id && arming.action === action;
   const show = (c: TableColumn, v: number) =>
     fmtValue(c.format ?? "currency", c.decimals ?? 0, v);
 
@@ -427,6 +459,57 @@ export default function EmployeeTable({
         return <span className="font-bold">{show(c, r.final!)}</span>;
 
       case "lock": {
+        // ISSUED: committed, so there is no control here at all — just the
+        // fact, and the figures behind it on hover. It comes first because an
+        // issued row is issued whatever else is true of it, including whether
+        // it would otherwise have been lockable.
+        if (r.issued) {
+          const when = new Date(r.issued.at);
+          const stamp = Number.isNaN(when.getTime())
+            ? r.issued.at
+            : when.toLocaleDateString("en-AU", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              });
+          const at = r.issued.amount !== undefined ? ` at ${fmt(r.issued.amount)}` : "";
+          return (
+            <span className="inline-flex items-center gap-1">
+              <span
+                title={`Issued${at} on ${stamp} by ${r.issued.by}. Committed — recalculation, IPM, discretionary and unlocking cannot move it.`}
+                className="inline-flex h-7 w-7 cursor-help items-center justify-center border-[1.5px] border-brand-orange bg-brand-orange text-[13px] font-bold text-white"
+              >
+                ✓
+              </span>
+              {handlers.canRevert && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (armed(r.id, "revert")) {
+                      setArming(null);
+                      handlers.revertIssued(r.id);
+                    } else {
+                      setArming({ id: r.id, action: "revert" });
+                    }
+                  }}
+                  disabled={handlers.issuing !== null}
+                  title={`Take this committed bonus back to locked. The amount${at} does not change, and it can be issued again.`}
+                  className={`h-7 border-[1.5px] px-1.5 text-[10px] font-bold tracking-wide transition-colors disabled:opacity-40 ${
+                    armed(r.id, "revert")
+                      ? "border-error bg-error text-white"
+                      : "border-neutral-300 text-brand-70 hover:border-error hover:text-error"
+                  }`}
+                >
+                  {handlers.issuing === r.id
+                    ? "…"
+                    : armed(r.id, "revert")
+                      ? "SURE?"
+                      : "REVERT"}
+                </button>
+              )}
+            </span>
+          );
+        }
         // NSW site managers became lockable on 24 Aug 2026; VIC ones stay out,
         // along with anyone drawing from no pool (isLockable holds both rules).
         if (!isLockable(r, allow))
@@ -442,18 +525,64 @@ export default function EmployeeTable({
               —
             </span>
           );
+        // A locked row gets the second half of the workflow beside its
+        // padlock: unlocked -> locked -> issued. Offered only when locked,
+        // because that IS the rule the server enforces, so an Issue button on
+        // an unlocked row would be a control that can only fail.
         return (
-          <button
-            type="button"
-            onClick={() => handlers.toggleLock(r.id)}
-            className={`h-7 w-7 border-[1.5px] text-sm transition-colors ${
-              r.locked
-                ? "border-brand-orange bg-brand-orange"
-                : "border-neutral-300 bg-transparent hover:border-brand-orange"
-            }`}
-          >
-            {r.locked ? "🔒" : "🔓"}
-          </button>
+          <span className="inline-flex items-center">
+            <button
+              type="button"
+              onClick={() => handlers.toggleLock(r.id)}
+              className={`h-7 w-7 border-[1.5px] text-sm transition-colors ${
+                r.locked
+                  ? "border-brand-orange bg-brand-orange"
+                  : "border-neutral-300 bg-transparent hover:border-brand-orange"
+              }`}
+            >
+              {r.locked ? "🔒" : "🔓"}
+            </button>
+            {handlers.canIssue && r.locked && (
+              <>
+                {/* Deliberate distance from the padlock. Issuing commits an
+                    amount nothing can move afterwards, and it used to sit 4px
+                    from a control people toggle all day. The divider makes the
+                    two read as separate decisions rather than one pair. */}
+                <span
+                  aria-hidden="true"
+                  className="mx-2 h-5 w-px bg-neutral-200"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (armed(r.id, "issue")) {
+                      setArming(null);
+                      handlers.markIssued(r.id);
+                    } else {
+                      setArming({ id: r.id, action: "issue" });
+                    }
+                  }}
+                  disabled={handlers.issuing !== null}
+                  title={
+                    armed(r.id, "issue")
+                      ? "Click again to commit this bonus permanently."
+                      : "Commit this bonus permanently. Once issued it cannot be changed by recalculation, IPM, discretionary or unlocking. Asks twice."
+                  }
+                  className={`h-7 border-[1.5px] px-1.5 text-[10px] font-bold tracking-wide transition-colors disabled:opacity-40 ${
+                    armed(r.id, "issue")
+                      ? "border-brand-orange bg-brand-orange text-white"
+                      : "border-brand-orange/50 text-brand-orange-soft hover:bg-brand-orange hover:text-white"
+                  }`}
+                >
+                  {handlers.issuing === r.id
+                    ? "…"
+                    : armed(r.id, "issue")
+                      ? "SURE?"
+                      : "ISSUE"}
+                </button>
+              </>
+            )}
+          </span>
         );
       }
       case "letter": {

@@ -27,6 +27,29 @@ export interface ScopedRow {
   cat: string;
   sm: 0 | 1;
   locked: boolean;
+  /**
+   * Set once this row's bonus has been ISSUED — the committed amount, with who
+   * issued it and when. Present = the figure cannot move again, so every
+   * control on the row goes read-only and the Final column is this number.
+   * Absent = not issued, which is what everything tests for.
+   *
+   * Sent to leads as well as admins: an issued row must render as issued to
+   * whoever is looking at it, or they will try to edit a cell the server will
+   * refuse. It carries no figure a scope was not already entitled to — the
+   * amount IS the Final bonus, and a scope that cannot see Final has the field
+   * stripped along with it (lib/scope-core.ts).
+   */
+  issued?: {
+    /**
+     * The committed Final bonus. Optional on the wire only: it IS the row's
+     * Final figure, so a scope not entitled to see Final does not get it here
+     * either — they still see THAT the row is issued, which is what stops them
+     * typing into a cell the server will refuse.
+     */
+    amount?: number;
+    at: string;
+    by: string;
+  };
   /** whether the row participates in any pool (drives the DA '—' rendering) */
   inPool: boolean;
   /**
@@ -153,6 +176,21 @@ export interface EditorPayload {
   /** editable on the pool cards, for admins holding `canEditCaps`; `caps` mirrors the first three */
   params: Params;
   caps: { vCap: number; nCap: number; gCap: number };
+  /**
+   * Whether this admin may press Recalculate — its own grant, not implied by
+   * full access (lib/write-scope.ts's canRecalculatePool), because one press
+   * re-derives the Scale Factor and re-bases every eligible payout in the
+   * scheme. /api/recalculate decides again on every request; this only governs
+   * whether the button is rendered.
+   */
+  canRecalculatePool: boolean;
+  /**
+   * Whether this admin may revert an issued bonus back to locked — its own
+   * grant, deliberately not implied by the ability to issue one
+   * (lib/write-scope.ts's canRevokeIssued). /api/issue's DELETE decides again
+   * on every request; this only governs whether the control is rendered.
+   */
+  canRevokeIssued: boolean;
   /**
    * Whether this admin may actually change the pool caps — its own grant,
    * not implied by full access. lib/api-guard.ts + lib/params-apply.ts

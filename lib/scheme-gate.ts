@@ -20,6 +20,15 @@
  *    invisible to everyone else's work. The engine (applyOverrides) then
  *    honours what is stored, because it can only have got there through here.
  *
+ *  - An ISSUED row is reverted by the same mechanism, and for a reason the
+ *    mechanism already handles perfectly: its amount is committed, so its IPM,
+ *    its discretionary and its lock must all stay exactly as they were at the
+ *    moment of issue. Reverting rather than clearing is what makes "Unlock
+ *    all" harmless to it — the bulk save arrives carrying `locked: false` for
+ *    every visible row, and this puts the issued one straight back. The three
+ *    predicates in lib/calc.ts already refuse an issued row, so nothing here
+ *    needed a rule of its own; the row rule just has to be told.
+ *
  * `lockedFinal` is left alone throughout: not writable by anyone, read only as
  * a fallback for a row with no baseAmount (lib/schema.ts).
  */
@@ -62,7 +71,11 @@ export function applySchemeRules(
     // daEdit is deliberately not floored: an adjustment may be negative (owner
     // decision, kept through every change of funding model).
 
-    const rule = rowRule(emp);
+    // The STORED issue stamp, not the incoming one: `issued` is unwritable by
+    // any client (lib/write-scope.ts), so sanitiseOverrideWrite has already put
+    // the stored value on `ov` — reading it off `previous` as well would be the
+    // same answer, but this way the rule matches the document being saved.
+    const rule = rowRule({ ...emp, issued: clean.issued });
     const stored = previous[id] ?? {};
     const held: string[] = [];
     for (const [field, may] of GATED) {

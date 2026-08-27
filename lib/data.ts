@@ -58,9 +58,14 @@ export async function getParams(): Promise<Params> {
 
 /**
  * The dataset as the calc engine should see it: scheme parameters applied
- * (caps replaced, company modifier folded into the bipm input), and the FY26
- * cap carve-outs attached. This is what every server-side calculation path
- * consumes.
+ * (caps replaced, company modifier folded into the bipm input, the persisted
+ * scale factors carried through), and the FY26 cap carve-outs attached. This is
+ * what every server-side calculation path consumes.
+ *
+ * The scale factors ride inside applyParams rather than alongside it, unlike
+ * the carves below, because they ARE the params document — /api/recalculate
+ * writes them there. Absent until somebody presses Recalculate, which the
+ * engine reads as "derive an advisory scale for display" (lib/calc.ts's Caps).
  *
  * The carve-outs ride here and NOT in applyParams, deliberately: applyParams
  * stays a pure fold of the params document, so the engine's scales still run

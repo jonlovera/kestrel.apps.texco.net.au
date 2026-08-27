@@ -32,7 +32,7 @@ const vicScope: Scope = {
 
 const fullScope: Scope = {
   email: "admin@x.com",
-  rule: { type: "full", canEditCaps: false, canEditVicSiteManagers: false, canActAs: [], canDownloadLetter: false },
+  rule: { type: "full", canEditCaps: false, canEditVicSiteManagers: false, canRecalculatePool: false, canRevokeIssued: false, canActAs: [], canDownloadLetter: false },
   canEdit: true,
   visibleFields: ["pkg", "bp", "ipm", "bipm", "calc", "f25", "da", "yoy", "final"],
   label: "Full access — can edit",

@@ -70,7 +70,10 @@
  * Writing amounts has neither problem: it works identically in both states,
  * and it touches only the rows the redistributing lead actually owns.
  */
-import type { Employee, Overrides } from "./schema";
+import type { Employee, EmployeeOverride, Overrides } from "./schema";
+
+/** The issue stamp as the engine carries it. See lib/schema.ts. */
+export type IssuedStamp = NonNullable<EmployeeOverride["issued"]>;
 
 export interface CalcEmployee extends Employee {
   /** editable copies (prototype: bpEdit/ipmEdit/daEdit) */
@@ -89,6 +92,12 @@ export interface CalcEmployee extends Employee {
   baseAmount?: number;
   /** the legacy frozen figure, read as a base for rows locked before 25 Aug 2026 */
   lockedFinal?: number;
+  /**
+   * Set once the row's bonus has been ISSUED. Present = committed: finalBonus
+   * is this amount and nothing derives it, which is what protects it from a
+   * Recalculate, an IPM edit, a discretionary edit and an unlock alike.
+   */
+  issued?: IssuedStamp;
   /** recomputed "After IPM" figure (prototype overwrites e.bipm) */
   bipmCalc: number;
   calcBonus: number;
@@ -109,6 +118,30 @@ export interface Caps {
    */
   vCarve?: number;
   nCarve?: number;
+  /**
+   * THE PERSISTED SCALE FACTORS (owner decision, 27 August 2026). Present once
+   * somebody has pressed Recalculate; absent until then.
+   *
+   * When present, computeScalesAndBonuses USES these instead of deriving its
+   * own. That is the whole point: a derived scale moves whenever anybody's IPM
+   * moves (the denominator below is weighted by IPM), so one person's edit
+   * re-priced the entire population's Calc bonus column. A stored scale cannot
+   * move, so an IPM edit reaches exactly one row and the difference lands in
+   * Remaining Pool instead of being spread across everyone else.
+   *
+   * Only /api/recalculate ever writes one, into the params document, from
+   * lib/recalculate.ts — which derives it from POTENTIAL BONUS AT 100% IPM
+   * rather than from the post-IPM figures the fallback below uses. The two are
+   * deliberately different formulas: the fallback is the pre-existing advisory
+   * derivation, kept so that every figure on screen is bit-identical to what it
+   * was before this existed, and so lib/calc-golden.test.ts still pins it.
+   *
+   * Absent means "no authoritative scale yet". Note what that does NOT mean:
+   * the fallback is for DISPLAY only and must never re-price a payout — see
+   * lib/reprice.ts, which declines to touch a pooled row until one is stored.
+   */
+  vicScale?: number;
+  nswScale?: number;
 }
 
 /**
@@ -159,7 +192,7 @@ export interface PoolState {
  * supersedes the previous behaviour (no ceiling), which redistributed any
  * surplus above 100% so the pool cap was always fully consumed.
  */
-function clampScale(x: number): number {
+export function clampScale(x: number): number {
   return Math.min(1, Math.max(0, x));
 }
 
@@ -190,7 +223,7 @@ function clampScale(x: number): number {
  * the two pools; changing them would move VIC's scale, and no VIC figure
  * should move because of an NSW decision.
  */
-const NSW_FULL_ENTITLEMENT: boolean = true;
+export const NSW_FULL_ENTITLEMENT: boolean = true;
 
 /**
  * The shape both editability rules read. Deliberately not `Employee`: the
@@ -202,6 +235,25 @@ export interface RowRule {
   st: "VIC" | "NSW" | "SHARED";
   /** true when the row draws from at least one pool */
   inPool: boolean;
+  /**
+   * The issue stamp, once the row's bonus has been ISSUED (lib/schema.ts).
+   * PRESENT means committed: the amount must not move again, so every
+   * predicate below refuses the row — the lock, the IPM and the discretionary
+   * cells all go read-only, "Unlock all" skips it (it filters on isLockable),
+   * and a redistribution passes it over (lib/redistribute.ts reads
+   * isDaEditable).
+   *
+   * Typed as the stamp's IDENTIFYING half rather than as a boolean or as the
+   * whole stamp, so that both row shapes carrying one satisfy RowRule
+   * structurally and can be handed straight to the predicates, exactly as they
+   * already are for sm/st/inPool: a server-side CalcEmployee carries the full
+   * stamp, while a lead's ScopedRow may have had `amount` withheld with Final
+   * (lib/scope-core.ts). Neither predicate reads the amount — presence is the
+   * entire question — so requiring it here would be a type demanding data the
+   * decision does not use. Optional, so every caller building a rule from
+   * source data alone keeps compiling and keeps meaning "not issued".
+   */
+  issued?: { at: string; by: string };
 }
 
 /**
@@ -237,8 +289,12 @@ export const ENGINE_ALLOWANCE: AdjustAllowance = { vicSiteManagers: true };
  * explicitly granted them (26 August 2026: the grant exists, full-access
  * admins only). A site manager outside both states (none today) is excluded,
  * the conservative reading of "only NSW".
+ *
+ * An ISSUED row is refused before any of that: the amount has been committed,
+ * and no grant makes a committed figure editable again.
  */
 function isAdjustable(e: RowRule, allow: AdjustAllowance = NO_ALLOWANCE): boolean {
+  if (e.issued !== undefined) return false;
   if (!e.inPool) return false;
   if (e.sm) return e.st === "NSW" || (e.st === "VIC" && allow.vicSiteManagers);
   return true;
@@ -276,15 +332,31 @@ export function isDaEditable(e: RowRule, allow: AdjustAllowance = NO_ALLOWANCE):
  * their fixed bonus on save (lib/reprice.ts, owner decision 26 August 2026),
  * so it moves real money and is gated exactly like their lock and
  * discretionary — NSW yes, VIC only with the grant.
+ *
+ * Its own issued guard, because the pooled leg below returns without going
+ * through isAdjustable. Since 27 August 2026 a pooled row's IPM re-prices its
+ * payout too (lib/reprice.ts), so this is now a money question for everyone
+ * rather than only for site managers — all the more reason an issued row is
+ * out.
  */
 export function isIpmEditable(e: RowRule, allow: AdjustAllowance = NO_ALLOWANCE): boolean {
+  if (e.issued !== undefined) return false;
   if (e.sm) return isAdjustable(e, allow);
   return e.inPool;
 }
 
-/** RowRule for an Employee-shaped row, whose pool exposure is vp/np. */
-export function rowRule(e: Pick<Employee, "sm" | "st" | "vp" | "np">): RowRule {
-  return { sm: e.sm, st: e.st, inPool: e.vp + e.np > 0 };
+/**
+ * RowRule for an Employee-shaped row, whose pool exposure is vp/np.
+ *
+ * `issued` rides in as an optional extra rather than being read off `Employee`,
+ * because it lives on the OVERRIDE and not on the source record: a CalcEmployee
+ * and a DisplayRow both carry one and pass it straight through, while a caller
+ * holding only source data passes nothing and means "not issued".
+ */
+export function rowRule(
+  e: Pick<Employee, "sm" | "st" | "vp" | "np"> & { issued?: IssuedStamp }
+): RowRule {
+  return { sm: e.sm, st: e.st, inPool: e.vp + e.np > 0, issued: e.issued };
 }
 
 /**
@@ -350,8 +422,23 @@ export function applyOverrides(
     // guard against (24 Aug 2026, amounts typed into VIC site managers paid
     // while their cell rendered a dash) cannot arise: the cell that renders a
     // dash is one whose figure nobody could have written.
+    // Deliberately the rule WITHOUT the issue stamp. This function answers
+    // "what figures does this row carry", and issuing must not change that
+    // answer: it freezes a row, it does not erase it. Feeding `issued` in here
+    // would make isDaEditable false and blank the stored discretionary of every
+    // issued row — a figure that is still true and still displayed. The issue
+    // stamp does its work further down (finalBonus reads it directly) and in
+    // the predicates every EDITING path consults.
+    const issued = ov.issued;
     const rule = rowRule(e);
-    const locked = isLockable(rule, ENGINE_ALLOWANCE) ? ov.locked ?? false : false;
+    // An issued row is locked whatever the flag says: issuing implies the
+    // freeze, and it has to survive an "Unlock all" that cleared the boolean
+    // before the stamp existed.
+    const locked = issued !== undefined
+      ? true
+      : isLockable(rule, ENGINE_ALLOWANCE)
+        ? ov.locked ?? false
+        : false;
     return {
       ...e,
       bpEdit: ov.bpEdit ?? e.bp,
@@ -367,6 +454,7 @@ export function applyOverrides(
       // (A `lockedFinal` is only ever read as a fallback for a row with no
       // baseAmount, and every live row has one — lib/schema.ts.)
       lockedFinal: isLockable(rule, ENGINE_ALLOWANCE) ? ov.lockedFinal : undefined,
+      issued,
       cpm,
       preIpm,
       bipmCalc: 0,
@@ -445,7 +533,7 @@ export function computeScalesAndBonuses(
   // pool, so nothing anyone grants moves the scale and nobody's calculated
   // bonus is shaved by somebody else's amount. Redistribution is done by
   // WRITING amounts (lib/redistribute.ts), never by moving this.
-  const vicScale =
+  const vicScaleDerived =
     empBipmVpUnlocked !== 0
       ? clampScale((stateVicAvail - empLockedVp) / empBipmVpUnlocked)
       : 1;
@@ -456,7 +544,16 @@ export function computeScalesAndBonuses(
   // Pinned at 1 since 25 Aug 2026 — see NSW_FULL_ENTITLEMENT. The cap-derived
   // figure is kept named rather than deleted: this is one flag away from being
   // live again, and the arithmetic is the same arithmetic VIC still uses.
-  const nswScale = NSW_FULL_ENTITLEMENT ? 1 : nswScaleFromCap;
+  const nswScaleDerived = NSW_FULL_ENTITLEMENT ? 1 : nswScaleFromCap;
+
+  // A STORED scale wins (owner decision, 27 August 2026, see Caps). Everything
+  // above still runs and still means what it meant — with nothing stored these
+  // two lines are the identity, which is what keeps lib/calc-golden.test.ts
+  // passing untouched — but once /api/recalculate has pinned a figure, that is
+  // the figure, and no edit anybody makes can move it. Only pressing
+  // Recalculate again can.
+  const vicScale = caps.vicScale ?? vicScaleDerived;
+  const nswScale = caps.nswScale ?? nswScaleDerived;
 
   emps.forEach((e) => {
     // "Calc bonus" — ADVISORY. What the formula says this row would draw from
@@ -486,6 +583,18 @@ export function computeScalesAndBonuses(
     //    an old restore point meaning what it meant when it was taken. It is
     //    also the honest answer for a row nobody has priced yet: what the
     //    formula says they are owed.
+    // AN ISSUED ROW IS ITS ISSUED AMOUNT, full stop. One guard ahead of the
+    // whole resolution below, and it is what makes the promise in
+    // lib/schema.ts's `issued` hold everywhere at once: a Recalculate cannot
+    // move it, an IPM edit cannot move it, a discretionary edit cannot move it
+    // and an unlock cannot move it, because none of them is consulted. The
+    // stored base and the amount are still carried on the row, so the figures
+    // that were true at the moment of issue stay visible.
+    if (e.issued !== undefined) {
+      e.finalBonus = e.issued.amount;
+      return;
+    }
+
     const base =
       e.baseAmount ??
       (e.lockedFinal !== undefined ? e.lockedFinal - e.daEdit : e.calcBonus);

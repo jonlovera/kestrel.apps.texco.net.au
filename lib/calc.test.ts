@@ -1681,3 +1681,170 @@ describe("poolCardTotals", () => {
     expect(t.nsw + t.nswOther).toBeCloseTo(cardTotal(emps, "NSW"), 10);
   });
 });
+
+
+/**
+ * The STORED Scale Factor, and ISSUED rows — the two additions of 27 August
+ * 2026. Both are absence-defaulted: with no stored scale and no issue stamp
+ * every figure in this file, and every figure in the golden baseline, is what
+ * it always was.
+ */
+describe("a stored Scale Factor", () => {
+  function emp(over: Partial<Employee> & { id: string }): Employee {
+    return {
+      sn: "S", gn: over.id, pos: "P", dept: "D", mgr: "M", cat: "C",
+      st: "VIC", vp: 1, np: 0, pkg: 1000, bp: 0.1, ipm: 1, bipm: 100, da: 0, f25: 0, sm: 0,
+      ...over,
+    };
+  }
+  const EMPS = [emp({ id: "A" }), emp({ id: "B" })];
+  const BASE: Caps = { vCap: 1000, nCap: 1000, gCap: 2000 };
+
+  it("is used verbatim in place of the derivation", () => {
+    const rows = applyOverrides(EMPS, {});
+    const pool = computeScalesAndBonuses(rows, { ...BASE, vicScale: 0.25 });
+    expect(pool.vicScale).toBe(0.25);
+    // calcBonus follows it: 100 potential x 1 IPM x 0.25
+    expect(rows.find((e) => e.id === "A")!.calcBonus).toBeCloseTo(25, 10);
+  });
+
+  it("its ABSENCE reproduces the derivation exactly", () => {
+    const derived = computeScalesAndBonuses(applyOverrides(EMPS, {}), BASE);
+    // an oversubscribed pool, so the derived figure is not trivially 1
+    const tight = computeScalesAndBonuses(applyOverrides(EMPS, {}), { ...BASE, vCap: 50 });
+    expect(derived.vicScale).toBe(1);
+    expect(tight.vicScale).toBeCloseTo(0.25, 10);
+  });
+
+  it("cannot be moved by anybody's IPM, which is the point", () => {
+    const flat = computeScalesAndBonuses(applyOverrides(EMPS, {}), { ...BASE, vicScale: 0.4 });
+    const edited = computeScalesAndBonuses(
+      applyOverrides(EMPS, { A: { ipmEdit: 0.1 } }),
+      { ...BASE, vicScale: 0.4 }
+    );
+    expect(edited.vicScale).toBe(flat.vicScale);
+  });
+
+  it("a stored NSW scale is honoured over the NSW_FULL_ENTITLEMENT pin", () => {
+    const pool = computeScalesAndBonuses(applyOverrides(EMPS, {}), { ...BASE, nswScale: 0.8 });
+    expect(pool.nswScale).toBe(0.8);
+  });
+});
+
+describe("an issued row", () => {
+  function emp(over: Partial<Employee> & { id: string }): Employee {
+    return {
+      sn: "S", gn: over.id, pos: "P", dept: "D", mgr: "M", cat: "C",
+      st: "VIC", vp: 1, np: 0, pkg: 1000, bp: 0.1, ipm: 1, bipm: 100, da: 0, f25: 0, sm: 0,
+      ...over,
+    };
+  }
+  const EMPS = [emp({ id: "A" })];
+  const CAPS2: Caps = { vCap: 1000, nCap: 1000, gCap: 2000 };
+  const issued = { amount: 777, at: "2026-08-27T00:00:00.000Z", by: "a@b.c" };
+
+  function pay(ov: Overrides, caps: Caps = CAPS2) {
+    const rows = applyOverrides(EMPS, ov);
+    computeScalesAndBonuses(rows, caps);
+    return rows[0];
+  }
+
+  it("is paid its committed amount, not a derivation", () => {
+    expect(pay({ A: { locked: true, issued, baseAmount: 10 } }).finalBonus).toBe(777);
+  });
+
+  it("is immovable by IPM, by discretionary and by a new Scale Factor", () => {
+    expect(pay({ A: { locked: true, issued, ipmEdit: 0.01 } }).finalBonus).toBe(777);
+    expect(pay({ A: { locked: true, issued, daEdit: 5000 } }).finalBonus).toBe(777);
+    expect(pay({ A: { locked: true, issued } }, { ...CAPS2, vicScale: 0.01 }).finalBonus).toBe(777);
+  });
+
+  it("is locked whatever the flag says — an Unlock all cannot free it", () => {
+    expect(pay({ A: { locked: false, issued } }).locked).toBe(true);
+  });
+
+  it("keeps its stored discretionary visible rather than having it blanked", () => {
+    // issuing FREEZES a row, it does not erase what was true of it
+    expect(pay({ A: { locked: true, issued, daEdit: 42 } }).daEdit).toBe(42);
+  });
+
+  it("refuses every editability predicate", () => {
+    const rule = rowRule({ sm: 0, st: "VIC", vp: 1, np: 0, issued });
+    expect(isLockable(rule)).toBe(false);
+    expect(isDaEditable(rule)).toBe(false);
+    expect(isIpmEditable(rule)).toBe(false);
+    // and the same row without the stamp is editable, so the stamp is the cause
+    const free = rowRule({ sm: 0, st: "VIC", vp: 1, np: 0 });
+    expect(isLockable(free)).toBe(true);
+    expect(isDaEditable(free)).toBe(true);
+    expect(isIpmEditable(free)).toBe(true);
+  });
+});
+
+
+/**
+ * ISSUE then REVERT is number-neutral: the row comes back to exactly the payout
+ * it was committed at. This is the property /api/issue's DELETE relies on, and
+ * the reason reverting keeps the lock rather than clearing it.
+ */
+describe("issuing and reverting round-trips to the same figure", () => {
+  function emp(over: Partial<Employee> & { id: string }): Employee {
+    return {
+      sn: "S", gn: over.id, pos: "P", dept: "D", mgr: "M", cat: "C",
+      st: "VIC", vp: 1, np: 0, pkg: 1000, bp: 0.1, ipm: 1, bipm: 100, da: 0, f25: 0, sm: 0,
+      ...over,
+    };
+  }
+  const EMPS = [emp({ id: "A" })];
+  const CAPS3: Caps = { vCap: 1000, nCap: 1000, gCap: 2000 };
+
+  function payout(ov: Overrides, caps: Caps = CAPS3) {
+    const rows = applyOverrides(EMPS, ov);
+    computeScalesAndBonuses(rows, caps);
+    return rows[0];
+  }
+
+  it("returns the identical payout, with the lock kept", () => {
+    const locked: Overrides = { A: { locked: true, baseAmount: 812.34, daEdit: 55 } };
+    const before = payout(locked).finalBonus;
+
+    // issue: capture finalBonus exactly as /api/issue does
+    const issuedDoc: Overrides = {
+      A: { ...locked.A, issued: { amount: before, at: "2026-08-27T00:00:00.000Z", by: "a@b.c" } },
+    };
+    expect(payout(issuedDoc).finalBonus).toBe(before);
+
+    // revert: drop the stamp, keep the lock — exactly what DELETE stores
+    const { issued: _gone, ...rest } = issuedDoc.A!;
+    void _gone;
+    const reverted: Overrides = { A: { ...rest, locked: true } };
+    const after = payout(reverted);
+
+    expect(after.finalBonus).toBeCloseTo(before, 10);
+    expect(after.locked).toBe(true);
+    expect(after.daEdit).toBe(55);
+  });
+
+  it("survives a Recalculate having moved the scale while it was issued", () => {
+    // the scale changing is exactly what an issued row is protected from, so
+    // reverting afterwards must still land on the committed figure
+    const locked: Overrides = { A: { locked: true, baseAmount: 812.34, daEdit: 55 } };
+    const before = payout(locked).finalBonus;
+    const issuedDoc: Overrides = {
+      A: { ...locked.A, issued: { amount: before, at: "2026-08-27T00:00:00.000Z", by: "a@b.c" } },
+    };
+    const moved: Caps = { ...CAPS3, vicScale: 0.01 };
+    expect(payout(issuedDoc, moved).finalBonus).toBe(before);
+
+    const { issued: _gone, ...rest } = issuedDoc.A!;
+    void _gone;
+    expect(payout({ A: { ...rest, locked: true } }, moved).finalBonus).toBeCloseTo(before, 10);
+  });
+
+  it("a reverted row is editable and lockable again", () => {
+    const rule = rowRule({ sm: 0, st: "VIC", vp: 1, np: 0 });
+    expect(isLockable(rule)).toBe(true);
+    expect(isDaEditable(rule)).toBe(true);
+    expect(isIpmEditable(rule)).toBe(true);
+  });
+});

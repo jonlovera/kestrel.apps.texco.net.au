@@ -43,6 +43,7 @@ import { PoolStrip, type PoolSummary } from "./PoolStrip";
 import EmployeeTable, { type TableColumn } from "./EmployeeTable";
 import EmployeeEditModal from "./EmployeeEditModal";
 import EmployeeAddModal from "./EmployeeAddModal";
+import RecalculateModal, { type RecalcPreview } from "./RecalculateModal";
 import FiltersMenu from "./FiltersMenu";
 import AccountMenu from "./AccountMenu";
 import EditableText from "./EditableText";
@@ -298,6 +299,21 @@ export default function DashboardClient({
   const canEditCapsNow =
     isEditor && payload.canEditCaps && !viewingAs;
   /**
+   * Whether to offer Recalculate — its own grant, not implied by being an
+   * admin (lib/access-rules.ts), and never inside somebody else's view: the
+   * operation spans the whole scheme rather than the dashboard being looked at.
+   * /api/recalculate decides again on every request; this only renders it.
+   */
+  const canRecalculateNow =
+    isEditor && payload.mode === "editor" && payload.canRecalculatePool && !viewingAs;
+  /**
+   * Whether to offer Revert on an issued row — its own grant, held by almost
+   * nobody by design (lib/access-rules.ts). /api/issue's DELETE decides again on
+   * every request; this only renders the control.
+   */
+  const canRevertIssuedNow =
+    isEditor && payload.mode === "editor" && payload.canRevokeIssued && !viewingAs;
+  /**
    * The same shape for the VIC site managers: their Lock, IPM and Discretionary
    * are live only for an admin holding `canEditVicSiteManagers` (lib/calc.ts's
    * AdjustAllowance). A lead never holds it. /api/state's gate 2 decides again
@@ -317,6 +333,14 @@ export default function DashboardClient({
   // versions, facets and figures then all come from one consistent payload.
   const [importOpen, setImportOpen] = useState(false);
   const importFlow = useImportFlow();
+
+  // ── Recalculate: preview, then commit ────────────────────────────────────
+  /** the server's preview, or null when the dialog is closed */
+  const [recalcPreview, setRecalcPreview] = useState<RecalcPreview | null>(null);
+  const [recalcBusy, setRecalcBusy] = useState(false);
+  const [recalcError, setRecalcError] = useState<string | null>(null);
+  /** the row mid-issue, so its button can show it is working */
+  const [issuing, setIssuing] = useState<string | null>(null);
 
   function closeImport() {
     if (importFlow.stage.step === "done") {
@@ -1062,6 +1086,7 @@ export default function DashboardClient({
       cat: e.cat,
       sm: e.sm,
       locked: e.locked,
+      issued: e.issued,
       inPool: e.vp > 0 || e.np > 0,
       inHomeTotal: inStateHomeTotal(e),
       vp: e.vp,
@@ -1435,8 +1460,27 @@ export default function DashboardClient({
       const emp = empById.get(id);
       if (!emp || emp.locked) return;
       if (!isIpmEditable(rowRule(emp), allow)) return;
+      // The re-priced base, shown optimistically so the row moves under the
+      // cursor rather than on the next save. The wire strips `baseAmount`
+      // (it is not client-writable) and lib/reprice.ts re-derives the same
+      // figure server-side — this is presentation, not the decision.
+      //
+      // A site manager's bonus carries no scale, so their IPM simply is the
+      // price. Everyone else is Potential × Scale × IPM, and only once a Scale
+      // Factor has been STORED: with none, no payout is re-priced at all and
+      // the row's Final legitimately stands still while its Calc bonus moves.
+      // Mirrors repriceOnIpm exactly, so the optimistic figure and the saved
+      // one cannot disagree.
       if (emp.sm) {
         setOverride(id, { ipmEdit: next, baseAmount: emp.preIpm * next });
+        return;
+      }
+      if (pool && (params.vicScale !== undefined || params.nswScale !== undefined)) {
+        setOverride(id, {
+          ipmEdit: next,
+          baseAmount:
+            emp.preIpm * next * (emp.vp * pool.vicScale + emp.np * pool.nswScale),
+        });
         return;
       }
     } else {
@@ -2003,6 +2047,186 @@ export default function DashboardClient({
     });
   }
 
+  /**
+   * RECALCULATE — step one: ask the server what it would do.
+   *
+   * Nothing is computed here. The preview comes from the server running the
+   * very function the commit runs (lib/recalculate.ts), so the dialog cannot
+   * describe one outcome while Confirm performs another.
+   *
+   * Refused while there are unsaved edits, deliberately: the operation writes
+   * the overrides document server-side against a version, so local keystrokes
+   * that had not reached the server would be silently discarded by it. Saying
+   * so is better than losing them.
+   */
+  async function openRecalculate() {
+    if (!canRecalculateNow || recalcBusy) return;
+    if (dirty) {
+      setNotice("Save your changes before recalculating the pool.");
+      return;
+    }
+    setRecalcError(null);
+    setRecalcBusy(true);
+    try {
+      const res = await fetch("/api/recalculate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preview: true }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setNotice(body?.error ?? "The pool couldn't be recalculated.");
+        return;
+      }
+      setRecalcPreview(body as RecalcPreview);
+    } catch {
+      setNotice("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setRecalcBusy(false);
+    }
+  }
+
+  /**
+   * RECALCULATE — step two: commit.
+   *
+   * Reloads on success rather than patching state, the same choice an import
+   * makes and for the same reason: this changes every eligible payout AND the
+   * stored Scale Factor, so caps, versions and figures should all arrive
+   * together in one consistent payload rather than being stitched together
+   * here.
+   */
+  async function confirmRecalculate() {
+    if (recalcBusy) return;
+    setRecalcError(null);
+    setRecalcBusy(true);
+    try {
+      const res = await fetch("/api/recalculate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preview: false, version: versionRef.current }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setRecalcError(body?.error ?? "The pool couldn't be recalculated.");
+        return;
+      }
+      window.location.reload();
+    } catch {
+      setRecalcError("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setRecalcBusy(false);
+    }
+  }
+
+  /**
+   * MARK AS ISSUED — commit one row's Final bonus.
+   *
+   * The amount is NOT sent: the server re-derives it from the stored document,
+   * so what gets committed can only ever be the figure the server itself
+   * believes. Only the row id and the version go up.
+   *
+   * Requires the lock to have been SAVED, which is why unsaved edits are
+   * refused here too — and why the button is offered only on a row whose lock
+   * the server can already see (`savedOverrides`), matching the letter button.
+   */
+  async function markIssued(id: string) {
+    if (!canLockAnything || viewReadOnly || issuing) return;
+    const row = rowById.get(id);
+    if (!row) return;
+    if (dirty) {
+      setNotice(`Save your changes before issuing ${row.name}'s bonus.`);
+      return;
+    }
+    if (savedOverrides[id]?.locked !== true) {
+      setNotice(`Lock ${row.name} and save before issuing their bonus.`);
+      return;
+    }
+    setIssuing(id);
+    try {
+      const res = await fetch("/api/issue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ empId: id, version: versionRef.current }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setNotice(body?.error ?? `${row.name}'s bonus couldn't be issued.`);
+        return;
+      }
+      if (typeof body.version === "number") versionRef.current = body.version;
+      // Adopt the stamp into both documents at once. Both, because `dirty` is
+      // the difference between them: writing it to one alone would leave the
+      // dashboard permanently looking unsaved.
+      const stamp = body.issued as { amount: number; at: string; by: string };
+      const apply = (prev: Overrides): Overrides => ({
+        ...prev,
+        [id]: { ...prev[id], locked: true, issued: stamp },
+      });
+      setOverrides(apply);
+      setSavedOverrides((prev) => {
+        const next = apply(prev);
+        savedOverridesRef.current = next;
+        return next;
+      });
+      setNotice(`Issued ${row.name}'s bonus at ${fmt(stamp.amount)}. It is now fixed.`);
+    } catch {
+      setNotice("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setIssuing(null);
+    }
+  }
+
+  /**
+   * REVERT an issued bonus back to locked. Its own grant (`canRevokeIssued`),
+   * deliberately not implied by being able to issue one — see
+   * lib/access-rules.ts.
+   *
+   * Number-neutral: the row keeps the amount it was issued at and simply stops
+   * being committed, so nothing on screen moves except the badge. The server
+   * proves that rather than trusting it (app/api/issue/route.ts's DELETE).
+   */
+  async function revertIssued(id: string) {
+    if (!canRevertIssuedNow || viewReadOnly || issuing) return;
+    const row = rowById.get(id);
+    if (!row) return;
+    if (dirty) {
+      setNotice(`Save your changes before reverting ${row.name}'s issued bonus.`);
+      return;
+    }
+    setIssuing(id);
+    try {
+      const res = await fetch("/api/issue", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ empId: id, version: versionRef.current }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setNotice(body?.error ?? `${row.name}'s bonus couldn't be reverted.`);
+        return;
+      }
+      if (typeof body.version === "number") versionRef.current = body.version;
+      // Drop the stamp and keep the lock, mirroring what the server stored. Both
+      // documents at once, because `dirty` is the difference between them.
+      const apply = (prev: Overrides): Overrides => {
+        const { issued: _dropped, ...rest } = prev[id] ?? {};
+        void _dropped;
+        return { ...prev, [id]: { ...rest, locked: true } };
+      };
+      setOverrides(apply);
+      setSavedOverrides((prev) => {
+        const next = apply(prev);
+        savedOverridesRef.current = next;
+        return next;
+      });
+      setNotice(`Reverted ${row.name}'s bonus to locked. The amount is unchanged.`);
+    } catch {
+      setNotice("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setIssuing(null);
+    }
+  }
+
   /** One human-readable line per contested figure in the conflict banner. */
 
   function conflictLine(c: OverrideConflict): string {
@@ -2276,6 +2500,20 @@ export default function DashboardClient({
                 </div>
               )}
               <div className="ml-auto flex items-center gap-3 text-xs text-brand-70">
+                {/* The ONLY thing that changes the Scale Factor. Beside Lock all
+                  because the two whole-population operations belong together,
+                  and visually louder than it because this one moves money. */}
+                {canRecalculateNow && (
+                  <button
+                    type="button"
+                    onClick={openRecalculate}
+                    disabled={dsBusy || saveStatus === "saving" || recalcBusy}
+                    title="Re-derive the Scale Factor from Potential Bonus at 100% IPM and re-base every eligible bonus. Shows you what would change before anything is saved."
+                    className="border-2 border-brand-orange bg-brand-orange-tint/40 px-3 py-1.5 text-[11px] font-bold tracking-wide text-brand-95 transition-colors hover:bg-brand-orange hover:text-white disabled:opacity-40"
+                  >
+                    {recalcBusy && !recalcPreview ? "Checking…" : "Recalculate"}
+                  </button>
+                )}
                 <span className="bg-neutral-100 px-2.5 py-1">
                   Showing: {visibleRows.length} / {allRows.length}
                 </span>
@@ -2519,6 +2757,11 @@ export default function DashboardClient({
                 updateDatasetFigure,
                 updateSplit,
                 toggleLock,
+                markIssued,
+                revertIssued,
+                issuing,
+                canIssue: canLockAnything && !viewReadOnly,
+                canRevert: canRevertIssuedNow,
                 renameColumn,
                 editEmployee: setEditingId,
                 downloadLetter,
@@ -2651,6 +2894,19 @@ export default function DashboardClient({
             />
           );
         })()}
+
+      {recalcPreview && (
+        <RecalculateModal
+          preview={recalcPreview}
+          busy={recalcBusy}
+          error={recalcError}
+          onConfirm={confirmRecalculate}
+          onClose={() => {
+            setRecalcPreview(null);
+            setRecalcError(null);
+          }}
+        />
+      )}
 
       {adding && (
         <EmployeeAddModal

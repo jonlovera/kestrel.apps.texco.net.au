@@ -34,7 +34,7 @@ const scope = (
 
 const admin = scope(
   "admin@texco.net.au",
-  { type: "full", canEditCaps: false, canEditVicSiteManagers: false, canActAs: [], canDownloadLetter: false },
+  { type: "full", canEditCaps: false, canEditVicSiteManagers: false, canRecalculatePool: false, canRevokeIssued: false, canActAs: [], canDownloadLetter: false },
   true
 );
 const lead = scope(
@@ -77,7 +77,7 @@ const jglick = scope(
 /** An admin who was ALSO delegated one person — the write sanction rides on the list, not on full access. */
 const delegatedAdmin = scope(
   "admin2@texco.net.au",
-  { type: "full", canEditCaps: false, canEditVicSiteManagers: false, canActAs: ["jglick@texco.net.au"], canDownloadLetter: false },
+  { type: "full", canEditCaps: false, canEditVicSiteManagers: false, canRecalculatePool: false, canRevokeIssued: false, canActAs: ["jglick@texco.net.au"], canDownloadLetter: false },
   true
 );
 

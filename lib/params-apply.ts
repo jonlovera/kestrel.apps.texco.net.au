@@ -20,10 +20,36 @@ export const ParamsSchema = z.object({
   nCap: z.number().positive().max(50_000_000),
   gCap: z.number().positive().max(100_000_000),
   companyModifier: z.number().min(0.1).max(2),
+  /**
+   * THE PERSISTED SCALE FACTORS (owner decision, 27 August 2026).
+   *
+   * Written only by /api/recalculate, from lib/recalculate.ts, and read by the
+   * engine through Caps (lib/calc.ts). They live on the params document rather
+   * than anywhere else for three reasons: this is already where the pool caps
+   * and the company modifier live, so scheme-wide parameters stay in one place;
+   * it is already snapshotted and restorable (SnapshotSchema.state.params); and
+   * clearParams() already means "fall back to derived", which is exactly the
+   * state the scheme is in before anybody has pressed Recalculate.
+   *
+   * Optional because every params document stored before this existed has no
+   * scale, and absent has a precise meaning: no authoritative scale yet, so the
+   * engine derives an advisory one for display and lib/reprice.ts re-prices no
+   * pooled payout at all.
+   *
+   * Bounded to [0, 1] by the same reasoning as clampScale: an oversubscribed
+   * pool scales down, an under-subscribed one is not scaled up past full
+   * entitlement.
+   */
+  vicScale: z.number().min(0).max(1).optional(),
+  nswScale: z.number().min(0).max(1).optional(),
 });
 export type Params = z.infer<typeof ParamsSchema>;
 
-/** Defaults = the dataset's own caps and the measured modifier of 1.0. */
+/**
+ * Defaults = the dataset's own caps and the measured modifier of 1.0. No
+ * scales: a scheme that has never been recalculated has no stored scale, which
+ * is the honest default and the one the engine reads as "derive for display".
+ */
 export function defaultParams(caps: {
   vCap: number;
   nCap: number;
@@ -83,5 +109,9 @@ export function applyParams(data: Dataset, params: Params): Dataset {
     vCap: params.vCap,
     nCap: params.nCap,
     gCap: params.gCap,
+    // Undefined when nothing has been recalculated yet, and undefined is the
+    // value the engine wants — it is what selects the derived fallback.
+    vicScale: params.vicScale,
+    nswScale: params.nswScale,
   };
 }

@@ -51,9 +51,21 @@ export async function POST(req: Request) {
     );
   }
 
-  const params = canChangeCaps(scope)
+  const withCaps = canChangeCaps(scope)
     ? parsed.data
     : { ...parsed.data, vCap: previous.vCap, nCap: previous.nCap, gCap: previous.gCap };
+
+  // The persisted Scale Factors are NEVER writable here, by anyone, and are
+  // always carried forward from what is stored. They live on this document
+  // (lib/params-apply.ts) but they are not a scheme parameter somebody types:
+  // /api/recalculate derives them and is their only author. Without this line
+  // the cap-card editor would erase them on its next save — it posts the four
+  // fields it knows about, and a saved document is a whole document.
+  const params = {
+    ...withCaps,
+    vicScale: previous.vicScale,
+    nswScale: previous.nswScale,
+  };
 
   const changes: string[] = [];
   if (previous.companyModifier !== params.companyModifier)

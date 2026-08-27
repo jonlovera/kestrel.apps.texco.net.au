@@ -8,7 +8,7 @@ import { diffOverrides } from "@/lib/history-diff";
 import { takeSnapshot } from "@/lib/snapshots";
 import { sanitiseOverrideWrite, scopeOverridesView, adjustAllowance } from "@/lib/write-scope";
 import { applySchemeRules } from "@/lib/scheme-gate";
-import { repriceSiteManagers } from "@/lib/reprice";
+import { repriceOnIpm } from "@/lib/reprice";
 import {
   applyOverrides,
   computeScalesAndBonuses,
@@ -163,10 +163,13 @@ export async function POST(req: Request) {
         .join(" ")} ts=${new Date().toISOString()}`
     );
   }
-  // A site manager's IPM re-prices their fixed bonus (lib/reprice.ts, owner
-  // decision 26 Aug 2026) — before the pool gates, so they judge the priced
-  // figure, and recorded below as its own history entries.
-  const priced = repriceSiteManagers(data.emp, previous, gated.overrides);
+  // An IPM edit re-prices that one row (lib/reprice.ts, owner decision 27 Aug
+  // 2026, widening the site-manager-only rule of 26 Aug) — before the pool
+  // gates, so they judge the priced figure, and recorded below as its own
+  // history entries. A pooled row moves only once a Scale Factor has been
+  // stored by /api/recalculate; until then only site managers, whose price
+  // carries no scale, are re-priced.
+  const priced = repriceOnIpm(data.emp, previous, gated.overrides, data);
   const sanitised: Overrides = priced.overrides;
 
   // No lock normalization here any more, deliberately. Locking and unlocking
@@ -277,14 +280,14 @@ export async function POST(req: Request) {
     diffOverrides(data.emp, previous, sanitised, email, ts, viewingAs ?? undefined)
   );
   // The re-prices, as their own entries: diffOverrides records the IPM move
-  // but not the payout it now carries with it for a site manager.
+  // but not the payout it now carries with it.
   if (priced.changes.length > 0) {
     await appendHistory(
       priced.changes.map((c) => ({
         ts,
         actor: email,
         kind: "edit" as const,
-        summary: `Re-priced ${c.name}'s fixed bonus: ${fmt(c.from)} → ${fmt(c.to)} (IPM ${fmtPctSmart(c.ipmFrom)} → ${fmtPctSmart(c.ipmTo)})`,
+        summary: `Re-priced ${c.name}'s ${c.fixedBonus ? "fixed bonus" : "bonus"}: ${fmt(c.from)} → ${fmt(c.to)} (IPM ${fmtPctSmart(c.ipmFrom)} → ${fmtPctSmart(c.ipmTo)})`,
         empId: c.empId,
         field: "baseAmount",
         from: Math.round(c.from),

@@ -36,10 +36,10 @@ import { loadAccessOverlay, saveAccessOverlay, appendHistory } from "./store";
  * ============================================================================
  */
 const ACCESS: Record<string, AccessRule> = {
-  'jlovera@texco.net.au': { type: 'full', canEditCaps: false, canEditVicSiteManagers: false, canActAs: [], canDownloadLetter: false },
-  'dgibson@texco.net.au': { type: 'full', canEditCaps: false, canEditVicSiteManagers: false, canActAs: [], canDownloadLetter: false },
-  'tbull@texco.net.au': { type: 'full', canEditCaps: false, canEditVicSiteManagers: false, canActAs: [], canDownloadLetter: false },
-  'jbull@texco.net.au': { type: 'full', canEditCaps: false, canEditVicSiteManagers: false, canActAs: [], canDownloadLetter: false },
+  'jlovera@texco.net.au': { type: 'full', canEditCaps: false, canEditVicSiteManagers: false, canRecalculatePool: false, canRevokeIssued: false, canActAs: [], canDownloadLetter: false },
+  'dgibson@texco.net.au': { type: 'full', canEditCaps: false, canEditVicSiteManagers: false, canRecalculatePool: false, canRevokeIssued: false, canActAs: [], canDownloadLetter: false },
+  'tbull@texco.net.au': { type: 'full', canEditCaps: false, canEditVicSiteManagers: false, canRecalculatePool: false, canRevokeIssued: false, canActAs: [], canDownloadLetter: false },
+  'jbull@texco.net.au': { type: 'full', canEditCaps: false, canEditVicSiteManagers: false, canRecalculatePool: false, canRevokeIssued: false, canActAs: [], canDownloadLetter: false },
 };
 
 /** Resolved scope handed to the rest of the server code. */

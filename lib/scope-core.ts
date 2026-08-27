@@ -15,6 +15,8 @@ import {
   editableColumns,
   canLockRows,
   canDownloadLetters, canAdjustVicSiteManagers,
+  canRecalculatePool as canRecalcPool,
+  canRevokeIssued as canRevokeIssuedFor,
   scopeOverridesView,
 } from "./write-scope";
 import { NUMERIC_FIELDS } from "./access-types";
@@ -85,9 +87,22 @@ export function buildPayloadCore(
         nCap: data.nCap,
         gCap: data.gCap,
         companyModifier,
+        // The persisted Scale Factors, so the browser's engine pass uses the
+        // same stored figure the server does rather than deriving its own —
+        // which is the whole point of storing them. Undefined until somebody
+        // has pressed Recalculate, and undefined is meaningful: it selects the
+        // advisory derivation for display and stops lib/reprice.ts re-pricing
+        // any pooled payout.
+        vicScale: data.vicScale,
+        nswScale: data.nswScale,
       },
+      // Deliberately without the scale factors: `caps` is the cap trio the
+      // pool cards render and clamp against, while the engine runs on `params`
+      // above — which is where the scales ride.
       caps: { vCap: data.vCap, nCap: data.nCap, gCap: data.gCap },
       canEditCaps: scope.rule.canEditCaps,
+      canRecalculatePool: canRecalcPool(scope),
+      canRevokeIssued: canRevokeIssuedFor(scope),
       canEditVicSiteManagers: canAdjustVicSiteManagers(scope),
       canDownloadLetter: canDownloadLetters(scope),
       cats: data.cats,
@@ -122,6 +137,15 @@ export function buildPayloadCore(
       inPool: e.vp > 0 || e.np > 0,
       inHomeTotal: countsAgainstPool(scope.rule, e),
     };
+    // The issue stamp, when there is one. Ungated by visibleFields, unlike
+    // every figure below, because it is a STATE and not a figure: a lead has
+    // to be able to see that a row is committed, or they will keep typing into
+    // cells the server refuses. Its `amount` is the row's Final bonus, so it is
+    // withheld from a scope that cannot see Final — see below.
+    if (e.issued !== undefined) {
+      const { amount, ...stamp } = e.issued;
+      row.issued = fields.has("final") ? { ...stamp, amount } : stamp;
+    }
     if (fields.has("elig")) row.elig = e.elig;
     if (fields.has("totalPkg")) row.totalPkg = e.totalPkg;
     if (fields.has("pkg")) row.pkg = e.pkg;

@@ -56,6 +56,15 @@ export const BonusDataSchema = z.object({
    */
   vCarve: z.number().min(0).optional(),
   nCarve: z.number().min(0).optional(),
+  /**
+   * The persisted scale factors, carried the same way and for the same reason
+   * as the carve-outs above: never stored ON THE DATASET, but folded in at read
+   * time (applyParams, from the params document) so that every server gate and
+   * the browser's engine pass see them under the one Dataset type. Absent means
+   * nothing has been recalculated yet — see ParamsSchema in lib/params-apply.ts.
+   */
+  vicScale: z.number().min(0).max(1).optional(),
+  nswScale: z.number().min(0).max(1).optional(),
   cats: z.array(z.string()),
   depts: z.array(z.string()),
   mgrs: z.array(z.string()),
@@ -110,6 +119,34 @@ export const EmployeeOverrideSchema = z.object({
    * parsed so older snapshots restore.
    */
   lockedFinal: z.number().optional(),
+  /**
+   * ISSUED: the committed amount. Set once, by /api/issue, on a row that is
+   * already LOCKED — the workflow is unlocked -> locked -> issued.
+   *
+   * Locked and issued are deliberately different things. A lock is a temporary
+   * payout freeze that an admin flips back and forth and that "Unlock all"
+   * clears in bulk. An issue is a decision that has left the building: the
+   * figure has been communicated, so nothing may move it again. That is why
+   * this carries the AMOUNT rather than pointing at `baseAmount` — the payout
+   * of record for an issued row is this number and not a derivation, so a later
+   * Recalculate, an IPM edit, a discretionary edit or an unlock cannot reach it
+   * (lib/calc.ts resolves finalBonus straight off it).
+   *
+   * Absent means "not issued", which is the only state anything tests for.
+   * Never client-writable: it is out of WRITABLE_BY_ADMIN, so
+   * sanitiseOverrideWrite preserves whatever is stored and only /api/issue can
+   * put one here.
+   */
+  issued: z
+    .object({
+      /** finalBonus captured at the instant of issue */
+      amount: z.number(),
+      /** ISO timestamp, stamped server-side */
+      at: z.string(),
+      /** email of the person who issued it — the actor, never a view target */
+      by: z.string(),
+    })
+    .optional(),
 });
 
 export const OverridesSchema = z.record(z.string(), EmployeeOverrideSchema);

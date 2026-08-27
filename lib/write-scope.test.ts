@@ -21,6 +21,9 @@ import {
   WRITABLE_BY_LEAD,
   canDownloadLetters,
   canAdjustVicSiteManagers,
+  canRecalculatePool,
+  canRevokeIssued,
+  canLockRows,
   adjustAllowance,
 } from "./write-scope";
 
@@ -39,7 +42,7 @@ const FIELDS = ["ipm", "da", "calc", "final"] as const;
 
 const admin: Scope = {
   email: "admin@texco.net.au",
-  rule: { type: "full", canEditCaps: false, canEditVicSiteManagers: false, canActAs: [], canDownloadLetter: false },
+  rule: { type: "full", canEditCaps: false, canEditVicSiteManagers: false, canRecalculatePool: false, canRevokeIssued: false, canActAs: [], canDownloadLetter: false },
   canEdit: true,
   visibleFields: [...FIELDS],
   label: "Full access",
@@ -705,5 +708,102 @@ describe("canDownloadLetters", () => {
       editableFields: ["da"],
     });
     expect(stored).toMatchObject({ canDownloadLetter: false });
+  });
+});
+
+
+/**
+ * `issued` is a COMMITTED amount, so no ordinary save may set one, clear one
+ * or alter one. The protection is its absence from WRITABLE_BY_ADMIN: absent,
+ * sanitiseOverrideWrite keeps whatever is stored no matter what arrives.
+ */
+describe("an issued stamp is unwritable by anyone", () => {
+  const stamp = { amount: 500, at: "2026-08-27T00:00:00.000Z", by: "a@b.c" };
+
+  it("is not in the writable list for an admin or a lead", () => {
+    expect(WRITABLE_BY_ADMIN).not.toContain("issued");
+    expect(WRITABLE_BY_LEAD).not.toContain("issued");
+  });
+
+  it("an admin cannot invent one", () => {
+    const { overrides, rejected } = sanitiseOverrideWrite(
+      admin, EMPLOYEES, { V2: { issued: stamp, daEdit: 10 } }, {}
+    );
+    expect(overrides.V2?.issued).toBeUndefined();
+    expect(overrides.V2?.daEdit).toBe(10);
+    expect(rejected.some((r) => r.includes("issued"))).toBe(true);
+  });
+
+  it("an admin cannot clear a stored one", () => {
+    const { overrides } = sanitiseOverrideWrite(
+      admin, EMPLOYEES, { V2: { daEdit: 10 } }, { V2: { issued: stamp, locked: true } }
+    );
+    expect(overrides.V2?.issued).toEqual(stamp);
+  });
+
+  it("an admin cannot alter a stored one", () => {
+    const { overrides } = sanitiseOverrideWrite(
+      admin, EMPLOYEES, { V2: { issued: { ...stamp, amount: 999999 } } }, { V2: { issued: stamp } }
+    );
+    expect(overrides.V2?.issued).toEqual(stamp);
+  });
+
+  it("a lead cannot touch one either", () => {
+    const { overrides } = sanitiseOverrideWrite(
+      vicLead, EMPLOYEES, { V2: { issued: { ...stamp, amount: 1 } } }, { V2: { issued: stamp } }
+    );
+    expect(overrides.V2?.issued).toEqual(stamp);
+  });
+
+  it("survives an id being dropped from the incoming document entirely", () => {
+    const { overrides } = sanitiseOverrideWrite(
+      admin, EMPLOYEES, {}, { V2: { issued: stamp, daEdit: 3 } }
+    );
+    expect(overrides.V2?.issued).toEqual(stamp);
+  });
+});
+
+describe("canRecalculatePool", () => {
+  it("is NOT implied by full access", () => {
+    expect(canRecalculatePool(admin)).toBe(false);
+  });
+
+  it("is held only when explicitly granted on a full rule", () => {
+    expect(
+      canRecalculatePool({
+        ...admin,
+        rule: { ...admin.rule, canRecalculatePool: true } as typeof admin.rule,
+      })
+    ).toBe(true);
+  });
+
+  it("is never held by a lead, however they are configured", () => {
+    expect(canRecalculatePool(vicLead)).toBe(false);
+  });
+});
+
+
+describe("canRevokeIssued", () => {
+  it("is NOT implied by full access", () => {
+    expect(canRevokeIssued(admin)).toBe(false);
+  });
+
+  it("is NOT implied by being able to issue — the two are separate decisions", () => {
+    // the admin fixture can lock (and therefore issue) but cannot revert
+    expect(canLockRows(admin)).toBe(true);
+    expect(canRevokeIssued(admin)).toBe(false);
+  });
+
+  it("is held only when explicitly granted on a full rule", () => {
+    expect(
+      canRevokeIssued({
+        ...admin,
+        rule: { ...admin.rule, canRevokeIssued: true } as typeof admin.rule,
+      })
+    ).toBe(true);
+  });
+
+  it("is never held by a lead, however they are configured", () => {
+    expect(canRevokeIssued(vicLead)).toBe(false);
   });
 });

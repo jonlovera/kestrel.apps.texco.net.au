@@ -52,6 +52,12 @@ export const WRITABLE_BY_LEAD = ["daEdit", "ipmEdit"] as const;
  * and leaving it writable would let a stale figure be pushed over a settled
  * one. Absent from this list, sanitiseOverrideWrite keeps whatever is stored and
  * rejects anything incoming.
+ *
+ * `issued` is absent for a stronger reason, and permanently: it is a COMMITTED
+ * amount (lib/schema.ts), so no ordinary save may set one, clear one or alter
+ * one. Being absent here means sanitiseOverrideWrite preserves whatever is
+ * stored no matter what a client sends, which is the whole of the protection —
+ * /api/issue is the only writer, and there is no un-issue.
  */
 export const WRITABLE_BY_ADMIN = ["daEdit", "ipmEdit", "locked"] as const;
 
@@ -114,6 +120,40 @@ export function writableFields(scope: Scope): readonly WritableField[] {
  */
 export function canLockRows(scope: Scope): boolean {
   return writableFields(scope).includes("locked");
+}
+
+/**
+ * Whether this scope may RECALCULATE THE POOL — its own grant
+ * (`canRecalculatePool`), and deliberately NOT implied by full access, for the
+ * same reason `canChangeCaps` is not (lib/params-apply.ts): "may see and change
+ * everything about the bonus scheme" and "may re-derive the Scale Factor and
+ * re-base every eligible payout in one press" are different questions, and an
+ * owner may reasonably want most admins to have the first without the second.
+ *
+ * Full rules only. A lead never holds it: Recalculate is a whole-scheme
+ * operation spanning both pools, and a lead is not even sent the caps it needs
+ * (lib/scope-core.ts strips them).
+ *
+ * One place the decision lives, so /api/recalculate, the payload builder and
+ * the tests can never disagree about it.
+ */
+export function canRecalculatePool(scope: Scope): boolean {
+  return scope.rule.type === "full" && scope.rule.canRecalculatePool === true;
+}
+
+/**
+ * Whether this scope may REVERT an issued bonus back to locked — its own grant
+ * (`canRevokeIssued`), deliberately separate from the ability to issue one.
+ *
+ * Issuing is bounded by `canLockRows`, which full access confers; this is not,
+ * for the same reason `canChangeCaps` is not. Committing an amount and
+ * un-committing one are different decisions, and an owner may reasonably want
+ * the first widely held and the second held by almost nobody.
+ *
+ * Full rules only. /api/issue's DELETE decides again on every request.
+ */
+export function canRevokeIssued(scope: Scope): boolean {
+  return scope.rule.type === "full" && scope.rule.canRevokeIssued === true;
 }
 
 /**
