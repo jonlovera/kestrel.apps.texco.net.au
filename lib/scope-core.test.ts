@@ -13,6 +13,7 @@ import type { Scope } from "./access";
 import { buildPayloadCore } from "./scope-core";
 import { managerPool } from "./manager-pool";
 import { attachFy26Carves, statePoolOf } from "./fy26-caps";
+import { applyOverrides, computeScalesAndBonuses, stateBoundCap } from "./calc";
 
 const data = JSON.parse(
   readFileSync(join(__dirname, "..", "data", "bonus.json"), "utf-8")
@@ -153,11 +154,15 @@ describe("a lead sees their own pool and nothing wider", () => {
   });
 
   it("a whole-state lead's header is the state's BINDING cap when the dataset carries a carve (FY26)", () => {
-    // getEffectiveDataset attaches the carve server-side; the payload builder
-    // just has to let it through to the header, and nowhere else
+    // vCarve is the TEST SEAM that pins a carve instead of deriving one from
+    // the rows (lib/calc.ts's stateBoundCap). Both sides pin, so the pair
+    // differs by the 1000 alone rather than also by whatever the population
+    // happens to be carrying.
+    const uncarved = buildPayloadCore({ ...data, vCarve: 0 }, {}, vicScopeNoPkg, user);
+    if (uncarved.mode !== "readonly") throw new Error("expected readonly");
     const carved = buildPayloadCore({ ...data, vCarve: 1000 }, {}, vicScopeNoPkg, user);
     if (carved.mode !== "readonly") throw new Error("expected readonly");
-    expect(carved.managerPool.pool).toBeCloseTo(vic.managerPool.pool - 1000, 8);
+    expect(carved.managerPool.pool).toBeCloseTo(uncarved.managerPool.pool - 1000, 8);
     expect(carved.managerPool.allocated).toBeCloseTo(vic.managerPool.allocated, 8);
     const json = JSON.stringify(carved);
     expect(json).not.toContain("vCarve");
@@ -190,7 +195,18 @@ describe("a lead sees their own pool and nothing wider", () => {
     const counted = payload.rows.filter((r) => r.inHomeTotal).reduce((s, r) => s + (r.final ?? 0), 0);
     expect(payload.managerPool.allocated).toBeCloseTo(counted, 6);
     expect(payload.managerPool.people).toBe(payload.rows.length);
-    expect(payload.managerPool.pool).toBeCloseTo(vic.managerPool.pool, 8);
+    // The lead's pool IS the state's binding cap — the cap less what VIC
+    // carries for people outside its home total, which since 28 Aug 2026
+    // includes 92% of this split row (lib/calc.ts's stateBoundCap). Pinned as
+    // that relationship rather than as a difference from the unsplit dataset:
+    // moving the row to a split changes its own payout too, so the two
+    // datasets differ by more than the carve.
+    const splitRows = applyOverrides(withSplit.emp, {});
+    computeScalesAndBonuses(splitRows, withSplit);
+    expect(payload.managerPool.pool).toBeCloseTo(
+      stateBoundCap("VIC", splitRows, withSplit)!,
+      6
+    );
     // the split itself is not a visible field here, so it stays out of the bytes
     const json = JSON.stringify(payload);
     expect(json).not.toContain('"vp"');

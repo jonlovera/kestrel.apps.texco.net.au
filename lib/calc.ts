@@ -744,6 +744,94 @@ export function stateHomeTotal(
   return total;
 }
 
+/** What a state's pool is carrying for people outside its home total. */
+export interface StateCarve {
+  /** Shared Services rows, at this state's fraction of each payout */
+  sharedServices: number;
+  /** the part-split staff — split rows carrying a VIC or NSW label */
+  splitState: number;
+  /** the two together: everything the pool funds from outside its home total */
+  total: number;
+}
+
+/**
+ * THE LIVE CARVE-OUT: what this state's cap is actually paying for people its
+ * home total does not count.
+ *
+ * The counterpart to stateHomeTotal above, and defined so the two partition the
+ * state's whole draw exactly:
+ *
+ *     everything VIC funds  =  stateHomeTotal("VIC")  +  liveCarve("VIC").total
+ *
+ * Every dollar of every payout lands in exactly one of those two on each side,
+ * which is what makes `cap − carve − home` a true Remaining rather than a
+ * guide. A whole-pool VIC row is in the home total and contributes nothing
+ * here; a Shared Services row is in neither home total and contributes its
+ * `vp` share to VIC and its `np` share to NSW; a part-split row labelled VIC or
+ * NSW is excluded from its own home total (inStateHomeTotal) and contributes
+ * its fraction to both.
+ *
+ * The RAW split, deliberately, not the scale-weighted `fracVic` that
+ * poolCardTotals uses for its part-split attribution: this answers "what
+ * percentage of this person is each state paying for", which is the vp/np on
+ * the row and the figure the two split columns show.
+ *
+ * The two lines are the same two the signed-off waterfall carves off each total
+ * cap (lib/fy26-caps.ts), so a card's build-up still sums to its headline.
+ *
+ * DISPLAY ONLY. lib/fy26-caps.ts's typed constants remain what a grant is
+ * BOUNDED by — see DISPLAY_CARVE_IS_LIVE there for why the two differ and what
+ * it would take to close the gap.
+ */
+/**
+ * THE CAP A STATE IS BOUND BY: its total cap less what it is live-carrying.
+ *
+ * ONE definition, shared by every bound and every display — the pool cards,
+ * capRoom (/api/state's gate 4), stateRoom, a scoped lead's cap and the
+ * discretionary ceiling all resolve through here or through liveCarve.
+ *
+ * It derives from the rows rather than reading a figure off `Caps`, and that is
+ * the point. The carve was briefly a stored constant on Caps while the cards
+ * showed the live figure, and the two drifted apart in BOTH directions: on 28
+ * August 2026 a VIC card offered $6,508 of room while the field beside it
+ * refused anything over $3,290, because the live carve had fallen below the
+ * frozen one. A bound that is computed from the same rows the card counts
+ * cannot do that.
+ *
+ * Null for any state that has no pool of its own — Shared Services — which is
+ * what leaves such a row bounded by the group cap alone.
+ */
+export function stateBoundCap(
+  st: string,
+  emps: readonly CalcEmployee[],
+  caps: Caps
+): number | null {
+  if (st !== "VIC" && st !== "NSW") return null;
+  const cap = st === "VIC" ? caps.vCap : caps.nCap;
+  // `vCarve`/`nCarve` are a TEST SEAM and nothing else: no production path sets
+  // them any more (lib/data.ts and DashboardClient stopped attaching them when
+  // the carve went live), so the fallback is what always runs. They survive so
+  // a test can pin a carve without having to build a shared-services population
+  // to imply one. If you find production code setting one, that is the bug.
+  const pinned = st === "VIC" ? caps.vCarve : caps.nCarve;
+  return cap - (pinned ?? liveCarve(st, emps).total);
+}
+
+export function liveCarve(
+  st: "VIC" | "NSW",
+  emps: readonly CalcEmployee[]
+): StateCarve {
+  let sharedServices = 0;
+  let splitState = 0;
+  for (const r of emps) {
+    const share = st === "VIC" ? r.vp : r.np;
+    if (share === 0) continue;
+    if (r.st === "SHARED") sharedServices += r.finalBonus * share;
+    else if (!inStateHomeTotal(r)) splitState += r.finalBonus * share;
+  }
+  return { sharedServices, splitState, total: sharedServices + splitState };
+}
+
 /**
  * What one state's pool has ACTUALLY not allocated yet: its cap net of the FY26
  * carve-outs, less every payout charged to it. The same subtraction capRoom
@@ -763,12 +851,7 @@ export function stateRoom(
   emps: readonly CalcEmployee[],
   caps: Caps
 ): number | null {
-  const cap =
-    st === "VIC"
-      ? caps.vCap - (caps.vCarve ?? 0)
-      : st === "NSW"
-        ? caps.nCap - (caps.nCarve ?? 0)
-        : null;
+  const cap = stateBoundCap(st, emps, caps);
   if (cap === null) return null;
   return cap - stateHomeTotal(st, emps);
 }
@@ -805,11 +888,7 @@ function capRoom(
   // so nothing there is being funded from outside it.
   const stateCap = !inStateHomeTotal(e)
     ? null
-    : e.st === "VIC"
-      ? caps.vCap - (caps.vCarve ?? 0)
-      : e.st === "NSW"
-        ? caps.nCap - (caps.nCarve ?? 0)
-        : null;
+    : stateBoundCap(e.st, emps, caps);
   if (stateCap !== null) {
     room = Math.min(room, stateCap - (homeTotal - e.daEdit));
   }
@@ -888,6 +967,13 @@ export interface PoolCardTotals {
   vicPartSplit: number;
   /** The NSW share of the same part-split staff. */
   nswPartSplit: number;
+  /**
+   * What each cap is LIVE-carrying for people outside its home total — the
+   * figure the cards' build-up rows show, in place of lib/fy26-caps.ts's typed
+   * constants. See liveCarve.
+   */
+  vicCarve: StateCarve;
+  nswCarve: StateCarve;
 }
 
 /**
@@ -1004,6 +1090,8 @@ export function poolCardTotals(
     nswPool: caps.nCap - nswCarried,
     vicPartSplit,
     nswPartSplit,
+    vicCarve: liveCarve("VIC", emps),
+    nswCarve: liveCarve("NSW", emps),
   };
 }
 

@@ -244,17 +244,24 @@ describe("a carve-funded row (FY26 part-split staff labelled VIC)", () => {
 
   it("is left out of the VIC figures the confirmation reports", () => {
     const impact = daImpact(withP.emp, withP, {}, { A: { daEdit: 100 } });
-    // A/B/C still hold 1200 between them; P's payout is not in the VIC line
+    const pShare = row(pooled({}, withP).rows, "P").finalBonus * 0.9;
+    // A/B/C still hold 1200 between them and P's payout is not in the VIC line
+    // — but the VIC CAP the confirmation quotes is now net of the 90% of P that
+    // VIC actually funds (28 Aug 2026), so it matches the ceiling a save
+    // enforces rather than a frozen figure.
     expect(impact.pools).toEqual([
-      { key: "VIC", before: 1200, after: 1300, cap: 1500 },
+      { key: "VIC", before: 1200, after: 1300, cap: 1500 - pShare },
       { key: "GROUP", before: 1200 + row(pooled({}, withP).rows, "P").finalBonus, after: 1300 + row(pooled({}, withP).rows, "P").finalBonus, cap: 5000 },
     ]);
   });
 
   it("does not consume the pool's room, and a grant to it moves the group total only", () => {
     const { rows } = pooled({}, withP);
-    // A's headroom is the same 300 as without P
-    expect(daHeadroom(row(rows, "A"), rows, withP)).toBe(300);
+    // A's headroom is the 300 it would be without P, less the 90% of P that VIC
+    // funds: P is out of the home total, and the carve that covers them is live.
+    expect(daHeadroom(row(rows, "A"), rows, withP)).toBe(
+      floorCents(300 - row(rows, "P").finalBonus * 0.9)
+    );
     // P is bounded by the group cap alone, and by nothing under "state"
     expect(daHeadroom(row(rows, "P"), rows, withP, "state")).toBe(Infinity);
     expect(daHeadroom(row(rows, "P"), rows, withP)).toBe(floorCents(5000 - cardTotal(rows)));

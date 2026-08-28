@@ -2,7 +2,6 @@ import "server-only";
 import { DatasetSchema, type Dataset } from "./schema";
 import { loadStoredDataset, loadParams } from "./store";
 import { applyParams, defaultParams, type Params } from "./params-apply";
-import { attachFy26Carves } from "./fy26-caps";
 
 /**
  * The source dataset (155 employees + pool caps). The raw file holds real
@@ -79,5 +78,8 @@ export async function getParams(): Promise<Params> {
  */
 export async function getEffectiveDataset(): Promise<Dataset> {
   const [data, params] = await Promise.all([getDataset(), loadParams()]);
-  return attachFy26Carves(applyParams(data, params ?? defaultParams(data)));
+  // No carve attached: it is DERIVED from the priced rows now (lib/calc.ts's
+  // stateBoundCap), so the cards, gate 4 and every lead's cap read one figure
+  // that cannot drift from what is actually being paid.
+  return applyParams(data, params ?? defaultParams(data));
 }

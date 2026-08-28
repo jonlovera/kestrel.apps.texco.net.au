@@ -44,6 +44,7 @@ import {
   computeScalesAndBonuses,
   floorCents,
   fundedByStatePool,
+  stateBoundCap,
   getMaxDA,
   stateHomeTotal,
   stateRoom,
@@ -137,10 +138,11 @@ describe.skipIf(!existsSync(FIXTURE))(
       const ourVic = budgeted
         .filter((e) => e.st === "VIC")
         .reduce((s, e) => s + committed(e), 0);
-      // the fixture's caps have no carve-outs attached (attachFy26Carves runs
-      // in lib/data.ts, not here), so the state pool IS the raw cap — same
-      // figure the module reads off Caps
-      const vicPool = data.vCap - (data.vCarve ?? 0);
+      // The state pool is the cap less what VIC is LIVE-carrying for people
+      // outside its home total (lib/calc.ts's stateBoundCap, 28 Aug 2026) —
+      // the same definition the module uses, so this pins the relationship
+      // rather than restating the arithmetic.
+      const vicPool = stateBoundCap("VIC", population(), data)!;
       const room = vicPool - allVic;
       // a real share of the state, and not all of it — this is a group rule
       expect(ourVic / allVic).toBeGreaterThan(0.5);
@@ -568,9 +570,11 @@ describe("poolBreach", () => {
   });
 
   it("a whole-state lead's Allocated leaves out a carve-funded row, who is still one of their people", () => {
-    // P is VIC-labelled but on a split: funded by the split-state carve the
-    // pool is already net of, so charging P's payout against the pool would
-    // charge it twice (the four part-split staff since 24 Aug 2026)
+    // P is VIC-labelled but on a split. They stay OUT of Allocated — the pool
+    // is net of them — and since 28 Aug 2026 the carve doing that netting is
+    // live, so the pool shrinks by exactly P's VIC share (0.9 of their payout)
+    // rather than by a frozen constant. VIC is charged for P once, and for the
+    // 0.9 of P it actually funds.
     const P = emp({ id: "P", vp: 0.9, np: 0.1, bipm: 300, pkg: 3000 });
     const carved: Dataset = { ...data, emp: [...data.emp, P], vCap: 1500, gCap: 2500 };
     const rows = applyOverrides(carved.emp, {});
@@ -578,9 +582,10 @@ describe("poolBreach", () => {
     const final = (id: string) => rows.find((e) => e.id === id)!.finalBonus;
     const p = managerPool(lead, carved, {});
     expect(p.people).toBe(3);
-    expect(p.pool).toBe(1500);
+    const pShare = final("P") * 0.9;
+    expect(p.pool).toBeCloseTo(1500 - pShare, 8);
     expect(p.allocated).toBeCloseTo(final("A") + final("B"), 8);
-    expect(p.remaining).toBeCloseTo(1500 - final("A") - final("B"), 8);
+    expect(p.remaining).toBeCloseTo(1500 - pShare - final("A") - final("B"), 8);
     // a grant to P moves nothing the pool measures, so gate 3 never refuses it
     expect(poolBreach(lead, carved, { P: { daEdit: 5_000 } }, {})).toBeNull();
     // while a grant to A is bounded exactly as before P existed
@@ -673,7 +678,7 @@ describe("poolBreach", () => {
     expect(managerPool(subset, data, {}).pool).toBeLessThan(data.vCap);
   });
 
-  it("Shared Services has no cap, so it adds nothing to a budget and is charged to none", () => {
+  it("a Shared Services payout is charged to both state budgets by its split", () => {
     const shared: Dataset = {
       ...data,
       emp: [...data.emp, emp({ id: "S", st: "SHARED", vp: 0.5, np: 0.5, bipm: 200 })],
@@ -686,12 +691,12 @@ describe("poolBreach", () => {
     expect(s.finalBonus).toBeGreaterThan(0);
 
     const p = managerPool(both, shared, {});
-    // The shared-services carve funds S, and the state pools are DEFINED net of
-    // it, so S belongs to neither side of a state budget. Adding S's
-    // entitlement to the pool (what this did before 28 Aug 2026) handed the
-    // lead room the state cap does not hold, and handed the SAME room to every
-    // other lead whose rule includes SHARED.
-    expect(p.pool).toBeCloseTo(shared.vCap, 8);
+    // S is still on neither side of a state's ALLOCATED — adding their whole
+    // entitlement there handed every SHARED-including lead the same room twice
+    // (fixed 28 Aug 2026). What changed the same day is that the carve funding
+    // S went live, so S is charged to each state POOL by their split: a 50/50
+    // person takes half their payout out of VIC's budget and half out of NSW's.
+    expect(p.pool).toBeCloseTo(shared.vCap - s.finalBonus * 0.5, 8);
     expect(p.allocated).toBeCloseTo(
       emps
         .filter((e) => e.st === "VIC")
@@ -704,7 +709,10 @@ describe("poolBreach", () => {
       ...lead,
       rule: { ...lead.rule, states: ["NSW", "SHARED"] } as typeof lead.rule,
     };
-    expect(managerPool(nswShared, shared, {}).pool).toBeCloseTo(shared.nCap, 8);
+    expect(managerPool(nswShared, shared, {}).pool).toBeCloseTo(
+      shared.nCap - s.finalBonus * 0.5,
+      8
+    );
   });
 
   it("a group rule gets no room until an admin grants it, while a whole-state lead still gets the pool", () => {
@@ -1108,7 +1116,7 @@ describe("admin-set bonus allocation", () => {
   });
 
   // ── 9. SHARED consumes no VIC allowance ──
-  it("a SHARED-funded payout consumes no VIC allowance", () => {
+  it("a SHARED-funded payout consumes VIC allowance by its split", () => {
     const base = dataWithRoom(200);
     const withShared: Dataset = {
       ...base,
@@ -1121,13 +1129,20 @@ describe("admin-set bonus allocation", () => {
     expect(after.pool).toBeCloseTo(before.pool, 8);
     expect(after.allocated).toBeCloseTo(before.allocated, 8);
     expect(after.remaining).toBeCloseTo(before.remaining, 8);
-    // a grant to the SHARED row spends none of the allowance
+    // A grant to the SHARED row still spends none of THIS scope's allowance —
+    // their allocation is a figure Dee set, not a share of the state.
     const granted = managerPool(scopeOf(rule), withShared, { S: { daEdit: 5_000 } }, {});
     expect(granted.remaining).toBeCloseTo(after.remaining, 8);
-    // ...nor does it change what an admin may reserve out of VIC
+    // ...but it does consume the state room an admin may still reserve out of
+    // VIC, by S's VIC share — half of the 5,000 (28 Aug 2026). Before the carve
+    // went live a shared grant cost the state nothing at all, which is how VIC
+    // could be handed room it was not holding.
     expect(
       maxAdditionalAllocation(rule, [], measure(withShared, { S: { daEdit: 5_000 } }), withShared)
-    ).toBeCloseTo(maxAdditionalAllocation(rule, [], measure(withShared), withShared), 8);
+    ).toBeCloseTo(
+      maxAdditionalAllocation(rule, [], measure(withShared), withShared) - 2_500,
+      8
+    );
   });
 
   // ── 10. nested scopes ──

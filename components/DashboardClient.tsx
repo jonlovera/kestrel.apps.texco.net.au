@@ -29,6 +29,7 @@ import {
   rowRule,
   parseDaInput,
   poolCardTotals,
+  stateBoundCap,
   sumAllocated,
   type CalcEmployee,
   type PoolState,
@@ -50,8 +51,6 @@ import AccountMenu from "./AccountMenu";
 import EditableText from "./EditableText";
 import {
   statePoolOf,
-  attachFy26Carves,
-  FY26_CARVE_OUTS,
 } from "@/lib/fy26-caps";
 import Dropzone from "./Dropzone";
 import { ViewAsExitButton, type ViewAsState } from "./ViewAsBar";
@@ -65,27 +64,6 @@ import {
 
 type Tab = "ALL" | "VIC" | "NSW" | "SHARED" | "HISTORY";
 type SaveStatus = "idle" | "saving" | "saved" | "error";
-
-/**
- * The one remaining pinned headline. The Shared Services card shows the
- * finance model's 308,047 INSTEAD of the derived figure (live population reads
- * 307,613 — which population the card should cover is open with Dee,
- * docs/bonus-reconciliation.md §8 Q5). Display only: substituted where the
- * card's value is read, and nothing else moves.
- *
- * The VIC and NSW headlines used to be pinned here too (1,343,396 and
- * 1,194,970). They now DERIVE, from the live total cap through the FY26
- * carve-outs (lib/fy26-caps.ts's statePoolOf), so a cap edit moves the
- * headline one-for-one and the build-up rows above it always sum to it. That
- * is what made the August 2026 cap corruption invisible: a pinned headline
- * reads the same whatever is stored underneath.
- *
- * TO REMOVE: delete this const and restore the `cards.shared` reference it
- * replaces in poolSummary (search for PINNED_CARD_HEADLINES).
- */
-const PINNED_CARD_HEADLINES = {
-  shared: 308_047,
-} as const;
 
 /**
  * Which columns can be typed into, and down which write path.
@@ -850,7 +828,10 @@ export default function DashboardClient({
    * two processes — neither is tighter than the other. Raw `params` still feeds
    * the engine above (the scales run on the total caps, as the workbook's do).
    */
-  const boundCaps = useMemo(() => attachFy26Carves(params), [params]);
+  // Plain params: the carve is derived from the rows at each bound
+  // (lib/calc.ts's stateBoundCap), so this and the server compute the identical
+  // figure without either having to attach one.
+  const boundCaps = params;
 
   // ── shared UI state ──
   const [activeTab, setActiveTab] = useState<Tab>("ALL");
@@ -1718,8 +1699,14 @@ export default function DashboardClient({
     // Half-a-cent slack so float noise never paints a card red.
     const over = (value: number, cap: number) => value > cap + 0.005;
     const { vCap, nCap, gCap } = params;
-    const vicStatePool = statePoolOf("VIC", vCap);
-    const nswStatePool = statePoolOf("NSW", nCap);
+    // THE SAME FUNCTION THE BOUND USES. Not `vCap - cards.vicCarve.total`,
+    // though it computes the identical figure: routing the headline through
+    // stateBoundCap is what makes it impossible for the card to promise room a
+    // save then refuses. It did exactly that on 28 August 2026 — a VIC card
+    // offering $6,508 beside a field capped at $3,290 — because the two were
+    // computed from different carves.
+    const vicStatePool = stateBoundCap("VIC", emps, boundCaps)!;
+    const nswStatePool = stateBoundCap("NSW", emps, boundCaps)!;
     const t = copy.poolTitles;
 
     // Each state card's HEADLINE is the state pool of Dee Gibson's signed-off
@@ -1728,20 +1715,26 @@ export default function DashboardClient({
     // build-up rows are that waterfall, so they sum to the headline exactly
     // and a cap edit moves the headline one-for-one.
     //
-    // Fixed carve-out constants, deliberately NOT poolCardTotals's live
-    // vicPool/nswPool: that figure churns with every override and rests on a
-    // part-split methodology still open with Dee (docs/bonus-reconciliation.md
-    // §4.1), so rows built from it could never be made to sum to a stable
-    // headline. The live figures stay in `cards` for anyone who needs them.
+    // LIVE carve-outs since 28 August 2026, no longer the typed constants: a
+    // frozen carve meant editing a Shared Services person moved neither state's
+    // Remaining, because the money funding them was a number that never changed.
+    // `cards.vicCarve` / `nswCarve` are the real attribution (lib/calc.ts's
+    // liveCarve), so a 61/39 person's discretionary now moves VIC by 61% of it
+    // and NSW by 39%. The headline does churn with every override as a result —
+    // that is the point, and the reason the previous fixed version existed is
+    // recorded in lib/fy26-caps.ts's DISPLAY_CARVE_IS_LIVE along with what it
+    // costs: these figures are no longer what a grant is REFUSED against.
     //
     // The engine nets NOTHING for shared services: computeScalesAndBonuses's
     // `shared` parameter defaults to ZERO_SHARED and no call site passes it,
     // so the deduction here is a display of the model and not a second copy of
     // one the calc already makes.
+    const carveOf = (st: "VIC" | "NSW") =>
+      st === "VIC" ? cards.vicCarve : cards.nswCarve;
     const buildUp = (st: "VIC" | "NSW", cap: number) => [
       { key: "cap", label: "Total cap", value: cap },
-      { key: "ss", label: "Less shared services", value: FY26_CARVE_OUTS[st].sharedServices },
-      { key: "split", label: "Less split state", value: FY26_CARVE_OUTS[st].splitState },
+      { key: "ss", label: "Less shared services", value: carveOf(st).sharedServices },
+      { key: "split", label: "Less split state", value: carveOf(st).splitState },
     ];
     return {
       kind: "editor",
@@ -1767,24 +1760,28 @@ export default function DashboardClient({
         {
           key: "shared",
           title: "Shared Services",
-          // PINNED_CARD_HEADLINES — display only; cards.shared is the derived figure
-          value: PINNED_CARD_HEADLINES.shared,
+          // The live figure. It was pinned at 308,047 while the state pools were
+          // netting typed carve-outs; now that they net the live attribution,
+          // a pinned headline here would leave the three cards not tying to
+          // each other — the shared spend the states are carrying would differ
+          // from the shared spend this card reports.
+          value: cards.shared,
           // The two lines are NOT a breakdown of the headline — they cover a
           // different population. The headline is everyone on Shared Services;
           // the lines are the PART-SPLIT staff, the few on their own ratio
           // rather than the corporate one, per cap. They deliberately do not
           // sum to it.
           //
-          // These are the TYPED split-state carve-outs (lib/fy26-caps.ts), the
-          // same figures the state cards print as "Less split state" and what
-          // each pool is defined net of (owner decision, 25 Aug 2026). The live
-          // attribution — cards.vicPartSplit / nswPartSplit, today's payouts at
-          // the with-locks scale — reads a couple of thousand higher on VIC and
-          // is kept for the reconciliation, not displayed: which method is right
-          // is open with Dee (docs/bonus-reconciliation.md §9.5).
+          // The LIVE split-state carve, the same figures the state cards now
+          // print as "Less split state", so the two cards agree on what the
+          // part-split staff cost each pool. At the raw vp/np split, not the
+          // with-locks scale weighting cards.vicPartSplit uses — which method
+          // is right for the reconciliation is still open with Dee
+          // (docs/bonus-reconciliation.md §9.5), but the cards must at least
+          // agree with each other.
           lines: [
-            { label: "Part-split staff, VIC", value: FY26_CARVE_OUTS.VIC.splitState },
-            { label: "Part-split staff, NSW", value: FY26_CARVE_OUTS.NSW.splitState },
+            { label: "Part-split staff, VIC", value: cards.vicCarve.splitState },
+            { label: "Part-split staff, NSW", value: cards.nswCarve.splitState },
           ],
           over: false,
         },
@@ -1798,7 +1795,7 @@ export default function DashboardClient({
         },
       ],
     };
-  }, [isEditor, mgrPool, pool, emps, copy, params]);
+  }, [isEditor, mgrPool, pool, emps, copy, params, boundCaps]);
 
   const poolCardEls = useMemo(() => {
     if (!poolSummary) return null;

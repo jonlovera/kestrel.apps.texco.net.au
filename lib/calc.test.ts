@@ -17,6 +17,8 @@ import {
   isDaEditable,
   rowRule,
   isLockable,
+  liveCarve,
+  stateHomeTotal,
   parsePercentInput,
   parseDaInput,
   poolCardTotals,
@@ -45,6 +47,16 @@ import {
  * be raised for a grant to fit.
  */
 const CAPS: Caps = { vCap: 1000, nCap: 500, gCap: 1500 };
+
+/**
+ * WHAT E COSTS EACH STATE BOUND. E is Shared Services on a 60/40 split, so from
+ * 28 August 2026 their payout is carved off both state caps before anything is
+ * measured against them (lib/calc.ts's stateBoundCap). Hand-computable: at the
+ * roomy caps every scale clamps to 1 and E is paid their full 200, so VIC
+ * carries 120 of it and NSW 80. Subtracted from the expectations below, which
+ * is what makes the arithmetic still readable rather than a pasted figure.
+ */
+const E_CARVE = { vic: 120, nsw: 80 } as const;
 
 function makeEmp(over: Partial<Employee> & { id: string }): Employee {
   return {
@@ -525,13 +537,13 @@ describe("getMaxDA is the room left under the caps", () => {
     // VIC's card holds A 200 + B 600 + C 200 + F 0 = 1,000 of a 100,000 cap,
     // and A's own 200 counts against them too: 100,000 - 1,000 + 0 = 99,000
     expect(cardTotal(r.emps, "VIC")).toBeCloseTo(1000, 10);
-    expect(max(r, "A")).toBe(99_000);
+    expect(max(r, "A")).toBe(99_000 - E_CARVE.vic);
   });
 
   it("at exactly the ceiling the card lands on its cap, and one dollar more passes it", () => {
     const atMax = roomy({ A: { daEdit: 99_000 } });
     expect(cardTotal(atMax.emps, "VIC")).toBeCloseTo(100_000, 8);
-    expect(max(atMax, "B")).toBe(0); // and the card has nothing left for anyone
+    expect(max(atMax, "B")).toBe(-E_CARVE.vic); // and the card has nothing left for anyone
     const over = roomy({ A: { daEdit: 99_001 } });
     expect(cardTotal(over.emps, "VIC")).toBeGreaterThan(100_000);
   });
@@ -540,9 +552,9 @@ describe("getMaxDA is the room left under the caps", () => {
     // the clamp compares the whole requested figure against this, so the
     // ceiling has to be an absolute amount rather than a remaining increase
     const r = roomy({ A: { daEdit: 500 } });
-    expect(max(r, "A")).toBe(99_000);
+    expect(max(r, "A")).toBe(99_000 - E_CARVE.vic);
     // ...while everyone else on the card has 500 less room than before
-    expect(max(r, "B")).toBe(98_500);
+    expect(max(r, "B")).toBe(98_500 - E_CARVE.vic);
   });
 
   it("Shared Services has no cap of its own, so only the group bound applies", () => {
@@ -553,7 +565,7 @@ describe("getMaxDA is the room left under the caps", () => {
   });
 
   it("a site manager is bounded exactly like anyone else on their card", () => {
-    expect(max(roomy(), "C")).toBe(99_000);
+    expect(max(roomy(), "C")).toBe(99_000 - E_CARVE.vic);
   });
 
   it("a locked row is bounded by the caps like any other, and a no-pool row not at all", () => {
@@ -565,7 +577,7 @@ describe("getMaxDA is the room left under the caps", () => {
     const r = roomy({ B: { locked: true, lockedFinal: 500 } });
     expect(max(r, "B")).toBeGreaterThan(90_000);
     expect(max(r, "F")).toBe(Infinity); // no pool, so no cap to overrun
-    expect(max(r, "A")).toBe(99_100);
+    expect(max(r, "A")).toBe(99_100 - E_CARVE.vic);
   });
 
   it("bounds a row identically however its lock moves in the save", () => {
@@ -589,9 +601,13 @@ describe("getMaxDA is the room left under the caps", () => {
     // to the cent (104.34 of room), since 26 Aug 2026
     const lifted: Caps = { ...CAPS, gCap: 10_000 };
     expect(getMaxDA(base.byId.A, base.emps, lifted)).toBe(
-      floorCents(1000 - cardTotal(base.emps, "VIC"))
+      floorCents(1000 - liveCarve("VIC", base.emps).total - cardTotal(base.emps, "VIC"))
     );
-    expect(getMaxDA(base.byId.A, base.emps, lifted)).toBeCloseTo(104.34, 2);
+    // 104.34 under the raw cap, less E's VIC share which is carved off first
+    expect(getMaxDA(base.byId.A, base.emps, lifted)).toBeCloseTo(
+      104.34 - liveCarve("VIC", base.emps).total,
+      2
+    );
   });
 });
 
@@ -613,7 +629,7 @@ describe("getMaxDA under CapBound 'state' (what bounds a scoped lead)", () => {
     expect(getMaxDA(base.byId.A, base.emps, CAPS)).toBe(-80);
     // ...while VIC's own card still has 104.34 of room, which is now A's ceiling
     expect(getMaxDA(base.byId.A, base.emps, CAPS, "state")).toBe(
-      floorCents(1000 - cardTotal(base.emps, "VIC"))
+      floorCents(1000 - liveCarve("VIC", base.emps).total - cardTotal(base.emps, "VIC"))
     );
   });
 
@@ -648,7 +664,9 @@ describe("getMaxDA under CapBound 'state' (what bounds a scoped lead)", () => {
     const full = run({ A: { daEdit: 104 } });
     // 34¢ of room is left: nothing a whole-dollar grant can take
     const room = getMaxDA(full.byId.B, full.emps, CAPS, "state");
-    expect(room).toBeCloseTo(0.34, 2);
+    // 34¢ under the raw cap, but E's VIC share is carved off it first, so the
+    // room is that much further under — still nothing a whole dollar can take.
+    expect(room).toBeCloseTo(0.34 - liveCarve("VIC", full.emps).total, 2);
     expect(clampDa(1, 0, room)).toEqual({ value: 0, clamped: true });
   });
 });
@@ -661,6 +679,11 @@ describe("getMaxDA under CapBound 'state' (what bounds a scoped lead)", () => {
  */
 describe("a carve-out tightens the state bound by exactly the carve", () => {
   const ROOM: Caps = { vCap: 100_000, nCap: 100_000, gCap: 200_000 };
+  // vCarve/nCarve are the TEST SEAM (lib/calc.ts's stateBoundCap): they pin a
+  // carve instead of deriving one from the rows. The comparison side pins ZERO
+  // rather than leaving it unset, so the pair differs by the carve alone and
+  // not also by E's live share.
+  const UNCARVED: Caps = { ...ROOM, vCarve: 0, nCarve: 0 };
   const CARVED: Caps = { ...ROOM, vCarve: 25_000, nCarve: 10_000 };
   function roomy(caps: Caps, overrides: Overrides = {}) {
     const emps = applyOverrides(FIXTURE, overrides);
@@ -670,11 +693,11 @@ describe("a carve-out tightens the state bound by exactly the carve", () => {
   }
 
   it("a VIC row's ceiling drops by the VIC carve, under either CapBound", () => {
-    const raw = roomy(ROOM);
+    const raw = roomy(UNCARVED);
     const carved = roomy(CARVED);
     for (const bound of ["both", "state"] as const) {
       expect(getMaxDA(carved.byId.A, carved.emps, CARVED, bound)).toBe(
-        getMaxDA(raw.byId.A, raw.emps, ROOM, bound) - 25_000
+        getMaxDA(raw.byId.A, raw.emps, UNCARVED, bound) - 25_000
       );
     }
     // the raw figure is the 99,000 pinned above; the carved one is 74,000
@@ -714,7 +737,7 @@ describe("a carve-out tightens the state bound by exactly the carve", () => {
     // the card holds 1,000 and A's own daEdit is 0, so nothing backs out:
     // 500 − 1,000 — negative, honestly "no room at all"
     expect(getMaxDA(r.byId.A, r.emps, tight, "state")).toBe(-500);
-    expect(getMaxDA(r.byId.A, r.emps, ROOM, "state")).toBe(99_000);
+    expect(getMaxDA(r.byId.A, r.emps, ROOM, "state")).toBe(99_000 - E_CARVE.vic);
   });
 });
 
@@ -747,22 +770,29 @@ describe("carve-funded rows do not count against a state pool", () => {
     expect(inStateHomeTotal(FIXTURE[0])).toBe(true);
   });
 
-  it("a whole-pool VIC row's ceiling ignores the carve-funded row's payout", () => {
+  it("a whole-pool VIC row's ceiling is narrowed by the carve-funded row's VIC SHARE, not its whole payout", () => {
     const with_ = roomy([...FIXTURE, P]);
     const without = roomy(FIXTURE);
     expect(with_.byId.P.finalBonus).toBeGreaterThan(0);
     // the card's whole-payout total DOES include P...
     expect(cardTotal(with_.emps, "VIC")).toBeCloseTo(cardTotal(without.emps, "VIC") + with_.byId.P.finalBonus, 8);
-    // ...but the room under the VIC cap is measured without P, so A's ceiling
-    // is exactly what it was before P existed (the scales are clamped at 1
-    // under ROOM, so nobody else's payout moved)
+    // ...and P is still out of the home total, but since 28 August 2026 the VIC
+    // cap is carved by what P actually costs VIC — their vp share — instead of
+    // by a frozen constant. So A's ceiling drops by that share and by no more:
+    // P's NSW portion is NSW's problem, and P's whole payout never lands on VIC.
+    const share = with_.byId.P.finalBonus * P.vp;
     for (const bound of ["both", "state"] as const) {
-      expect(getMaxDA(with_.byId.A, with_.emps, ROOM, bound)).toBe(
-        getMaxDA(without.byId.A, without.emps, ROOM, bound)
-      );
+      expect(
+        getMaxDA(without.byId.A, without.emps, ROOM, bound) -
+          getMaxDA(with_.byId.A, with_.emps, ROOM, bound)
+      ).toBeCloseTo(share, 6);
     }
     expect(getMaxDA(with_.byId.A, with_.emps, ROOM, "state")).toBe(
-      floorCents(100_000 - (cardTotal(with_.emps, "VIC") - with_.byId.P.finalBonus))
+      floorCents(
+        100_000 -
+          liveCarve("VIC", with_.emps).total -
+          (cardTotal(with_.emps, "VIC") - with_.byId.P.finalBonus)
+      )
     );
   });
 
@@ -1137,7 +1167,8 @@ describe("a locked NSW site manager freezes payout without reallocating others",
     // honest answer is that there is no room — and it is the CAP saying so, not
     // the lock. A locked row used to be told 0 whatever the caps had left.
     const { emps, byId } = runSm({ C: { locked: true, lockedFinal: 50 } });
-    expect(getMaxDA(byId.C, emps, CAPS)).toBe(-50);
+    // C is the NSW site manager, so it is NSW's carve that narrows their bound
+    expect(getMaxDA(byId.C, emps, CAPS)).toBe(floorCents(-50 - liveCarve("NSW", emps).total));
     // with room, the same frozen row has real headroom
     const roomy = runSm({ C: { locked: true, lockedFinal: 50 } }, {
       vCap: 100_000,
@@ -1846,5 +1877,106 @@ describe("issuing and reverting round-trips to the same figure", () => {
     expect(isLockable(rule)).toBe(true);
     expect(isDaEditable(rule)).toBe(true);
     expect(isIpmEditable(rule)).toBe(true);
+  });
+});
+
+
+/**
+ * THE LIVE CARVE-OUT: what each state's cap actually pays for people its home
+ * total does not count. The behaviour this exists for is that editing a Shared
+ * Services person now moves both states' Remaining by their VIC/NSW split.
+ */
+describe("liveCarve", () => {
+  function emp(over: Partial<Employee> & { id: string }): Employee {
+    return {
+      sn: "S", gn: over.id, pos: "P", dept: "D", mgr: "M", cat: "C",
+      st: "VIC", vp: 1, np: 0, pkg: 1000, bp: 0.1, ipm: 1, bipm: 100, da: 0, f25: 0, sm: 0,
+      ...over,
+    };
+  }
+  // one whole-pool row per state, one 61/39 shared row, one part-split VIC row
+  const V = emp({ id: "V" });
+  const N = emp({ id: "N", st: "NSW", vp: 0, np: 1 });
+  const SH = emp({ id: "SH", st: "SHARED", vp: 0.61, np: 0.39 });
+  const PS = emp({ id: "PS", st: "VIC", vp: 0.7, np: 0.3 });
+  const POP = [V, N, SH, PS];
+  const BIG: Caps = { vCap: 1_000_000, nCap: 1_000_000, gCap: 2_000_000 };
+
+  function priced(ov: Overrides = {}) {
+    const rows = applyOverrides(POP, ov);
+    computeScalesAndBonuses(rows, BIG);
+    return rows;
+  }
+
+  it("PARTITIONS the state's whole draw: home + carve loses and double-counts nothing", () => {
+    const rows = priced();
+    for (const st of ["VIC", "NSW"] as const) {
+      const share = (r: (typeof rows)[number]) => (st === "VIC" ? r.vp : r.np);
+      // every row's funded portion for this state, computed independently
+      const everything = rows.reduce((s, r) => s + r.finalBonus * share(r), 0);
+      expect(stateHomeTotal(st, rows) + liveCarve(st, rows).total).toBeCloseTo(
+        everything,
+        8
+      );
+    }
+  });
+
+  it("counts a Shared Services row at its own VIC/NSW percentages", () => {
+    const rows = priced();
+    const sh = rows.find((e) => e.id === "SH")!;
+    expect(liveCarve("VIC", rows).sharedServices).toBeCloseTo(sh.finalBonus * 0.61, 10);
+    expect(liveCarve("NSW", rows).sharedServices).toBeCloseTo(sh.finalBonus * 0.39, 10);
+  });
+
+  it("puts a part-split row in splitState, not in the home total", () => {
+    const rows = priced();
+    const ps = rows.find((e) => e.id === "PS")!;
+    expect(liveCarve("VIC", rows).splitState).toBeCloseTo(ps.finalBonus * 0.7, 10);
+    expect(liveCarve("NSW", rows).splitState).toBeCloseTo(ps.finalBonus * 0.3, 10);
+    // and it is excluded from VIC's home total, so it is not counted twice
+    expect(stateHomeTotal("VIC", rows)).toBeCloseTo(
+      rows.find((e) => e.id === "V")!.finalBonus,
+      10
+    );
+  });
+
+  it("a whole-pool row contributes to its home total and to neither carve", () => {
+    const rows = priced();
+    const only = [rows.find((e) => e.id === "V")!];
+    expect(liveCarve("VIC", only).total).toBe(0);
+    expect(liveCarve("NSW", only).total).toBe(0);
+  });
+
+  it("A DISCRETIONARY ON A SHARED PERSON MOVES BOTH POOLS BY THEIR SPLIT", () => {
+    const before = priced();
+    const after = priced({ SH: { daEdit: 5000 } });
+    expect(liveCarve("VIC", after).total - liveCarve("VIC", before).total)
+      .toBeCloseTo(5000 * 0.61, 6);
+    expect(liveCarve("NSW", after).total - liveCarve("NSW", before).total)
+      .toBeCloseTo(5000 * 0.39, 6);
+    // and no state's HOME total moved — a shared person is in neither
+    expect(stateHomeTotal("VIC", after)).toBeCloseTo(stateHomeTotal("VIC", before), 10);
+    expect(stateHomeTotal("NSW", after)).toBeCloseTo(stateHomeTotal("NSW", before), 10);
+  });
+
+  it("an IPM change on a shared person moves both carves in proportion", () => {
+    const before = priced();
+    const after = priced({ SH: { ipmEdit: 0.5 } });
+    const dV = liveCarve("VIC", after).total - liveCarve("VIC", before).total;
+    const dN = liveCarve("NSW", after).total - liveCarve("NSW", before).total;
+    // whatever the row moved by, it is split 61/39 between the two
+    expect(dV / (dV + dN)).toBeCloseTo(0.61, 6);
+  });
+
+  it("THE BOUND FOLLOWS THE CARD: a shared grant tightens what VIC may give", () => {
+    // The card and the ceiling are one number again (lib/calc.ts's
+    // stateBoundCap), so a shared person's grant reduces VIC's room by their
+    // VIC share — 61% of it — instead of the card moving while the ceiling
+    // stood still. That divergence is what this replaced.
+    const before = priced();
+    const after = priced({ SH: { daEdit: 5000 } });
+    const roomFor = (rows: ReturnType<typeof priced>) =>
+      getMaxDA(rows.find((e) => e.id === "V")!, rows, BIG, "state");
+    expect(roomFor(before) - roomFor(after)).toBeCloseTo(5000 * 0.61, 6);
   });
 });

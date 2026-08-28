@@ -37,7 +37,8 @@
  * the audit record).
  */
 import {
-  inStateHomeTotal, applyOverrides, computeScalesAndBonuses, getMaxDA } from "./calc";
+  inStateHomeTotal,
+  stateBoundCap, applyOverrides, computeScalesAndBonuses, getMaxDA } from "./calc";
 import type { PoolState } from "./calc";
 import type { CalcEmployee, CapBound, Caps } from "./calc";
 import type { Employee, Overrides } from "./schema";
@@ -321,8 +322,8 @@ function poolImpacts(
   // The cap each state is actually BOUND by — net of its carve-out when one is
   // attached — so the confirmation shows the same ceiling the save enforces.
   const caveats: Record<string, number | null> = {
-    VIC: caps.vCap - (caps.vCarve ?? 0),
-    NSW: caps.nCap - (caps.nCarve ?? 0),
+    VIC: stateBoundCap("VIC", afterRows, caps),
+    NSW: stateBoundCap("NSW", afterRows, caps),
     SHARED: null,
   };
   const pools: DaPoolImpact[] = [];

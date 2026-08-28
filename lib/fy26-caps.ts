@@ -45,6 +45,36 @@
  * constants below and nothing else.
  */
 
+/**
+ * DISPLAY_CARVE_IS_LIVE — why two figures exist, and how to make them one again.
+ *
+ * The constants below are what a grant is BOUNDED by: they ride on `Caps` via
+ * attachFy26Carves, and lib/calc.ts's capRoom and stateRoom subtract them. Since
+ * 28 August 2026 the pool CARDS no longer show them — they show lib/calc.ts's
+ * liveCarve, the real attribution of what each cap is paying for Shared Services
+ * and the part-split staff.
+ *
+ * Why they were separated (owner decision, 28 August 2026). Editing a Shared
+ * Services person moved neither state's Remaining, because the carve funding
+ * them was a frozen number: a 61/39 person could be granted $5,000 and both
+ * cards sat still. The cards had to start telling the truth. Tightening the
+ * BOUND to match was deliberately not done, because `stateRoom` now also sets
+ * every scoped lead's pool cap (lib/manager-pool.ts), so a tighter carve would
+ * have cut lead caps too — the very failure commit 91f808b existed to fix.
+ *
+ * What it costs, stated plainly: the card is no longer the figure a grant is
+ * refused against. At the data this shipped on, VIC's card read a pool of
+ * 1,315,000 while a grant was still bounded at 1,343,396 — the bound is looser
+ * by $28,396. The card is the CONSERVATIVE one, so this cannot over-grant; it
+ * can only show less room than a save will allow.
+ *
+ * TO CLOSE THE GAP, when enforcement is wanted: have attachFy26Carves take the
+ * priced rows and return liveCarve's totals instead of these constants. Every
+ * bound then follows automatically, because capRoom, stateRoom and the lead
+ * caps all read `Caps`. Check a scoped lead's cap before and after — that is
+ * the figure most likely to move, and the one that hurts when it does.
+ */
+
 export type CarveState = "VIC" | "NSW";
 
 export const FY26_CARVE_OUTS: Record<
