@@ -171,3 +171,70 @@ describe("repriceOnIpm — who is out of reach", () => {
     expect(changes).toEqual([]);
   });
 });
+
+
+/**
+ * LOCKING IN THE SAME SAVE AS THE EDIT. A lock freezes the figure the person is
+ * looking at, so the re-price has to run before the freeze — it did not until
+ * 28 August 2026, which is how a locked row ended up paid at an IPM it no
+ * longer had while its Calc bonus showed the right one.
+ */
+describe("repriceOnIpm — a lock arriving with the edit", () => {
+  const issued = { amount: 999, at: "2026-08-28T00:00:00.000Z", by: "a@b.c" };
+
+  it("RE-PRICES, THEN FREEZES: unlocked -> locked in one save takes the new figure", () => {
+    // A was unlocked; this save carries both the new IPM and the lock
+    const previous: Overrides = { A: { locked: false, baseAmount: 200 } };
+    const next: Overrides = { A: { locked: true, ipmEdit: 0.4, baseAmount: 200 } };
+    const { overrides, changes } = repriceOnIpm(EMPS, previous, next, PINNED);
+    // 200 potential × 0.5 stored scale × 0.4 new IPM
+    expect(overrides.A?.baseAmount).toBeCloseTo(40, 10);
+    expect(overrides.A?.locked).toBe(true); // and it is frozen at that figure
+    expect(changes[0]).toMatchObject({ empId: "A", to: 40 });
+  });
+
+  it("the same for a row with no stored lock at all before the save", () => {
+    const { overrides } = repriceOnIpm(
+      EMPS, {}, { A: { locked: true, ipmEdit: 0.4 } }, PINNED
+    );
+    expect(overrides.A?.baseAmount).toBeCloseTo(40, 10);
+  });
+
+  it("A ROW LOCKED BEFORE AND AFTER IS STILL FROZEN — the freeze still works", () => {
+    const previous: Overrides = { A: { locked: true, baseAmount: 200 } };
+    const next: Overrides = { A: { locked: true, ipmEdit: 0.4, baseAmount: 200 } };
+    const { overrides, changes } = repriceOnIpm(EMPS, previous, next, PINNED);
+    expect(overrides.A?.baseAmount).toBe(200);
+    expect(changes).toEqual([]);
+  });
+
+  it("an ISSUED row is never re-priced, whatever the lock does", () => {
+    for (const lock of [true, false]) {
+      const previous: Overrides = { A: { locked: !lock, issued, baseAmount: 200 } };
+      const next: Overrides = { A: { locked: lock, issued, ipmEdit: 0.4, baseAmount: 200 } };
+      expect(repriceOnIpm(EMPS, previous, next, PINNED).changes).toEqual([]);
+    }
+  });
+
+  it("a site manager locked in the same save is re-priced too", () => {
+    const { overrides } = repriceOnIpm(
+      EMPS, { S: { locked: false } }, { S: { locked: true, ipmEdit: 0.8 } }, CAPS
+    );
+    expect(overrides.S?.baseAmount).toBe(160); // 200 × 0.8, no scale
+  });
+
+  it("Michael Franklin's case, to the cent", () => {
+    // Potential 38,500 at a pinned scale of 0.703. His IPM went 100% -> 90% in
+    // the same save as the lock, and he was left paid the 100% figure.
+    const MF = emp({ id: "MF", pkg: 385_000, bp: 0.1, ipm: 1, bipm: 38_500 });
+    const caps = { vCap: 10_000_000, nCap: 10_000_000, gCap: 20_000_000, vicScale: 0.703, nswScale: 1 };
+    const { overrides } = repriceOnIpm(
+      [MF],
+      { MF: { locked: false, baseAmount: 27_065.5 } },
+      { MF: { locked: true, ipmEdit: 0.9, baseAmount: 27_065.5 } },
+      caps
+    );
+    expect(overrides.MF?.baseAmount).toBeCloseTo(24_358.95, 2);
+    expect(overrides.MF?.baseAmount).not.toBeCloseTo(27_065.5, 2);
+  });
+});

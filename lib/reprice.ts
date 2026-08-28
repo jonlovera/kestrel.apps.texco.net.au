@@ -29,9 +29,20 @@
  * advisory column moves, the payout stands, and the first Recalculate is what
  * switches re-pricing on. Deliberate, and asserted in lib/reprice.test.ts.
  *
- * Only an UNLOCKED, UN-ISSUED row moves: a lock is a payout freeze and an issue
- * is a commitment. An unlock and an IPM change in one save does re-price (the
- * lock is off once the save lands).
+ * WHICH ROWS MOVE, stated as the pair rather than half of it. An ISSUED row
+ * never moves: the amount is committed. A LOCKED row does not move either — a
+ * lock is a payout freeze — but only while it was locked BEFORE this save as
+ * well as after it. Both transitions in between re-price:
+ *
+ *   locked   → unlocked    re-price (the lock is off once the save lands)
+ *   unlocked → locked      re-price, THEN freeze
+ *
+ * The second was skipped until 28 August 2026, and it is the one people hit:
+ * unlock somebody, correct their IPM, lock them again, save. The screen showed
+ * the corrected figure and the save stored the stale one, so Calc bonus and
+ * Final disagreed with nothing able to reconcile them — a locked row is fixed
+ * for Recalculate too. Freezing the figure a person is looking at is the whole
+ * point of pressing the padlock.
  *
  * Runs in /api/state after gate 2 (lib/scheme-gate.ts) — so a VIC site
  * manager's IPM can only reach here from an admin holding the grant — and
@@ -76,7 +87,17 @@ export function repriceOnIpm(
 
   const candidates = emps.filter((e) => {
     const ov = next[e.id];
-    if (!ov || ov.locked || ov.issued !== undefined) return false;
+    if (!ov) return false;
+    // An ISSUE is a commitment and is never re-priced, whatever else the save
+    // says. A LOCK is only a freeze, so it blocks a re-price only when the row
+    // was ALREADY frozen: a lock arriving in the same save as the edit is
+    // somebody freezing the figure in front of them, and freezing the stale one
+    // instead is how Michael Franklin ended up paid 38,500 × 0.703 × 100% while
+    // his IPM read 90% (28 August 2026). See the header.
+    if (ov.issued !== undefined) return false;
+    const wasLocked = previous[e.id]?.locked === true;
+    const nowLocked = ov.locked === true;
+    if (wasLocked && nowLocked) return false;
     // ENGINE_ALLOWANCE, not the caller's: this asks "can this row be re-priced
     // at all", never "was this writer allowed to touch it". Authority was
     // settled upstream by /api/state's gate 2, which reverts an IPM the writer
