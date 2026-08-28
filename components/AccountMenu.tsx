@@ -48,9 +48,8 @@ export default function AccountMenu({
           setViewAsOpen(false);
         }}
         title="Account and actions"
-        className={`flex items-center gap-2 border px-3 py-1 text-right text-xs leading-tight text-brand-orange-soft transition-colors hover:border-brand-orange/50 ${
-          open ? "border-brand-orange/50" : "border-transparent"
-        }`}
+        className={`flex items-center gap-2 border px-3 py-1 text-right text-xs leading-tight text-brand-orange-soft transition-colors hover:border-brand-orange/50 ${open ? "border-brand-orange/50" : "border-transparent"
+          }`}
       >
         <span>
           {userName}
@@ -93,12 +92,6 @@ export default function AccountMenu({
             >
               {exporting ? "Exporting…" : "Export"}
             </button>
-          )}
-
-          {isEditor && !viewingAs && (
-            <Link href="/admin/package-increase" className={itemCls}>
-              Package increase
-            </Link>
           )}
 
           {isEditor && !viewingAs && (
