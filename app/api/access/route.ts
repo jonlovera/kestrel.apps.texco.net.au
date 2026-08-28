@@ -168,7 +168,13 @@ export async function POST(req: Request) {
     if (!canChangeCaps(admin.scope)) {
       return noStore(
         NextResponse.json(
-          { error: "You don't have permission to set a bonus allocation." },
+          {
+            error: "You don't have permission to set a bonus allocation.",
+            // Tagged so /admin shows this under the field the admin was
+            // editing rather than in the page-top banner, which on a long form
+            // is scrolled off screen by the time they press Save.
+            field: "allocationAllowance",
+          },
           { status: 403 }
         )
       );
@@ -182,6 +188,7 @@ export async function POST(req: Request) {
           {
             error:
               "A whole-state scope's pool cap is the state pool itself and can't be set by hand.",
+            field: "allocationAllowance",
           },
           { status: 400 }
         )
@@ -211,6 +218,7 @@ export async function POST(req: Request) {
               Math.max(0, most)
             )} can be allocated to ${body.email} right now.`,
             max: Math.max(0, most),
+            field: "allocationAllowance",
           },
           { status: 400 }
         )

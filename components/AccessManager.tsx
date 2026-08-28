@@ -174,6 +174,14 @@ export default function AccessManager({
    * ceiling is the state pool.
    */
   const [allowance, setAllowance] = useState("");
+  /**
+   * A refusal about the allowance specifically, shown UNDER that field.
+   * Separate from `error`, whose banner sits at the top of the page: this form
+   * is long enough that by the time somebody has filled in the allocation the
+   * banner is scrolled out of sight, so a message about the figure they just
+   * typed would never be read.
+   */
+  const [allowanceError, setAllowanceError] = useState("");
   const [empSearch, setEmpSearch] = useState("");
   /** set while amending someone, so the form knows it is replacing not adding */
   const [editingEmail, setEditingEmail] = useState<string | null>(null);
@@ -214,6 +222,7 @@ export default function AccessManager({
     setAllowance(
       a && a.allowance !== null ? String(Math.round(a.allowance)) : ""
     );
+    setAllowanceError("");
     window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
   }
 
@@ -236,13 +245,21 @@ export default function AccessManager({
     setCanDownloadLetter(false);
     setActAs([]);
     setAllowance("");
+    setAllowanceError("");
     setEmpSearch("");
     setError("");
   }
 
-  async function call(method: "POST" | "DELETE", body: unknown) {
+  /**
+   * Returns whether the request succeeded, so a caller can keep the form's
+   * contents on a refusal instead of resetting over the top of them — and can
+   * place a field-level message where the field is. A refusal the server has
+   * tagged with `field` goes to that field rather than the top banner.
+   */
+  async function call(method: "POST" | "DELETE", body: unknown): Promise<boolean> {
     setBusy(true);
     setError("");
+    setAllowanceError("");
     try {
       const res = await fetch("/api/access", {
         method,
@@ -251,18 +268,22 @@ export default function AccessManager({
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Request failed");
-      } else {
-        setRules(data.rules);
+        const msg = data.error ?? "Request failed";
+        if (data.field === "allocationAllowance") setAllowanceError(msg);
+        else setError(msg);
+        return false;
       }
+      setRules(data.rules);
+      return true;
     } catch {
       setError("Request failed — is the database configured?");
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
-  function submit() {
+  async function submit() {
     if (!email.includes("@")) {
       setError("Enter a valid email address");
       return;
@@ -333,7 +354,7 @@ export default function AccessManager({
     if (rule.type !== "full" && !capIsStatePool(rule) && allowance.trim() !== "") {
       const n = Number(allowance);
       if (!Number.isFinite(n) || n < 0) {
-        setError("Additional allocation must be a positive dollar amount");
+        setAllowanceError("Enter a positive dollar amount, or leave it blank.");
         return;
       }
       const info = allocation[target];
@@ -341,15 +362,20 @@ export default function AccessManager({
       // before a round trip. The server re-checks against live figures and is
       // the one that decides.
       if (info && n > info.max + 0.01) {
-        setError(
-          `That's more than the pool has left to give. At most ${money(info.max)} can be allocated to ${target} right now.`
+        setAllowanceError(
+          `That's more than the pool has left to give. At most ${money(info.max)} can be allocated right now.`
         );
         return;
       }
       allocationAllowance = n;
     }
-    call("POST", { email: target, rule, allocationAllowance });
-    resetForm();
+    // Only clear the form once the save has actually landed. It used to reset
+    // unconditionally and without waiting, so a refusal threw away everything
+    // the admin had just filled in and left the message describing a form that
+    // was no longer on screen.
+    if (await call("POST", { email: target, rule, allocationAllowance })) {
+      resetForm();
+    }
   }
 
   function describe(rule: GrantingRule): string {
@@ -732,7 +758,10 @@ export default function AccessManager({
                   </p>
                 ) : (
                   <>
-                    <div className="mb-2 flex flex-wrap items-center gap-x-8 gap-y-2">
+                    {/* items-START, not center: the field can grow a
+                        validation message underneath it, and centring would
+                        drag the labels either side out of line with it. */}
+                    <div className="mb-2 flex flex-wrap items-start gap-x-8 gap-y-2">
                       <div>
                         <div className="text-[11px] text-brand-70">
                           Current allocated
@@ -762,8 +791,19 @@ export default function AccessManager({
                               disabled={busy || !canSetAllocation}
                               aria-label="Additional allocation available"
                               placeholder="0"
-                              onChange={(e) => setAllowance(e.target.value)}
+                              onChange={(e) => {
+                                setAllowance(e.target.value);
+                                setAllowanceError("");
+                              }}
                             />
+                          </div>
+                        )}
+                        {/* Right under the figure it is about. The page-top
+                            banner is scrolled off screen by the time anyone
+                            reaches this field. */}
+                        {allowanceError && (
+                          <div className="mt-1 max-w-[280px] border-2 border-error bg-error-tint px-2 py-1 text-[12px] font-semibold text-brand-95">
+                            {allowanceError}
                           </div>
                         )}
                       </div>
@@ -1019,7 +1059,7 @@ export default function AccessManager({
           <button
             type="button"
             disabled={busy}
-            onClick={submit}
+            onClick={() => void submit()}
             className="bg-brand-orange px-6 py-2.5 text-[12px] font-bold text-white transition-colors hover:bg-brand-orange-hover disabled:opacity-50"
           >
             {busy ? "Saving…" : editingEmail ? "Save changes" : "Grant access"}
