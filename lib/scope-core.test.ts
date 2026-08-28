@@ -273,12 +273,17 @@ describe("a lead sees their own pool and nothing wider", () => {
     }
   });
 
-  it("a subset lead gets a header too — an arbitrary list of people still draws from a pool", () => {
+  it("a subset lead gets a header too, and no room on it until an admin grants some", () => {
+    // A VIC-home employee, so a state pool actually funds them. (emp[0] is
+    // Shared Services in this fixture, funded by the carve and therefore
+    // outside every state budget — a subset of them alone would read nil
+    // across the board, which is correct but tests nothing about the header.)
+    const vicHome = data.emp.find((e) => e.st === "VIC" && e.vp === 1)!;
     const subset: Scope = {
       ...vicScopeNoPkg,
       rule: {
         type: "subset",
-        employeeIds: [data.emp[0].id],
+        employeeIds: [vicHome.id],
         visibleFields: ["final"],
         editableFields: ["da"],
       canLock: false,
@@ -288,10 +293,13 @@ describe("a lead sees their own pool and nothing wider", () => {
     };
     const payload = buildPayloadCore(data, {}, subset, user);
     if (payload.mode !== "readonly") throw new Error();
-    // the old state card gave them nothing, because a subset has no state
-    // pool. Their draw is still measurable, and it is what they answer for.
+    // Their commitment is measurable and it is what they answer for. There is
+    // no room on top until an admin sets an allowance (lib/manager-pool.ts) —
+    // the derived share that used to appear here regenerated after every save.
     expect(payload.managerPool.people).toBe(1);
-    expect(payload.managerPool.pool).toBeGreaterThan(0);
+    expect(payload.managerPool.allocated).toBeGreaterThan(0);
+    expect(payload.managerPool.pool).toBeCloseTo(payload.managerPool.allocated, 8);
+    expect(payload.managerPool.remaining).toBeCloseTo(0, 8);
   });
 
   /**

@@ -130,6 +130,43 @@ const canDownloadLetter = z.boolean().default(false);
  */
 const canActAs = z.array(z.string()).default([]);
 
+/**
+ * A SCOPED LEAD'S POOL CAP, in dollars — the ceiling their allocation is
+ * measured against, set by an admin holding `canEditCaps` (owner decision,
+ * 28 August 2026).
+ *
+ * WHY THE STORED FIGURE IS THE CAP AND NOT THE ALLOWANCE. What an admin types
+ * is "additional allocation available" — Dee should never have to work out a
+ * seven-figure ceiling by hand — and /admin's editor shows and takes exactly
+ * that. But the ALLOWANCE cannot be what persists. A cap of
+ * `currentAllocated + allowance` is re-derived on every request, so the moment
+ * a lead spends part of it and saves, their allocation rises, the cap rises
+ * with it and the whole allowance is handed back. That regeneration is the
+ * thing this field exists to stop, so the frozen sum is what is stored and
+ * app/api/access/route.ts does the one conversion, from live figures, at write
+ * time.
+ *
+ * ABSENT means no allowance has ever been granted, which is NOT the same as
+ * zero and is why this is `.optional()` rather than `.default(0)`: /admin
+ * distinguishes "never set" (offer the suggested figure) from "deliberately
+ * set to nil". For a group or subset lead an absent cap means no room to grant
+ * at all — see lib/manager-pool.ts's rulePool.
+ *
+ * IGNORED on a whole-state rule, whose cap is the authoritative state pool and
+ * is not an admin's to override (owner decision, same day). The field stays on
+ * that arm of the union anyway so a rule that changes shape keeps parsing.
+ *
+ * Optional, like every field added after rules were already stored: the
+ * overlay is saved STRICTLY and re-parsed as one record, so a required field
+ * would drop every stored rule and revoke everybody — the hazard the
+ * editableFields comment above describes.
+ */
+const allocationCap = z.number().min(0).max(50_000_000).optional();
+
+/** Who last set `allocationCap`, and when. Written only by /api/access. */
+const allocationCapBy = z.string().optional();
+const allocationCapAt = z.string().optional();
+
 export const AccessRuleSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("full"),
@@ -148,6 +185,9 @@ export const AccessRuleSchema = z.discriminatedUnion("type", [
     canLock,
     canActAs,
     canDownloadLetter,
+    allocationCap,
+    allocationCapBy,
+    allocationCapAt,
   }),
   z.object({
     type: z.literal("subset"),
@@ -157,6 +197,9 @@ export const AccessRuleSchema = z.discriminatedUnion("type", [
     canLock,
     canActAs,
     canDownloadLetter,
+    allocationCap,
+    allocationCapBy,
+    allocationCapAt,
   }),
   // A standing group rather than a fixed list: "all VIC site managers" keeps
   // meaning that as people come and go, where a subset would go stale.
@@ -169,6 +212,9 @@ export const AccessRuleSchema = z.discriminatedUnion("type", [
     canLock,
     canActAs,
     canDownloadLetter,
+    allocationCap,
+    allocationCapBy,
+    allocationCapAt,
   }).refine(
     (r) => r.states.length > 0 || r.positions.length > 0,
     "a group needs at least one state or position, or it would match everyone"
@@ -178,6 +224,16 @@ export const AccessRuleSchema = z.discriminatedUnion("type", [
 ]);
 export type AccessRule = z.infer<typeof AccessRuleSchema>;
 export type GrantingRule = Exclude<AccessRule, { type: "none" }>;
+
+/**
+ * Whole dollars with separators, for the sentence below. Local rather than
+ * lib/fmt.ts's `fmt` on purpose: this module is imported by the store, the
+ * pure rule tests and the browser alike, and it has no formatting dependency
+ * today worth adding one for.
+ */
+function dollars(n: number): string {
+  return `$${Math.round(n).toLocaleString("en-AU")}`;
+}
 
 /** Human names for the editable figures, for the sentence below. */
 const EDITABLE_LABELS: Record<EditableField, string> = {
@@ -219,7 +275,14 @@ export function describeRule(rule: AccessRule): string {
   // an entry that omitted it would hide a grant nobody can see from the rule
   // shape alone.
   const letters = rule.canDownloadLetter ? "; can download letters" : "";
-  const extras = `${letters}${acting}`;
+  // Same reasoning once more, and this one is money: a grant that raised or
+  // removed somebody's pool ceiling must say so, or the history entry hides the
+  // only figure that changed.
+  const cap =
+    rule.type !== "full" && rule.allocationCap !== undefined
+      ? `; pool cap ${dollars(rule.allocationCap)}`
+      : "";
+  const extras = `${letters}${cap}${acting}`;
   // Same reasoning again: this grant reaches sixteen fixed bonuses nobody else
   // can touch, so the record of who was given it must say so.
   const vicSms =

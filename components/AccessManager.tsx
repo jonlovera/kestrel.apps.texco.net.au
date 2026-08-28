@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { GrantingRule, RuleSource, EditableField } from "@/lib/access-rules";
 import { EDITABLE_FIELDS, describeEditing } from "@/lib/access-rules";
+import { capIsStatePool } from "@/lib/manager-pool";
 import type { NumericField } from "@/lib/access-types";
 import { NUMERIC_FIELDS } from "@/lib/access-types";
 import EmailCombobox from "./EmailCombobox";
@@ -59,16 +60,47 @@ const DEFAULT_FIELDS: NumericField[] = [
   "np",
 ];
 
+/**
+ * The bonus-allocation figures for one scoped rule, measured on the server (a
+ * lead's pool maths needs the dataset, the overrides and the caps, none of
+ * which belong in the browser). All dollars.
+ */
+/** Whole dollars with separators, matching the sentence style used elsewhere. */
+function money(n: number): string {
+  return `$${Math.round(n).toLocaleString("en-AU")}`;
+}
+
+export interface AllocationInfo {
+  /** Σ payout over the rows this scope's state pools fund. */
+  allocated: number;
+  /** Unused half of the ceiling they hold; null when none was ever granted. */
+  allowance: number | null;
+  /** The persisted ceiling; null when none was ever granted. */
+  cap: number | null;
+  /** A whole-state scope: these figures are the state's, and read-only. */
+  wholeState: boolean;
+  /** Their share of what the state has left — an offer, never applied. */
+  suggested: number;
+  /** The most that may be reserved for them right now. */
+  max: number;
+  setBy: string | null;
+  setAt: string | null;
+}
+
 export default function AccessManager({
   initialRules,
   employees,
   positions,
   me,
+  allocation,
+  canSetAllocation,
 }: {
   initialRules: RuleRow[];
   employees: EmployeeOption[];
   positions: PositionOption[];
   me: string;
+  allocation: Record<string, AllocationInfo>;
+  canSetAllocation: boolean;
 }) {
   const [rules, setRules] = useState<RuleRow[]>(initialRules);
   const [error, setError] = useState("");
@@ -134,6 +166,14 @@ export default function AccessManager({
    * has nothing to act on). Meaningful for every rule type, full included.
    */
   const [actAs, setActAs] = useState<string[]>([]);
+  /**
+   * ADDITIONAL bonus allocation, as typed — the figure this form sends. Held as
+   * a string so the field can be genuinely empty ("no opinion, leave whatever
+   * is stored alone") rather than collapsing to 0, which would mean "take their
+   * allowance away". Scoped rules only; ignored for a whole-state scope, whose
+   * ceiling is the state pool.
+   */
+  const [allowance, setAllowance] = useState("");
   const [empSearch, setEmpSearch] = useState("");
   /** set while amending someone, so the form knows it is replacing not adding */
   const [editingEmail, setEditingEmail] = useState<string | null>(null);
@@ -168,6 +208,12 @@ export default function AccessManager({
     );
     setCanDownloadLetter(row.rule.canDownloadLetter);
     setActAs([...row.rule.canActAs]);
+    // Their unused allowance, or blank when none was ever granted. Blank is
+    // meaningful — it sends nothing and leaves the stored ceiling alone.
+    const a = allocation[row.email];
+    setAllowance(
+      a && a.allowance !== null ? String(Math.round(a.allowance)) : ""
+    );
     window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
   }
 
@@ -182,10 +228,15 @@ export default function AccessManager({
     setEditable([...EDITABLE_FIELDS]);
     setCanLock(true);
     setCanEditCaps(false);
+    // Was missing, so the tick leaked from whoever was edited last into the
+    // next person granted full access.
+    setCanEditVicSiteManagers(false);
     setCanRecalculatePool(false);
     setCanRevokeIssued(false);
     setCanDownloadLetter(false);
     setActAs([]);
+    setAllowance("");
+    setEmpSearch("");
     setError("");
   }
 
@@ -274,13 +325,40 @@ export default function AccessManager({
       setError("Pick at least one employee");
       return;
     }
-    call("POST", { email: email.trim().toLowerCase(), rule });
+    // Blank means "no opinion" and sends nothing, so the stored ceiling
+    // survives an edit to anything else on this form. A whole-state scope never
+    // sends one — its ceiling is the state pool.
+    const target = email.trim().toLowerCase();
+    let allocationAllowance: number | undefined;
+    if (rule.type !== "full" && !capIsStatePool(rule) && allowance.trim() !== "") {
+      const n = Number(allowance);
+      if (!Number.isFinite(n) || n < 0) {
+        setError("Additional allocation must be a positive dollar amount");
+        return;
+      }
+      const info = allocation[target];
+      // Refused here as well as on the server, so the admin sees the ceiling
+      // before a round trip. The server re-checks against live figures and is
+      // the one that decides.
+      if (info && n > info.max + 0.01) {
+        setError(
+          `That's more than the pool has left to give. At most ${money(info.max)} can be allocated to ${target} right now.`
+        );
+        return;
+      }
+      allocationAllowance = n;
+    }
+    call("POST", { email: target, rule, allocationAllowance });
     resetForm();
   }
 
   function describe(rule: GrantingRule): string {
     const acting =
       rule.canActAs.length > 0 ? `, can act for ${rule.canActAs.join(", ")}` : "";
+    const cap =
+      rule.type !== "full" && rule.allocationCap !== undefined
+        ? `, pool cap ${money(rule.allocationCap)}`
+        : "";
     if (rule.type === "full")
       return (
         "Everyone · all fields · can edit" +
@@ -293,7 +371,8 @@ export default function AccessManager({
     // describeEditing rather than a literal: this used to assert "can set IPM
     // and Discretionary" for everyone, which was only ever true because there
     // was no way to say otherwise.
-    const editing = describeEditing(rule) + (rule.canLock ? ", can lock" : "") + acting;
+    const editing =
+      describeEditing(rule) + (rule.canLock ? ", can lock" : "") + cap + acting;
     if (rule.type === "state") return `${rule.states.join(" + ")} · ${editing}`;
     if (rule.type === "group") {
       const where = rule.states.length ? rule.states.join(" + ") : "all states";
@@ -618,6 +697,150 @@ export default function AccessManager({
               </div>
             </div>
           )}
+
+          {/* BONUS ALLOCATION — scoped rules only. What a lead may spend is a
+              decision, not an arithmetic result: before 28 Aug 2026 their room
+              was re-derived as a share of the live state pool, so it grew back
+              after every save and nobody had chosen it. Now an admin sets it
+              here and it stays put until they change it. */}
+          {type !== "full" && (() => {
+            const info = allocation[email.trim().toLowerCase()];
+            const wholeState = type === "state";
+            const allocated = info?.allocated ?? 0;
+            const typed = Number(allowance);
+            const additional =
+              allowance.trim() === "" || !Number.isFinite(typed) || typed < 0
+                ? info?.allowance ?? 0
+                : typed;
+            return (
+              <div className="mb-4 border-2 border-neutral-200 p-3">
+                <div className="mb-2 flex items-baseline gap-2">
+                  <div className="text-[11px] font-semibold tracking-wide text-brand-70">
+                    Bonus allocation
+                  </div>
+                  {wholeState && (
+                    <span className="border border-brand-70/40 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-brand-70">
+                      WHOLE-STATE SCOPE
+                    </span>
+                  )}
+                </div>
+
+                {!info ? (
+                  <p className="text-[12px] text-brand-70">
+                    Figures appear once this person has been granted access and
+                    the page reloads.
+                  </p>
+                ) : (
+                  <>
+                    <div className="mb-2 flex flex-wrap items-center gap-x-8 gap-y-2">
+                      <div>
+                        <div className="text-[11px] text-brand-70">
+                          Current allocated
+                        </div>
+                        <div className="text-[15px] font-semibold tabular-nums">
+                          {money(allocated)}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-[11px] text-brand-70">
+                          Additional allocation available
+                        </div>
+                        {wholeState ? (
+                          <div className="text-[15px] font-semibold tabular-nums">
+                            {money(info.suggested)}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <span className="text-[13px] text-brand-70">$</span>
+                            <input
+                              type="number"
+                              min={0}
+                              step={1}
+                              className={`w-[120px] text-right tabular-nums${inputCls}`}
+                              value={allowance}
+                              disabled={busy || !canSetAllocation}
+                              aria-label="Additional allocation available"
+                              placeholder="0"
+                              onChange={(e) => setAllowance(e.target.value)}
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="text-[11px] text-brand-70">
+                          Resulting pool CAP
+                        </div>
+                        <div className="text-[15px] font-semibold tabular-nums">
+                          {money(
+                            wholeState
+                              ? allocated + info.suggested
+                              : allocated + additional
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {wholeState ? (
+                      <p className="text-[12px] text-brand-70">
+                        A whole-state scope&apos;s cap IS the state pool, so
+                        these are the state&apos;s own figures and are not set by
+                        hand. Narrow the scope to a group or a named list if this
+                        person should have a fixed allocation instead.
+                      </p>
+                    ) : !canSetAllocation ? (
+                      <p className="text-[12px] text-brand-70">
+                        Read only — setting a bonus allocation needs the
+                        &quot;Can edit pool caps&quot; grant.
+                      </p>
+                    ) : (
+                      <>
+                        <div className="flex flex-wrap items-center gap-2 text-[12px] text-brand-70">
+                          <span>
+                            Suggested from current headroom:{" "}
+                            <span className="font-semibold tabular-nums">
+                              {money(info.suggested)}
+                            </span>
+                          </span>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() =>
+                              setAllowance(String(Math.floor(info.suggested)))
+                            }
+                            className="border border-brand-orange/50 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-brand-orange transition-colors hover:bg-brand-orange hover:text-white disabled:opacity-40"
+                          >
+                            Use suggested
+                          </button>
+                          <span>
+                            · most that can be allocated now{" "}
+                            <span className="font-semibold tabular-nums">
+                              {money(Math.max(0, info.max))}
+                            </span>
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[12px] text-brand-70">
+                          What they may grant ON TOP of what is already
+                          committed to their people. It does not grow back when
+                          they spend it, and the state cap still refuses an
+                          overspend if someone else takes the room first. Leave
+                          blank to keep whatever is already set.
+                          {info.setBy && info.setAt && (
+                            <>
+                              {" "}
+                              Last set by {info.setBy} on{" "}
+                              {new Date(info.setAt).toLocaleDateString("en-AU")}.
+                            </>
+                          )}
+                        </p>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Every rule type, full access included: being an admin is not by
               itself an answer to whether someone may send a signed letter. */}

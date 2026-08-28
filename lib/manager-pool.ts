@@ -208,11 +208,6 @@ function coversState(rule: GrantingRule, st: BudgetState): boolean {
   );
 }
 
-/** Σ calcBonus — the fallback for a scope no state pool reaches at all. */
-function entitlement(rows: readonly CalcEmployee[]): number {
-  return rows.reduce((s, e) => s + e.calcBonus, 0);
-}
-
 /**
  * The budget: for each state this scope draws on, the payouts already committed
  * to ITS OWN people there, plus its share of what that state has actually not
@@ -254,14 +249,24 @@ function entitlement(rows: readonly CalcEmployee[]): number {
  * for rows whose funding lives outside both state pools, and gate 4 gives them
  * no state bound either. Nobody holds such a grant today.
  */
-function rulePool(
+/**
+ * The per-state share arithmetic, and what it produces.
+ *
+ * `ourAllocated` — Σ payout over the scope's own rows that this state's pool
+ * funds. Its commitment floor.
+ * `shareOfRoom`  — its share of what the state has NOT allocated yet, the
+ * share weighted by committed payouts and the room taken from lib/calc.ts's
+ * `stateRoom` (the figure gate 4 and the admin's card both read).
+ * `funded`       — whether any state pool reaches this scope at all.
+ */
+function stateShares(
   rule: GrantingRule,
-  mine: readonly CalcEmployee[],
   budgeted: readonly CalcEmployee[],
   emps: readonly CalcEmployee[],
   caps: Caps
-): number {
-  let pool = 0;
+): { ourAllocated: number; shareOfRoom: number; funded: boolean } {
+  let ourAllocated = 0;
+  let shareOfRoom = 0;
   let funded = false;
   for (const st of BUDGET_STATES) {
     const room = stateRoom(st, emps, caps);
@@ -272,26 +277,183 @@ function rulePool(
       if (e.st === st && fundedByStatePool(e)) all += committed(e);
     }
     let ours = 0;
-    let ourAllocated = 0;
+    let mineHere = 0;
     for (const e of budgeted) {
       if (e.st !== st) continue;
       ours += committed(e);
-      ourAllocated += e.finalBonus;
+      mineHere += e.finalBonus;
     }
 
     // Nothing draws on this pool at all. A rule that NAMES the state holds all
     // none of its rows and so holds all of its room; anything else gets no
     // claim on a pool it only reaches by accident. Stated as a share so the one
-    // formula below covers it, and so there is no division by zero.
+    // formula covers it, and so there is no division by zero.
     const share = all <= 0 ? (coversState(rule, st) ? 1 : 0) : ours / all;
     if (share <= 0) continue;
     funded = true;
+    ourAllocated += mineHere;
     // `ours / all` is bit-exactly 1 for a whole-state grant (the two sums run
     // over the same rows in the same order), which is what makes that lead's
     // cap bit-exactly the figure on the admin's card.
-    pool += ourAllocated + share * room;
+    shareOfRoom += share * room;
   }
-  return funded ? pool : entitlement(mine);
+  return { ourAllocated, shareOfRoom, funded };
+}
+
+/**
+ * Whether this scope's cap IS the authoritative state pool, rather than an
+ * admin-set figure. True for a whole-state grant and nothing else.
+ *
+ * A state lead holds every row their states' pools fund, so their share is 1
+ * and their cap comes out at exactly the pool — the same number on the admin's
+ * card, in gate 4 and in their own header. That identity is not an admin's to
+ * override, so /admin shows those three figures read-only and
+ * `allocationCap` is ignored for them (owner decision, 28 August 2026).
+ *
+ * Deliberately the rule TYPE and not "does this scope happen to hold 100% of a
+ * state today". A group rule that covers a whole state by coincidence is still
+ * a group rule, and next week's new starter would silently change what its cap
+ * means. Exported so lib/scope-core.ts and /admin's editor decide it the same
+ * way.
+ */
+export function capIsStatePool(rule: GrantingRule): boolean {
+  return rule.type === "state";
+}
+
+/**
+ * The additional allocation this scope WOULD get under the derived formula —
+ * its share of the state room, and nothing else.
+ *
+ * This used to be half of the cap itself. It is now only a SUGGESTION, offered
+ * in /admin beside the allowance field so an admin has a defensible starting
+ * figure ("your slice of what VIC has left is $545"). Nothing applies it
+ * automatically: the whole point of the change on 28 August 2026 is that the
+ * figure a lead spends against is one a person decided, not one the arithmetic
+ * regenerates behind them.
+ *
+ * Meaningless for a whole-state scope, whose room is not a share of anything —
+ * use their ManagerPool.remaining instead, which IS the state's room.
+ */
+export function suggestedAllowance(
+  rule: GrantingRule,
+  emps: readonly CalcEmployee[],
+  caps: Caps
+): number {
+  const budgeted = emps.filter(
+    (e) => ruleMatches(rule, e) && countsAgainstPool(e)
+  );
+  return stateShares(rule, budgeted, emps, caps).shareOfRoom;
+}
+
+/**
+ * The budget.
+ *
+ * A WHOLE-STATE grant is unchanged: its own commitments plus its share of the
+ * state's remaining room, which for a share of 1 is exactly the state pool.
+ *
+ * Anything narrower — a group or a subset — takes the ADMIN'S FIGURE.
+ * `allocationCap` is the ceiling Dee set (lib/access-rules.ts), and absent
+ * means no allowance has been granted, so the cap is exactly what is already
+ * committed to their people and there is no new money to spend. That is the
+ * point: the derived share regenerated after every save, handing the allowance
+ * back each time, and no amount of arithmetic can decide how much a lead ought
+ * to be trusted with. `suggestedAllowance` above is what /admin offers instead.
+ *
+ * Note what is NOT here any more: the Shared-Services-only fallback to Σ
+ * calcBonus. Such a scope now reads cap 0 / allocated 0 / remaining 0 until an
+ * admin grants it an allowance, which is a better answer than a budget nobody
+ * chose — and there is no such grant today.
+ */
+function rulePool(
+  rule: GrantingRule,
+  budgeted: readonly CalcEmployee[],
+  emps: readonly CalcEmployee[],
+  caps: Caps
+): number {
+  const { ourAllocated, shareOfRoom } = stateShares(rule, budgeted, emps, caps);
+  // A FULL rule takes the derived branch too. Not because an admin has a
+  // manager pool — poolBreach returns null for them and nothing shows them
+  // this figure — but because they hold every row, so the derived answer is
+  // the state pools themselves, which is the only honest thing to return for a
+  // scope that is the whole scheme. There is nowhere to hang an allowance on a
+  // full rule and no reason to.
+  if (rule.type === "full" || capIsStatePool(rule)) {
+    return ourAllocated + shareOfRoom;
+  }
+  return rule.allocationCap ?? ourAllocated;
+}
+
+/**
+ * A scope's UNUSED reservation: how much of its admin-set cap is not yet
+ * committed. Zero for a scope with no cap set, and never negative — a scope
+ * that has somehow overshot its ceiling is holding nothing back for later.
+ */
+function unusedAllocation(
+  rule: GrantingRule,
+  emps: readonly CalcEmployee[]
+): number {
+  if (rule.type === "full" || rule.allocationCap === undefined) return 0;
+  let allocated = 0;
+  for (const e of emps) {
+    if (ruleMatches(rule, e) && countsAgainstPool(e)) allocated += e.finalBonus;
+  }
+  return Math.max(0, rule.allocationCap - allocated);
+}
+
+/** The states whose pools fund any of this scope's rows. */
+function statesDrawnOn(
+  rule: GrantingRule,
+  emps: readonly CalcEmployee[]
+): BudgetState[] {
+  return BUDGET_STATES.filter((st) =>
+    emps.some(
+      (e) => e.st === st && fundedByStatePool(e) && ruleMatches(rule, e)
+    )
+  );
+}
+
+/**
+ * The most additional allocation an admin may reserve for one scoped lead —
+ * the bound /api/access refuses a save against.
+ *
+ *   max = Σ_st [ stateRoom(st) − Σ_{OTHER scopes holding a cap in st} unused ]
+ *
+ * NOTE WHAT IS NOT SUBTRACTED: this lead's own unused reservation. `stateRoom`
+ * is the cap less PAYOUTS, and a reservation is not a payout, so their existing
+ * allowance is still sitting inside that room — subtracting it as well would
+ * charge them for it twice and quietly shrink what an admin may re-grant. It is
+ * the whole reason `peers` excludes the lead being edited rather than covering
+ * everybody. Worked shape: a lead holding $675 unused where the state has
+ * $5,000 nobody has reserved may be raised to $5,675, not $5,000.
+ *
+ * A peer spanning two states has its unused reservation subtracted from BOTH,
+ * which over-counts. Deliberately the conservative direction — it can only ever
+ * refuse a grant that might have fitted, never allow one that cannot — and no
+ * scope draws on more than one state today.
+ *
+ * Can be NEGATIVE when reservations already exceed the room, which honestly
+ * means "nothing more may be reserved"; callers compare against it rather than
+ * clamping.
+ */
+export function maxAdditionalAllocation(
+  rule: GrantingRule,
+  peers: readonly GrantingRule[],
+  emps: readonly CalcEmployee[],
+  caps: Caps
+): number {
+  let max = 0;
+  for (const st of statesDrawnOn(rule, emps)) {
+    const room = stateRoom(st, emps, caps);
+    if (room === null) continue;
+    let reserved = 0;
+    for (const peer of peers) {
+      if (statesDrawnOn(peer, emps).includes(st)) {
+        reserved += unusedAllocation(peer, emps);
+      }
+    }
+    max += room - reserved;
+  }
+  return max;
 }
 
 /**
@@ -338,7 +500,6 @@ export function managerPoolFrom(
   const base = baseline === emps ? mine : baseline.filter((e) => ruleMatches(rule, e));
   const pool = rulePool(
     rule,
-    base,
     base.filter((e) => countsAgainstPool(e)),
     baseline,
     caps

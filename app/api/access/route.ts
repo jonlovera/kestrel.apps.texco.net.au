@@ -1,11 +1,23 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { allRules, isSeeded, AccessRuleSchema } from "@/lib/access";
+import { allRules, isSeeded, peerRules, AccessRuleSchema } from "@/lib/access";
 import { requireWriter } from "@/lib/api-guard";
+import type { Scope } from "@/lib/access";
 import { OWNER_EMAIL, describeRule } from "@/lib/access-rules";
 import { loadAccessOverlay, saveAccessOverlay, appendHistory } from "@/lib/store";
-import { getDataset } from "@/lib/data";
+import { getDataset, getEffectiveDataset } from "@/lib/data";
 import { takeSnapshot } from "@/lib/snapshots";
+import { loadOverrides } from "@/lib/store";
+import { applyOverrides, computeScalesAndBonuses } from "@/lib/calc";
+import {
+  EPSILON,
+  capIsStatePool,
+  countsAgainstPool,
+  maxAdditionalAllocation,
+} from "@/lib/manager-pool";
+import { canChangeCaps } from "@/lib/params-apply";
+import { ruleMatches } from "@/lib/access-rules";
+import { fmt } from "@/lib/fmt";
 
 export const dynamic = "force-dynamic";
 
@@ -17,11 +29,14 @@ const EmailSchema = z
   .max(254);
 
 async function requireAdmin(): Promise<
-  { email: string } | { error: NextResponse }
+  { email: string; scope: Scope } | { error: NextResponse }
 > {
   const guard = await requireWriter("access-manage");
   if ("response" in guard) return { error: guard.response };
-  return { email: guard.email };
+  // The scope rides along, not just the email: setting a lead's pool cap is
+  // gated on `canEditCaps` (canChangeCaps), which needs the rule and not only
+  // who they are.
+  return { email: guard.email, scope: guard.scope };
 }
 
 function noStore<T extends NextResponse>(res: T): T {
@@ -44,10 +59,24 @@ export async function POST(req: Request) {
   const admin = await requireAdmin();
   if ("error" in admin) return noStore(admin.error);
 
-  let body: { email: string; rule: z.infer<typeof AccessRuleSchema> };
+  let body: {
+    email: string;
+    rule: z.infer<typeof AccessRuleSchema>;
+    allocationAllowance?: number;
+  };
   try {
     body = z
-      .object({ email: EmailSchema, rule: AccessRuleSchema })
+      .object({
+        email: EmailSchema,
+        rule: AccessRuleSchema,
+        // ADDITIONAL allocation, in dollars — what /admin's editor actually
+        // takes. A sibling of `rule` rather than a field on it, because what
+        // gets STORED is the resulting cap and only this route may work that
+        // out: it needs the lead's live allocation, and an admin page rendered
+        // a minute ago would compute it from a stale figure. Absent means "no
+        // opinion", which carries the stored cap forward untouched.
+        allocationAllowance: z.number().min(0).max(50_000_000).optional(),
+      })
       .parse(await req.json());
   } catch {
     return noStore(NextResponse.json({ error: "Invalid payload" }, { status: 400 }));
@@ -110,23 +139,141 @@ export async function POST(req: Request) {
     body.rule.canActAs = cleaned;
   }
 
+  // ── the pool cap ────────────────────────────────────────────────────────
+  //
+  // What arrives is an ALLOWANCE (additional dollars); what is stored is the
+  // resulting cap. See lib/access-rules.ts's allocationCap for why the frozen
+  // sum has to be the persisted one.
+  if (body.rule.type === "full" && body.allocationAllowance !== undefined) {
+    return noStore(
+      NextResponse.json(
+        { error: "Full access has no pool cap to set." },
+        { status: 400 }
+      )
+    );
+  }
+  const before = (await allRules())[body.email]?.rule;
+  const existed = before !== undefined;
+  const storedCap =
+    before && before.type !== "full" ? before.allocationCap : undefined;
+
+  let capBy = before && before.type !== "full" ? before.allocationCapBy : undefined;
+  let capAt = before && before.type !== "full" ? before.allocationCapAt : undefined;
+  // Carried forward by default. The editor rebuilds the whole rule on every
+  // save, so without this an admin correcting somebody's visible fields would
+  // silently wipe their allowance.
+  let cap = storedCap;
+
+  if (body.rule.type !== "full" && body.allocationAllowance !== undefined) {
+    if (!canChangeCaps(admin.scope)) {
+      return noStore(
+        NextResponse.json(
+          { error: "You don't have permission to set a bonus allocation." },
+          { status: 403 }
+        )
+      );
+    }
+    if (capIsStatePool(body.rule)) {
+      // A whole-state lead's cap IS the state pool, and that identity is not an
+      // admin's to override (owner decision, 28 Aug 2026). Refused rather than
+      // ignored, so nobody believes they set something that did nothing.
+      return noStore(
+        NextResponse.json(
+          {
+            error:
+              "A whole-state scope's pool cap is the state pool itself and can't be set by hand.",
+          },
+          { status: 400 }
+        )
+      );
+    }
+
+    // Measured HERE, from live figures, so a stale admin page cannot write a
+    // wrong ceiling.
+    const data = await getEffectiveDataset();
+    const emps = applyOverrides(data.emp, await loadOverrides());
+    computeScalesAndBonuses(emps, data);
+
+    let allocated = 0;
+    for (const e of emps) {
+      if (ruleMatches(body.rule, e) && countsAgainstPool(e)) {
+        allocated += e.finalBonus;
+      }
+    }
+
+    const peers = await peerRules(body.email);
+    const most = maxAdditionalAllocation(body.rule, peers, emps, data);
+    if (body.allocationAllowance > most + EPSILON) {
+      return noStore(
+        NextResponse.json(
+          {
+            error: `That's more than the pool has left to give. At most ${fmt(
+              Math.max(0, most)
+            )} can be allocated to ${body.email} right now.`,
+            max: Math.max(0, most),
+          },
+          { status: 400 }
+        )
+      );
+    }
+
+    // The cap is allocation + allowance, so it can never land below what is
+    // already committed and an admin cannot manufacture a historical overspend.
+    cap = allocated + body.allocationAllowance;
+    capBy = admin.email;
+    capAt = new Date().toISOString();
+  }
+
+  if (body.rule.type !== "full") {
+    if (capIsStatePool(body.rule)) {
+      // Nothing to store for a whole-state scope, and leaving a stale figure on
+      // one would be a trap for whoever reads the rule next.
+      delete body.rule.allocationCap;
+      delete body.rule.allocationCapBy;
+      delete body.rule.allocationCapAt;
+    } else {
+      body.rule.allocationCap = cap;
+      body.rule.allocationCapBy = cap === undefined ? undefined : capBy;
+      body.rule.allocationCapAt = cap === undefined ? undefined : capAt;
+    }
+  }
+
   await takeSnapshot(admin.email, "access-change");
   const overlay = await loadAccessOverlay();
-  const existed = (await allRules())[body.email] !== undefined;
   overlay[body.email] = body.rule;
   await saveAccessOverlay(overlay);
   const ts = new Date().toISOString();
-  await appendHistory([
+  const entries = [
     {
       ts,
       actor: admin.email,
-      kind: "access",
+      kind: "access" as const,
       summary: `${existed ? "Changed" : "Granted"} access for ${body.email}: ${describeRule(body.rule)}`,
       target: body.email,
     },
-  ]);
+  ];
+  // The cap change gets its own entry with the before/after triple the history
+  // schema already carries, so the figure is queryable and not only prose.
+  if (cap !== storedCap) {
+    entries.push({
+      ts,
+      actor: admin.email,
+      kind: "access" as const,
+      summary:
+        cap === undefined
+          ? `Removed the bonus allocation cap for ${body.email}`
+          : `Set ${body.email}'s bonus allocation cap to ${fmt(cap)} (${fmt(
+              body.allocationAllowance ?? 0
+            )} additional)`,
+      target: body.email,
+      field: "allocationCap",
+      from: storedCap ?? null,
+      to: cap ?? null,
+    } as (typeof entries)[number]);
+  }
+  await appendHistory(entries);
   console.log(
-    `[audit] access-change by=${admin.email} target=${body.email} action=upsert rule=${body.rule.type} ts=${ts}`
+    `[audit] access-change by=${admin.email} target=${body.email} action=upsert rule=${body.rule.type} cap=${cap ?? "none"} ts=${ts}`
   );
   return GET();
 }

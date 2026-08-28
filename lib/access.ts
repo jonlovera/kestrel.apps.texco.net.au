@@ -72,6 +72,27 @@ export async function allRules(): Promise<Record<string, EffectiveRule>> {
   return effectiveRules(ACCESS, envOverrides(), await loadAccessOverlay());
 }
 
+/**
+ * Every OTHER granting rule in force, for the allocation bound in
+ * lib/manager-pool.ts's maxAdditionalAllocation: an admin may not reserve room
+ * another lead is already holding.
+ *
+ * Full-access rules are dropped — one matches everybody, carries no
+ * `allocationCap` and reserves nothing. `email` is dropped because the lead
+ * being edited must NOT have their own reservation subtracted; see that
+ * function for why that would double-count.
+ *
+ * The resolved overlay, not the raw one: a lead revoked by a `none` tombstone
+ * is already gone from it, so their stale reservation does not keep blocking
+ * somebody else's grant.
+ */
+export async function peerRules(email: string): Promise<GrantingRule[]> {
+  const key = email.toLowerCase();
+  return Object.entries(await allRules())
+    .filter(([em, eff]) => em !== key && eff.rule.type !== "full")
+    .map(([, eff]) => eff.rule);
+}
+
 export async function scopeForUser(
   email: string | null | undefined
 ): Promise<Scope | null> {
