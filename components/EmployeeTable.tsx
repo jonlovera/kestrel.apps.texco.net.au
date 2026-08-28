@@ -38,7 +38,6 @@ export interface TableColumn {
 export interface TableHandlers {
   updateDA: (id: string, val: string) => void;
   updateIPM: (id: string, current: number, raw: string) => void;
-  updateDatasetFigure: (id: string, current: number, raw: string) => void;
   updateSplit: (id: string, field: "vp" | "np", current: number, raw: string) => void;
   toggleLock: (id: string) => void;
   /**
@@ -247,24 +246,6 @@ export default function EmployeeTable({
   const show = (c: TableColumn, v: number) =>
     fmtValue(c.format ?? "currency", c.decimals ?? 0, v);
 
-  function moneyCell(r: DisplayRow, rowIdx: number, c: TableColumn, value: number, width: number) {
-    return (
-      <input
-        key={`${r.id}-bipm-${value}`}
-        type="text"
-        data-row={rowIdx}
-        data-col={c.key}
-        defaultValue={Math.round(value)}
-        disabled={busy}
-        onFocus={(e) => e.target.select()}
-        onBlur={(e) => handlers.updateDatasetFigure(r.id, value, e.target.value)}
-        onKeyDown={(e) => gridKeys(e, rowIdx, c.key)}
-        style={{ width }}
-        className={`${cellInput} text-right tabular-nums`}
-      />
-    );
-  }
-
   function cell(r: DisplayRow, c: TableColumn, rowIdx: number) {
     // privacy mask: figures — editable or not — hidden until the row (or
     // everything) is revealed. This is the only thing standing between an
@@ -363,9 +344,11 @@ export default function EmployeeTable({
         // already folded in, so it reconciles with "After IPM" once IPM is
         // applied. Never editable: it's the engine's own intermediate figure.
         return show(c, r.potential!);
+      // After IPM is read-only for everyone (28 August 2026). It is the figure
+      // every other one derives from and it comes from the spreadsheet, so it
+      // is corrected there and imported, never typed over here.
       case "bipm":
-        if (!c.dsEditable || r.locked) return show(c, r.bipm!);
-        return moneyCell(r, rowIdx, c, r.bipm!, 85);
+        return show(c, r.bipm!);
       case "vp":
       case "np": {
         // Only meaningful where the cost actually divides across the pools,

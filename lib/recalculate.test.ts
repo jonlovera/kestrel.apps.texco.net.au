@@ -22,6 +22,15 @@ function emp(over: Partial<Employee> & { id: string }): Employee {
 // (Potential Bonus) is 100 for every fixture row.
 const CAPS = { vCap: 1000, nCap: 1000, gCap: 2000 };
 
+/**
+ * VIC's scale is PINNED at 0.703 in lib/recalculate.ts (owner decision, 28
+ * August 2026) — the derivation is kept beside it, commented, exactly as
+ * NSW_FULL_ENTITLEMENT keeps `nswFromCap` named rather than deleted. Mirrored
+ * here as one constant so a change to the pin is a one-line change to this file
+ * too, rather than nine scattered literals.
+ */
+const VIC = 0.703;
+
 /** Run the engine first, as recalculatePool's contract requires. */
 function priced(emps: Employee[], overrides: Overrides = {}) {
   const rows = applyOverrides(emps, overrides);
@@ -30,23 +39,23 @@ function priced(emps: Employee[], overrides: Overrides = {}) {
 }
 
 describe("recalculatePool — the Scale Factor", () => {
-  it("is available pool ÷ potential at 100% IPM", () => {
-    // 4 VIC rows × 100 potential = 400 denominator; 1000 cap, nothing fixed.
-    // 1000/400 clamps to 1.
+  it("is PINNED, and still reports the pool it would otherwise divide", () => {
+    // 4 VIC rows × 100 potential = 400; 1000 cap, nothing fixed. The division
+    // would give 1; the pinned figure is what is applied.
     const emps = ["A", "B", "C", "D"].map((id) => emp({ id }));
     const r = recalculatePool(priced(emps), CAPS);
     expect(r.vic.potential).toBeCloseTo(400, 10);
     expect(r.vic.fixed).toBe(0);
     expect(r.vic.available).toBeCloseTo(1000, 10);
-    expect(r.vic.scale).toBe(1);
+    expect(r.vic.scale).toBe(VIC);
   });
 
-  it("scales down an oversubscribed pool", () => {
-    // 10 rows × 100 = 1000 potential against a 500 cap → 0.5
+  it("an oversubscribed pool no longer moves the scale", () => {
+    // 1000 potential against a 500 cap would derive 0.5; the pin holds.
     const emps = Array.from({ length: 10 }, (_, i) => emp({ id: `E${i}` }));
     const r = recalculatePool(priced(emps), { ...CAPS, vCap: 500 });
     expect(r.vic.potential).toBeCloseTo(1000, 10);
-    expect(r.vic.scale).toBeCloseTo(0.5, 10);
+    expect(r.vic.scale).toBe(VIC);
   });
 
   it("DOES NOT USE CURRENT IPMs in the denominator — the whole point", () => {
@@ -60,23 +69,24 @@ describe("recalculatePool — the Scale Factor", () => {
     expect(edited.vic.scale).toBeCloseTo(flat.vic.scale, 10);
   });
 
-  it("clamps to [0, 1]", () => {
+  it("holds the pin whatever the pool does — over, under, or exhausted", () => {
     const emps = [emp({ id: "A" })];
-    expect(recalculatePool(priced(emps), { ...CAPS, vCap: 99_999 }).vic.scale).toBe(1);
-    // fixed rows eat more than the cap → a negative numerator floors at 0
+    expect(recalculatePool(priced(emps), { ...CAPS, vCap: 99_999 }).vic.scale).toBe(VIC);
+    // fixed rows eating more than the cap still reports a negative pool, which
+    // is the honest figure; the scale applied is the pinned one either way
     const withFixed = [emp({ id: "A" }), emp({ id: "L" })];
     const r = recalculatePool(
       priced(withFixed, { L: { locked: true, baseAmount: 5000 } }),
       CAPS
     );
     expect(r.vic.available).toBeLessThan(0);
-    expect(r.vic.scale).toBe(0);
+    expect(r.vic.scale).toBe(VIC);
   });
 
-  it("is 1 when there is nobody eligible to divide by", () => {
+  it("holds the pin when there is nobody eligible at all", () => {
     const r = recalculatePool(priced([emp({ id: "A", sm: 1 })]), CAPS);
     expect(r.vic.potential).toBe(0);
-    expect(r.vic.scale).toBe(1);
+    expect(r.vic.scale).toBe(VIC);
   });
 
   it("NSW stays pinned at full entitlement", () => {
@@ -157,20 +167,20 @@ describe("recalculatePool — the new bases", () => {
       priced(emps, { E0: { ipmEdit: 0.5 } }),
       { ...CAPS, vCap: 500 }
     );
-    expect(r.vic.scale).toBeCloseTo(0.5, 10);
-    // E0: 100 potential × 0.5 scale × 0.5 IPM
-    expect(r.bases.get("E0")).toBeCloseTo(25, 10);
-    // everyone else: 100 × 0.5 × 1
-    expect(r.bases.get("E1")).toBeCloseTo(50, 10);
+    expect(r.vic.scale).toBe(VIC);
+    // E0: 100 potential × pinned scale × 0.5 IPM
+    expect(r.bases.get("E0")).toBeCloseTo(100 * VIC * 0.5, 10);
+    // everyone else: 100 × pinned scale × 1
+    expect(r.bases.get("E1")).toBeCloseTo(100 * VIC, 10);
     expect(r.moved).toBe(10);
   });
 
   it("splits an eligible part-split row across both pools at their own scales", () => {
     const emps = [emp({ id: "P", vp: 0.5, np: 0.5 }), emp({ id: "A" })];
     const r = recalculatePool(priced(emps), { ...CAPS, vCap: 75 });
-    // VIC potential = 50 (P) + 100 (A) = 150 against 75 → 0.5; NSW pinned at 1
-    expect(r.vic.scale).toBeCloseTo(0.5, 10);
-    expect(r.bases.get("P")).toBeCloseTo(100 * (0.5 * 0.5 + 0.5 * 1), 10);
+    // both scales are pinned now: VIC at 0.703, NSW at 1
+    expect(r.vic.scale).toBe(VIC);
+    expect(r.bases.get("P")).toBeCloseTo(100 * (0.5 * VIC + 0.5 * 1), 10);
   });
 
   it("leaves discretionary alone — Final becomes newBase + the amount", () => {
@@ -182,7 +192,7 @@ describe("recalculatePool — the new bases", () => {
     computeScalesAndBonuses(rows, CAPS);
     const e0 = rows.find((e) => e.id === "E0")!;
     expect(e0.daEdit).toBe(40);
-    expect(e0.finalBonus).toBeCloseTo(50 + 40, 10);
+    expect(e0.finalBonus).toBeCloseTo(100 * VIC + 40, 10);
   });
 
   it("an issued row's payout survives being re-based around it", () => {
@@ -203,11 +213,12 @@ describe("recalcChanges — the preview", () => {
     const emps = [emp({ id: "A" }), emp({ id: "B" })];
     // B already sits at what the recalculation would give it, so it must not
     // be listed; A is far away and must be.
-    const rows = priced(emps, { A: { baseAmount: 10 }, B: { baseAmount: 100 } });
+    const rows = priced(emps, { A: { baseAmount: 10 }, B: { baseAmount: 100 * VIC } });
     const r = recalculatePool(rows, CAPS);
     const changes = recalcChanges(rows, r);
     expect(changes.map((c) => c.empId)).toEqual(["A"]);
-    expect(changes[0]).toMatchObject({ from: 10, to: 100 });
+    expect(changes[0]).toMatchObject({ from: 10 });
+    expect(changes[0].to).toBeCloseTo(100 * VIC, 10);
   });
 
   it("measures 'from' before the discretionary amount", () => {
@@ -219,7 +230,7 @@ describe("recalcChanges — the preview", () => {
 
   it("is empty when nothing would move", () => {
     const emps = [emp({ id: "A" })];
-    const rows = priced(emps, { A: { baseAmount: 100 } });
+    const rows = priced(emps, { A: { baseAmount: 100 * VIC } });
     expect(recalcChanges(rows, recalculatePool(rows, CAPS))).toEqual([]);
   });
 });

@@ -60,52 +60,41 @@ const dataset = (emps: Employee[], excludedIds: string[] = []): Dataset => ({
 const apply = (data: Dataset, patch: Parameters<typeof applyDatasetPatch>[1]) =>
   applyDatasetPatch(data, patch, ACTOR, TS);
 
+/** A split patch — the only field edit this API still accepts. */
 const patch = (id: string, value: number) =>
-  ({ op: "field", id, field: "bipm", value }) as const;
+  ({ op: "field", id, field: "vp", value }) as const;
 
-describe("After IPM is the only editable dataset field", () => {
+describe("the VIC/NSW split is the only editable dataset field", () => {
   const base = dataset([emp()]);
 
   it("changes the figure and records the before/after", () => {
-    const res = apply(base, patch("TEST1", 25_000));
+    const res = apply(base, patch("TEST1", 0.75));
     if (!res.ok) throw new Error(res.errors.join("; "));
-    expect(res.dataset.emp[0].bipm).toBe(25_000);
+    expect(res.dataset.emp[0].vp).toBe(0.75);
+    expect(res.dataset.emp[0].np).toBe(0.25);
     expect(res.history).toHaveLength(1);
     expect(res.history[0].kind).toBe("dataset");
-    expect(res.history[0].summary).toBe(
-      "Set After IPM for Jane Smith: $20,000 → $25,000"
-    );
-    expect(res.history[0].from).toBe(20_000);
-    expect(res.history[0].to).toBe(25_000);
   });
 
   it("does not mutate the input dataset", () => {
-    apply(base, patch("TEST1", 999));
-    expect(base.emp[0].bipm).toBe(20_000);
-  });
-
-  it("leaves every other field of the row alone", () => {
-    const res = apply(base, patch("TEST1", 25_000));
-    if (!res.ok) throw new Error();
-    const { bipm: _ignored, ...rest } = res.dataset.emp[0];
-    void _ignored;
-    const { bipm: _also, ...before } = base.emp[0];
-    void _also;
-    expect(rest).toEqual(before);
+    const was = base.emp[0].vp;
+    apply(base, patch("TEST1", 0.4));
+    expect(base.emp[0].vp).toBe(was);
   });
 
   it("a no-op edit records no history", () => {
-    const res = apply(base, patch("TEST1", 20_000));
+    const res = apply(base, patch("TEST1", base.emp[0].vp));
     if (!res.ok) throw new Error();
     expect(res.history).toHaveLength(0);
   });
 
-  it("rejects a negative figure", () => {
+  it("rejects a fraction outside 0-1", () => {
     expect(DatasetPatchSchema.safeParse(patch("TEST1", -1)).success).toBe(false);
+    expect(DatasetPatchSchema.safeParse(patch("TEST1", 1.5)).success).toBe(false);
   });
 
   it("rejects an unknown employee", () => {
-    const res = apply(base, patch("NOPE", 1));
+    const res = apply(base, patch("NOPE", 0.5));
     expect(res.ok).toBe(false);
     if (res.ok) throw new Error();
     expect(res.errors[0]).toContain("NOPE");
@@ -114,6 +103,10 @@ describe("After IPM is the only editable dataset field", () => {
 
 describe("the locked-down fields are unreachable through this API", () => {
   const cases: [string, unknown][] = [
+    // After IPM joined this list on 28 August 2026. It is the figure every
+    // other one derives from — cpm is back-derived from it — so a typo in it
+    // moves Potential, Calc bonus and, after a recalculation, the payout.
+    ["After IPM", { op: "field", id: "TEST1", field: "bipm", value: 1 }],
     ["package", { op: "field", id: "TEST1", field: "pkg", value: 1 }],
     ["bonus %", { op: "field", id: "TEST1", field: "bp", value: 0.5 }],
     ["FY25 bonus", { op: "field", id: "TEST1", field: "f25", value: 1 }],
@@ -420,7 +413,19 @@ describe("permanent exclusion", () => {
   });
 });
 
+/**
+ * After IPM is no longer editable through this API (28 August 2026), so these
+ * scale it in the dataset directly. What they guard is the ENGINE's response to
+ * the figure — which is exactly why it was locked down — and that is unchanged
+ * by who is allowed to type it. The remaining route to it is a spreadsheet
+ * import, or scripts/correct-eligible-salaries.ts.
+ */
 describe("the change flows through the real calc engine", () => {
+  const scaleBipm = (data: Dataset, id: string, by: number): Dataset => ({
+    ...data,
+    emp: data.emp.map((e) => (e.id === id ? { ...e, bipm: e.bipm * by } : e)),
+  });
+
   it("doubling After IPM doubles that person's bonus", () => {
     const target = real.emp.find((e) => !e.sm && e.st === "VIC" && e.bipm > 0)!;
     const bonusOf = (data: Dataset) => {
@@ -429,18 +434,15 @@ describe("the change flows through the real calc engine", () => {
       return emps.find((e) => e.id === target.id)!.bipmCalc;
     };
     const before = bonusOf(real);
-    const res = apply(real, patch(target.id, target.bipm * 2));
-    if (!res.ok) throw new Error(res.errors.join("; "));
-    expect(bonusOf(res.dataset)).toBeCloseTo(before * 2, 6);
+    expect(bonusOf(scaleBipm(real, target.id, 2))).toBeCloseTo(before * 2, 6);
   });
 
   it("a site manager's fixed figure moves with it, still unscaled", () => {
     // guards the walkthrough rule: site managers don't pro-rata against the pool
     const sm = real.emp.find((e) => e.sm && e.bipm > 0)!;
-    const res = apply(real, patch(sm.id, sm.bipm * 1.5));
-    if (!res.ok) throw new Error();
-    const emps = applyOverrides(res.dataset.emp, {});
-    computeScalesAndBonuses(emps, res.dataset);
+    const next = scaleBipm(real, sm.id, 1.5);
+    const emps = applyOverrides(next.emp, {});
+    computeScalesAndBonuses(emps, next);
     const after = emps.find((e) => e.id === sm.id)!;
     expect(after.finalBonus).toBeCloseTo(sm.bipm * 1.5, 6);
   });

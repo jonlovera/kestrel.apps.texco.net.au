@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { fmt } from "@/lib/fmt";
 import { moneyChange, type MoneyChange } from "@/lib/recalculate-display";
+import { clampScale } from "@/lib/calc";
 
 /** One row's movement, as /api/recalculate reports it. */
 export interface RecalcChangeRow {
@@ -28,6 +29,24 @@ export interface RecalcPreview {
 }
 
 const pct = (n: number) => `${(n * 100).toFixed(3)}%`;
+
+/**
+ * Whether a state's scale is a SET rate rather than one the pool produced.
+ *
+ * Both states are set rates today — VIC is pinned in lib/recalculate.ts and NSW
+ * by NSW_FULL_ENTITLEMENT — so printing "available ÷ potential" beneath the
+ * headline would show a division that does not produce the number above it.
+ * NSW has read that way for as long as the card has existed: $840,971 over
+ * $1,197,444 is 70%, not the 100% printed above it.
+ *
+ * Decided from the figures rather than from a hardcoded "VIC is pinned", so
+ * that un-pinning a state corrects the wording on its own instead of leaving a
+ * second thing to remember.
+ */
+function isSetRate(p: { available: number; potential: number; scale: number }): boolean {
+  const derived = p.potential !== 0 ? clampScale(p.available / p.potential) : 1;
+  return Math.abs(derived - p.scale) > 0.0005;
+}
 
 /** ▼ down, ▲ up — the app's own direction glyphs (EmployeeTable's sort caret). */
 const GLYPH = { down: "▼", up: "▲", none: "" } as const;
@@ -214,8 +233,17 @@ export default function RecalculateModal({
                     {pct(p.scale)}
                   </div>
                   {/* Supporting figures, deliberately secondary — the same
-                      label/value treatment PoolCard uses for its build-up. */}
+                      label/value treatment PoolCard uses for its build-up.
+                      What they MEAN depends on whether the rate above was
+                      derived from them or set independently, so the wording
+                      follows the figures rather than asserting a division that
+                      may not hold. */}
                   <div className="mt-2 space-y-0.5 border-t border-neutral-100 pt-1.5">
+                    <div className="pb-0.5 text-[10px] font-semibold tracking-wide text-brand-70">
+                      {isSetRate(p)
+                        ? "SET RATE — THE POOL BELOW DOES NOT DERIVE IT"
+                        : "DERIVED FROM THE POOL BELOW"}
+                    </div>
                     {[
                       ["Available pool", p.available],
                       ["Potential at 100% IPM", p.potential],

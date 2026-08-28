@@ -59,12 +59,6 @@ const FieldPatchSchema = z.discriminatedUnion("field", [
   z.object({
     op: z.literal("field"),
     id: z.string().min(1),
-    field: z.literal("bipm"),
-    value: z.number().finite().min(0),
-  }),
-  z.object({
-    op: z.literal("field"),
-    id: z.string().min(1),
     field: z.literal("vp"),
     value: z.number().finite().min(0).max(1),
   }),
@@ -133,7 +127,6 @@ export function deriveFacets(
 
 /** Human labels for the history entry and any validation error. */
 const FIELD_LABEL: Record<FieldPatch["field"], string> = {
-  bipm: "After IPM",
   vp: "VIC %",
   np: "NSW %",
 };
@@ -165,11 +158,9 @@ export function applyDatasetPatch(
   // slice of NSW work. Editing either side derives the other, so the two
   // always account for the whole of someone's exposure.
   const updated: Employee =
-    patch.field === "bipm"
-      ? { ...existing, bipm: patch.value }
-      : patch.field === "vp"
-        ? { ...existing, vp: patch.value, np: round4(1 - patch.value) }
-        : { ...existing, np: patch.value, vp: round4(1 - patch.value) };
+    patch.field === "vp"
+      ? { ...existing, vp: patch.value, np: round4(1 - patch.value) }
+      : { ...existing, np: patch.value, vp: round4(1 - patch.value) };
 
   const parsed = EmployeeSchema.safeParse(updated);
   if (!parsed.success) {
@@ -186,10 +177,7 @@ export function applyDatasetPatch(
   const emp = [...data.emp];
   emp[index] = updated;
   const from = existing[patch.field];
-  const summary =
-    patch.field === "bipm"
-      ? `Set After IPM for ${existing.gn} ${existing.sn}: ${fmt(from)} \u2192 ${fmt(patch.value)}`
-      : `Set ${label} for ${existing.gn} ${existing.sn}: ${fmtPct(from)} \u2192 ${fmtPct(patch.value)} (${patch.field === "vp" ? "NSW" : "VIC"} % follows automatically)`;
+  const summary = `Set ${label} for ${existing.gn} ${existing.sn}: ${fmtPct(from)} \u2192 ${fmtPct(patch.value)} (${patch.field === "vp" ? "NSW" : "VIC"} % follows automatically)`;
   return {
     ok: true,
     // identity never changes here any more, so the filter lists can't move

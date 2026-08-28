@@ -96,7 +96,15 @@ const PINNED_CARD_HEADLINES = {
  * governs which cells look typeable.
  */
 const OVERRIDE_EDITABLE = ["da", "ipm"];
-const DATASET_EDITABLE = ["bipm", "vp", "np"];
+/**
+ * The dataset figures that stay editable inline. After IPM left this list on 28
+ * August 2026: it is the figure every other one derives from — `cpm` is
+ * back-derived from it, so it sets Potential Bonus, Calc bonus and, through a
+ * recalculation, the payout — and it comes from the spreadsheet. The same
+ * reasoning that made package, FY25 and bonus % read-only applies to it with
+ * more force, not less. lib/dataset-edit.ts refuses one server-side too.
+ */
+const DATASET_EDITABLE = ["vp", "np"];
 /** localStorage key for the build-up group's collapse state (per browser). */
 const BUILDUP_KEY = "kestrel:buildup-open";
 /**
@@ -1492,17 +1500,6 @@ export default function DashboardClient({
   }
 
   /**
-   * The one remaining dataset edit: After IPM. No-ops if unchanged.
-   * Package, FY25 and bonus % are read-only for everyone now — they come from
-   * the spreadsheet, because a typo in one cascades through every figure.
-   */
-  function updateDatasetFigure(id: string, current: number, raw: string) {
-    const next = parseDaInput(raw); // same lenient "$1,234" parsing
-    if (Math.round(next) === Math.round(current)) return;
-    void patchDataset({ op: "field", id, field: "bipm", value: next });
-  }
-
-  /**
    * Set one side of a Shared Services split. The server derives the other
    * side (lib/dataset-edit.ts) so a save can never leave the two sides
    * disagreeing — this only has to send the one figure that was typed.
@@ -2754,7 +2751,6 @@ export default function DashboardClient({
               handlers={{
                 updateDA,
                 updateIPM,
-                updateDatasetFigure,
                 updateSplit,
                 toggleLock,
                 markIssued,

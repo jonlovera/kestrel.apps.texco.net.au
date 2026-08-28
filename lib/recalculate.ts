@@ -152,8 +152,7 @@ export function recalculatePool(
   const vicAvailable = caps.vCap - vicFixed;
   const nswAvailable = caps.nCap - nswFixed;
 
-  const vicScale =
-    vicPotential !== 0 ? clampScale(vicAvailable / vicPotential) : 1;
+  const vicScale = 0.703; // vicPotential !== 0 ? clampScale(vicAvailable / vicPotential) : 1;
   const nswFromCap =
     nswPotential !== 0 ? clampScale(nswAvailable / nswPotential) : 1;
   // NSW pays full entitlement and its cap does not scale anyone (lib/calc.ts's

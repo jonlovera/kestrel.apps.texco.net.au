@@ -132,9 +132,11 @@ export async function POST(req: Request) {
 /**
  * Convert the displayed figure back to the stored one (see the note above).
  *
- * Only `bipm` is a dollar figure the company modifier scales. `vp`/`np` are a
- * 0–1 fraction and are never touched by it — dividing a split by the modifier
- * would corrupt it the moment the modifier isn't 1.
+ * Only `bipm` is a dollar figure the company modifier scales, and since After
+ * IPM stopped being editable (28 August 2026, lib/dataset-edit.ts) the only
+ * `bipm` that still arrives from a client is the one on a NEW person. `vp`/`np`
+ * are a 0–1 fraction and are never touched by it — dividing a split by the
+ * modifier would corrupt it the moment the modifier isn't 1.
  */
 function unscale(
   patch: z.infer<typeof DatasetPatchSchema>,
@@ -149,7 +151,7 @@ function unscale(
       employee: { ...patch.employee, bipm: patch.employee.bipm / companyModifier },
     };
   }
-  if (patch.op !== "field" || patch.field !== "bipm") return patch;
-  return { ...patch, value: patch.value / companyModifier };
+  // Every remaining field patch is a split, which the modifier never scales.
+  return patch;
 }
 
