@@ -52,6 +52,14 @@ export interface PayloadOptions {
    * need it to convert a displayed After-IPM figure back to the stored one.
    */
   companyModifier?: number;
+  /**
+   * The STORED overrides document, when `overrides` is a what-if rather than
+   * what is on disk (/api/preview). A lead's cap is measured from the baseline
+   * so it holds still while they type — see lib/manager-pool.ts's
+   * managerPoolFrom. Omitted means "the document IS the baseline", which is
+   * what the page load and the tests mean.
+   */
+  baselineOverrides?: Overrides;
 }
 
 export function buildPayloadCore(
@@ -67,6 +75,7 @@ export function buildPayloadCore(
     copy = DEFAULT_COPY,
     datasetVersion = 0,
     companyModifier = 1,
+    baselineOverrides,
   } = opts;
   const normalizedConfig = normalizeConfig(columnConfig);
 
@@ -135,7 +144,7 @@ export function buildPayloadCore(
       sm: e.sm,
       locked: e.locked,
       inPool: e.vp > 0 || e.np > 0,
-      inHomeTotal: countsAgainstPool(scope.rule, e),
+      inHomeTotal: countsAgainstPool(e),
     };
     // The issue stamp, when there is one. Ungated by visibleFields, unlike
     // every figure below, because it is a STATE and not a figure: a lead has
@@ -170,15 +179,29 @@ export function buildPayloadCore(
   });
 
   // The header: this manager's own pool. For a whole-state grant that IS the
-  // state's cap (owner decision, 25 Aug 2026) — their scope is exactly that
-  // pool card, so their budget should be the card's. For anything narrower it
-  // stays the entitlement of the rows they actually hold: handing a group rule
-  // covering fifteen delivery positions inside VIC the whole VIC cap would be
-  // a budget for several hundred people they are not accountable for. See
-  // lib/manager-pool.ts. `allowed` is already the engine-computed population
-  // narrowed by ruleMatches, so this is a filter-and-sum with no second engine
-  // pass — /api/preview runs it on every keystroke burst.
-  const managerPool = managerPoolFrom(scope.rule, allowed, data);
+  // proportional share of the state pools their people are funded by, measured
+  // in committed payouts over their WHOLE authorised scope (owner decision,
+  // 28 Aug 2026 — see lib/manager-pool.ts for the formula, for what it
+  // replaced, and for why a nested grant is a permission boundary rather than a
+  // funding carve-out). A whole-state lead's share is 1, so their budget is
+  // exactly the pool card an admin sees. `allowed` is already the engine-computed
+  // population narrowed by ruleMatches, so this is a filter-and-sum with no
+  // second engine pass — /api/preview runs it on every keystroke burst.
+  // NOTE the whole population goes in, not `allowed`. managerPoolFrom applies
+  // the scope filter itself, and its share denominator is a WHOLE-POPULATION
+  // sum — how much of the state pool everyone draws — so handing it the
+  // pre-filtered rows would divide the lead's own draw by itself and hand them
+  // a share of 1. It read `allowed` while `pool` was a sum over the scope
+  // alone, where the filter was the only thing `emps` was for.
+  // The baseline population, when this is a what-if over a stored document
+  // (/api/preview). One extra engine pass, and it is what keeps the cap from
+  // drifting under the lead as they type — see managerPoolFrom.
+  let baseline = emps;
+  if (baselineOverrides !== undefined && baselineOverrides !== overrides) {
+    baseline = applyOverrides(data.emp, baselineOverrides);
+    computeScalesAndBonuses(baseline, data);
+  }
+  const managerPool = managerPoolFrom(scope.rule, emps, data, baseline);
 
   // Filter option lists derived from the user's own rows only.
   const uniq = (xs: string[]) => [...new Set(xs)].sort();

@@ -8,6 +8,7 @@ import { effectiveColumns, BUILDUP_FIELDS, type ColumnConfig } from "@/lib/colum
 import { DEFAULT_COPY, type Copy } from "@/lib/copy";
 import type { Params } from "@/lib/params-apply";
 import type { Employee, Overrides, HistoryEntry } from "@/lib/schema";
+import { EPSILON as POOL_EPSILON } from "@/lib/manager-pool";
 import type { ManagerPool } from "@/lib/manager-pool";
 import type { DatasetPatch } from "@/lib/dataset-edit";
 import {
@@ -375,11 +376,29 @@ export default function DashboardClient({
   /**
    * This manager's own pool header, refreshed by the same what-if round trip
    * as their rows. It is also the early warning for the save gate: the server
-   * refuses a save that pushes them further above `pool`, so a negative
-   * `remaining` here is what greys the Save button out before they try.
+   * refuses a save that pushes them FURTHER above `pool` than the stored
+   * document already is, so what greys the Save button out is this figure
+   * measured against `baselineRemainingRef` below — not against zero.
    */
   const [mgrPool, setMgrPool] = useState<ManagerPool | null>(
     isEditor ? null : payload.managerPool
+  );
+  /**
+   * The `remaining` the STORED document already had, which is the figure the
+   * save gate judges against rather than zero (lib/manager-pool.ts's
+   * poolBreach). It has to be held separately because `mgrPool` above is
+   * replaced by every what-if round trip.
+   *
+   * Without it this component contradicted the server: it disabled Save on any
+   * negative `remaining` at all, so a lead who INHERITED a breach — an admin
+   * granting an amount on a row only they can edit, a cap moving underneath
+   * everyone, a committed figure sitting above its entitlement — could not save
+   * anything, including the correction. The server would have taken those
+   * saves. Refreshed after each successful save, since the stored document has
+   * then moved.
+   */
+  const baselineRemainingRef = useRef(
+    isEditor ? 0 : payload.managerPool.remaining
   );
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   // optimistic-concurrency token; a stale save gets a 409 instead of
@@ -632,6 +651,12 @@ export default function DashboardClient({
       redistributedRef.current = false;
       savedOverridesRef.current = stored;
       setSavedOverrides(stored);
+      // The stored document has moved, so the breach this save is measured
+      // against has too — otherwise a lead who reduced an inherited breach
+      // would keep being judged against the worse figure they started from.
+      if (typeof body.managerPool?.remaining === "number") {
+        baselineRemainingRef.current = body.managerPool.remaining as number;
+      }
       // adopt what the server actually stored (it re-clamps discretionary
       // adjustments and refuses anything out of scope) — but never clobber
       // keystrokes committed while the request was in flight: those land in
@@ -2270,11 +2295,42 @@ export default function DashboardClient({
    * header's own arithmetic, so a manager sees the problem while typing rather
    * than only when Save bounces. Editors have no manager pool to exceed.
    */
+  /**
+   * How far this allocation sits above the lead's available allocation, split
+   * into the part their EDITS added and the part they started with.
+   *
+   * The split is the whole point. The save gate only ever refuses a save that
+   * makes a breach WORSE than the stored document's (lib/manager-pool.ts's
+   * poolBreach), because a lead can inherit one built entirely out of things
+   * they cannot touch — discretionary on VIC site managers, committed amounts
+   * on issued rows, a cap moved underneath them. This component used to
+   * compare against zero instead, so an inherited breach greyed Save out
+   * permanently and a lead could not save even the correction. Only `added`
+   * blocks now; `inherited` is worth saying and is not their fault.
+   */
+  const shortfall = !isEditor && mgrPool ? Math.max(0, -mgrPool.remaining) : 0;
+  const inheritedShortfall = isEditor
+    ? 0
+    : Math.max(0, -baselineRemainingRef.current);
+  // Same slack the server allows, for the same reason: these are sums over
+  // ~150 seven-digit floats and accumulated noise must not block a no-op.
+  const addedShortfall = shortfall - inheritedShortfall;
+
   const overPool =
     blockedMsg ??
-    (!isEditor && mgrPool && mgrPool.remaining < 0
-      ? `${fmt(-mgrPool.remaining)} of this allocation can't be absorbed by your pool. Reduce discretionary amounts by ${fmt(-mgrPool.remaining)} before saving.`
+    (addedShortfall > POOL_EPSILON
+      ? `Your current changes exceed your available allocation by ${fmt(addedShortfall)}. Reduce discretionary amounts by ${fmt(addedShortfall)} before saving.`
       : null);
+
+  /**
+   * The inherited breach, stated once and BLOCKING NOTHING. A lead seeing this
+   * has room for no new grants, but they can still save — including whatever
+   * reduces it.
+   */
+  const inheritedNote =
+    overPool === null && inheritedShortfall > POOL_EPSILON
+      ? `This allocation is ${fmt(inheritedShortfall)} above your available allocation, and already was before you started editing. You can still save; new discretionary amounts will be refused until it comes back.`
+      : null;
 
   return (
     // The shell is exactly one viewport tall and never scrolls itself — the
@@ -2629,6 +2685,16 @@ export default function DashboardClient({
             {overPool && (
               <div className="mb-4 border-2 border-error bg-error-tint px-4 py-2 text-[13px] font-semibold">
                 {overPool}
+              </div>
+            )}
+
+            {/* An inherited breach: real, worth stating, and not a reason to
+                stop them saving — see the split above `overPool`. Deliberately
+                a warning rather than the error treatment, so the two read
+                differently at a glance. */}
+            {inheritedNote && (
+              <div className="mb-4 border-2 border-brand-orange/60 bg-white px-4 py-2 text-[13px] font-semibold">
+                {inheritedNote}
               </div>
             )}
 

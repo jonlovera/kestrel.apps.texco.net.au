@@ -14,7 +14,7 @@ import {
   computeScalesAndBonuses,
   type CapBound,
 } from "@/lib/calc";
-import { poolBreach } from "@/lib/manager-pool";
+import { managerPool, poolBreach } from "@/lib/manager-pool";
 import {
   EPSILON as DA_EPSILON,
   daHeadroom,
@@ -340,21 +340,37 @@ export async function POST(req: Request) {
       // their own window — the full merged doc would leak out-of-scope figures
       overrides: scopeOverridesView(scope, data.emp, sanitised),
       version: cas.version,
+      // The lead's header for the document just stored. The browser holds this
+      // as the baseline gate 3 will judge their NEXT save against, so a lead
+      // who has reduced an inherited breach is not still measured against the
+      // worse figure they started the session on. Null for an admin, who has
+      // no manager pool (poolBreach returns null for them).
+      managerPool:
+        scope.rule.type === "full"
+          ? null
+          : managerPool(scope, data, sanitised),
     })
   );
 }
 
 /**
- * The refusal, naming the amount. Two shapes, because the honest ask differs:
- * from a balanced starting point the whole overshoot has to come back out,
- * whereas a lead who was already over only has to undo what this save added.
+ * The refusal, naming the amount.
+ *
+ * ONE figure, and it is what THIS SAVE added: `over - wasOver`. The gate only
+ * ever fires on a save that makes a breach worse (see poolBreach), so that
+ * difference is the entire amount the writer has to hand back — and it is the
+ * only amount they can hand back. A lead can inherit a breach built out of
+ * things they cannot touch: on the live document Clint Cassar carried $15,880
+ * of discretionary on VIC site managers only a full-access admin may edit, and
+ * $22,678 committed on issued rows nobody may move. Naming the whole overshoot
+ * sent them hunting for amounts that were not theirs to find.
+ *
+ * "Available allocation" rather than "pool", deliberately: what bounds them is
+ * their share of it (lib/manager-pool.ts), not the pool itself.
  */
 function overPoolMessage(over: number, wasOver: number): string {
-  const excess = fmt(over);
-  if (wasOver <= 0.01) {
-    return `Not saved: ${excess} of this allocation can't be absorbed by your pool. Reduce discretionary amounts by ${excess} and save again.`;
-  }
-  return `Not saved: this takes you ${fmt(over - wasOver)} further above your pool, which was already over by ${fmt(wasOver)}. Reduce discretionary amounts by ${fmt(over - wasOver)} and save again.`;
+  const excess = fmt(over - wasOver);
+  return `Not saved. Your current changes exceed your available allocation by ${excess}. Reduce discretionary amounts by ${excess} and save again.`;
 }
 
 /**

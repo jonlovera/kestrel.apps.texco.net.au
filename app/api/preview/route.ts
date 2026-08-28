@@ -60,7 +60,15 @@ export async function POST(req: Request) {
     overrides,
     scope,
     { name: "", email, scopeLabel: scope.label },
-    { columnConfig, copy, companyModifier: params.companyModifier }
+    {
+      columnConfig,
+      copy,
+      companyModifier: params.companyModifier,
+      // The lead's cap comes off the STORED document, not this what-if, so the
+      // header holds still while they type and their grants eat it dollar for
+      // dollar (lib/manager-pool.ts).
+      baselineOverrides: stored,
+    }
   );
 
   // Only the recalculated figures go back — the rows, and the header their

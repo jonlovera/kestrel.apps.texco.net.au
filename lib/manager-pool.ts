@@ -3,92 +3,129 @@
  * the group-level "VIC pool" card (a whole-state figure) and the filtered
  * table total, both of which were sums of finals wearing the wrong labels.
  *
- * Definitions (per the stakeholder spec, adjudicated Aug 2026):
+ * ONE DEFINITION, FOR EVERY GRANT SHAPE (owner decision, 28 August 2026).
  *
- *   pool       THE STATE CAP, for a lead whose grant is a whole state or
- *              states (owner decision, 25 August 2026). A state lead's scope
- *              IS that state's card — ruleMatches tests the same `st` the
- *              dashboard groups its pool cards by — so their budget is that
- *              card's cap and their headroom is the room under it, exactly the
- *              figure an admin sees on the card. Several states sum their
- *              caps. Shared Services has no cap of its own, so a rule
- *              covering it falls back to the entitlement sum below for those
- *              rows only.
+ *   pool       What is already committed to that lead's own people, plus their
+ *              PROPORTIONAL SHARE of what their states have not allocated yet:
  *
- *              For every other grant shape it stays the entitlement sum: a
- *              group rule ("fifteen delivery positions inside VIC") or a
- *              subset covers part of a state, so the state's cap would be a
- *              budget for several hundred people they are not accountable
- *              for — the very thing this module was written to stop handing
- *              them. Their pool is therefore still:
+ *                pool = Σ [ ourAllocated(st) + share(st) × stateRoom(st) ]
  *
- *              Σ calcBonus over EVERY in-scope row. `calcBonus` at the live
- *              scale is the one honest "draw from the pool" figure in the
- *              engine: over unlocked non-site-manager rows it partitions the
- *              post-locks, post-site-manager pool to the cent (see
- *              lib/calc.ts — the scale is (avail - locked) / unlockedDemand by
- *              construction), a site manager's is their fixed unscaled draw,
- *              and a locked row's is what that row would draw at the live
- *              scale. Deliberately NOT derived from the group waterfall
- *              (cap - site managers - locked), which does not reconcile for a
- *              scope that is a subset of a state.
+ *                                Σ committed over the rows in their budget
+ *                share(st)  =   ──────────────────────────────────────────
+ *                                Σ committed over every row st's pool funds
  *
- *              Two exclusions people expect here are deliberately absent:
+ *              over st ∈ { VIC, NSW }, where `committed` is finalBonus − daEdit
+ *              (the payout a row carries BEFORE anybody grants anything on top
+ *              of it) and `stateRoom` is lib/calc.ts's — the state's cap net of
+ *              its FY26 carve-outs, less every payout charged to it. That is
+ *              the same subtraction the admin's pool card headlines and gate 4
+ *              enforces, which is what keeps the two views one figure.
  *
- *              LOCKED ROWS ARE INCLUDED. A locked person still draws from
- *              their manager's pool — locking only means the manager cannot
- *              edit the row, not that the money left the pool. Excluding them
- *              lands near half the figure ($555,733 against Clint Cassar's
- *              57 rows, 27 of them locked).
+ *              THE COMMITTED HALF IS A FLOOR, and that is the point. A share of
+ *              the state's GROSS pool — what this was until 28 August 2026 —
+ *              can come out below the payouts already legitimately made to the
+ *              scope's own people, which reports a lead as over a cap they
+ *              never spent against. See rulePool for the live numbers. A cap
+ *              must never retrospectively turn a valid commitment into an
+ *              overspend, so the commitment is kept and the share applies only
+ *              to what is genuinely left.
  *
- *              Under an ENTITLEMENT budget nobody is filtered out here — not
- *              Shared Services, not anyone whose cost splits across the two
- *              pools. The scope rule is the exclusion: Peter Clements
- *              (National EHSQ Manager, vp 0.7/np 0.3) is in Clint's scope by
- *              position and counted, because his entitlement is in the pool
- *              figure above and his payout belongs against it.
+ *              A WHOLE-STATE grant still lands on exactly the state pool, so an
+ *              admin's card and a state lead's header stay one number: they
+ *              hold every row the pool funds, so share is bit-exactly 1 and
+ *              ourAllocated is the state's whole home total, leaving
+ *              homeTotal + (statePool − homeTotal). Several states sum their
+ *              terms. The special case that used to exist for
+ *              `rule.type === "state"` is gone because it is no longer special.
  *
- *              Under a STATE-POOL budget the carve-funded rows ARE left out
- *              (countsAgainstPool → lib/calc.ts's inStateHomeTotal). The FY26
- *              state pool is defined net of the shared-services and
- *              split-state carves, so a part-split person labelled VIC —
- *              Clements and three others since 24 Aug 2026 — is funded by the
- *              carve, not the pool, and counting their whole payouts charged
- *              VIC a second time (docs/bonus-reconciliation.md §9). The same
- *              rows are left out of capRoom's home total, which is what keeps
- *              a lead's header and gate 4 one number.
+ *              MEASURED AT THE BASELINE, not on the document being edited — see
+ *              `baseline` on managerPoolFrom. The cap is "what you started with,
+ *              plus your share of the room that was there", so it holds still
+ *              while a lead types and their spending eats it dollar for dollar.
  *
- *   allocated  Σ finalBonus over the in-scope rows that count against the
- *              budget, through the shared sumAllocated. `people` still counts
- *              every row in scope — a carve-funded person is still theirs to
- *              manage, their money just comes from elsewhere.
- *   remaining  pool - allocated (the header paints it red at or below 0).
- *   people     the in-scope row count.
+ * WHAT THIS REPLACED, AND WHY IT HAD TO GO
  *
- * Note what remaining is made of, and why the state-cap definition matters.
- * A discretionary amount moves no scale, so `pool` never moves with a DA edit,
- * a DA of X raises `allocated` by exactly X and lowers `remaining` by exactly
- * X, and nobody outside the scope is touched. On the entitlement
- * definition that leaves a lead with almost no headroom at all — with no locks
- * and no DA, pool and allocated are equal by construction (finalBonus IS
- * calcBonus on every unlocked row), so their room comes only from locked rows
- * frozen BELOW their live entitlement — and every grant they tried would be
- * refused. Against the state cap their headroom is the real room under the
- * cap, the same room the editor's getMaxDA clamp and /api/state's headroom
- * gate allow, so the three agree instead of the lead's own gate being the
- * tightest by an accident of arithmetic.
+ * Until 28 August 2026 anything that was not a whole-state grant got Σ
+ * calcBonus over its rows — the "entitlement" definition. That put the header's
+ * two figures on DIFFERENT BASES: `pool` was the advisory Calc bonus column,
+ * recomputed live at the current scale, while `allocated` was the stored
+ * payouts. The two were equal by construction only while a payout WAS derived
+ * from calcBonus, and they stopped being equal on 25 August 2026 when payouts
+ * became stored figures (lib/calc.ts's baseAmount). Once /api/recalculate
+ * pinned vicScale at 0.703 the gap became structural, and the header reported
+ * it as a breach.
+ *
+ * On the live document that showed Clint Cassar (a GROUP rule — VIC + SHARED,
+ * sixteen positions) $38,558 over a pool he had granted nothing from:
+ *
+ *   $15,880  discretionary on four VIC site managers, which only a full-access
+ *            admin holding canEditVicSiteManagers can even write
+ *   $22,678  twenty-one ISSUED rows whose committed amounts sit above their
+ *            entitlement at the pinned scale — a one-way door by design
+ *        $0  anything he did
+ *
+ * with $4,661 genuinely left in the VIC pool and gate 4 willing to grant it.
+ * The old docblock predicted exactly this ("that leaves a lead with almost no
+ * headroom at all … and every grant they tried would be refused") and treated
+ * it as the acceptable cost of not handing a subset lead a whole state's cap.
+ * It was not acceptable: gate 3 was refusing every lead below full access
+ * against a figure that was not a budget. The proportional share gives a
+ * subset lead a real budget without giving them the whole state.
+ *
+ * WHOSE ROWS ARE IN THE BUDGET
+ *
+ * `pool` and `allocated` are measured over the SAME rows — that is the whole
+ * lesson above — and exactly one kind of in-scope row is left out of both:
+ * ROWS NO STATE POOL FUNDS (lib/calc.ts's fundedByStatePool), meaning Shared
+ * Services and the part-split staff whatever state label they carry. The FY26
+ * state pools are DEFINED net of the shared-services and split-state carves
+ * (lib/fy26-caps.ts), so charging those payouts to a state pool bills the same
+ * money twice (docs/bonus-reconciliation.md §9). Gate 4 already declines to
+ * bound them for the same reason.
+ *
+ * That exclusion does not touch `people`, which stays every row the rule
+ * matches: a row outside the budget is still theirs to see and manage, its
+ * money just comes from somewhere else.
+ *
+ * NESTED SCOPES ARE DELIBERATELY NOT DEDUCTED (owner decision, 28 August 2026,
+ * reversing the same day's first attempt).
+ *
+ * Glick's seven VIC positions sit wholly inside Cassar's sixteen, so their
+ * shares of the VIC pool sum to more than 100% and the same room is offered to
+ * both. That was briefly treated as double-booking and deducted from the outer
+ * scope. It is not: a nested manager scope is a PERMISSION boundary, not a
+ * reserved funding carve-out. Cassar is accountable for every person his grant
+ * authorises, Glick's twenty-five included, and a cap measured over anything
+ * narrower is not his cap — it also left gate 3 unable to bound his edits to
+ * those rows from his own view, which was strictly worse than the overlap it
+ * was trying to fix.
+ *
+ * So a lead's budget is their FULL authorised state-pool-funded scope, and
+ * overlapping shares are expected rather than a fault. What stops two leads
+ * spending the same dollar is the state-level bound that was always the real
+ * constraint: lib/calc.ts's capRoom, which measures the whole state's payouts
+ * against the state pool on every write (/api/state's gate 4). Gate 3 bounds
+ * each lead against their own share; gate 4 bounds everyone against the pool
+ * itself, and it is the one that refuses whoever spends the last of it.
+ *
+ * LOCKED AND ISSUED ROWS ARE INCLUDED, as they always were. A frozen person
+ * still draws from the pool their manager answers for; locking means the
+ * manager cannot edit the row, not that the money left. What changed is that
+ * their committed amount now sits on BOTH sides of the comparison instead of
+ * only on the `allocated` side, so it no longer manufactures a breach.
  *
  * REDISTRIBUTION RELIES ON ALL OF THAT
  *
  * `remaining` is the budget lib/redistribute.ts spends: it splits that figure
- * across the people a lead has selected, by writing explicit amounts. Every
- * property above is what makes that safe and is worth keeping true —
+ * across the people a lead has selected, by writing explicit amounts. Three
+ * properties make that safe, and all three survive this change —
  *
- *  - each dollar written lowers `remaining` by exactly a dollar, so one pass
- *    lands it on zero and a second pass distributes nothing;
+ *  - a discretionary amount moves no WEIGHT, because the weights are committed
+ *    payouts and `committed` backs the amount out. So `pool` is DA-neutral, a
+ *    DA of X raises `allocated` by exactly X and lowers `remaining` by exactly
+ *    X, one pass lands it on zero and a second pass distributes nothing;
  *  - `pool` does not move underneath the calculation while it runs;
- *  - and nobody outside the scope is touched, so one lead redistributing
- *    cannot move another lead's people or their `remaining`.
+ *  - and nobody outside the scope is touched.
  *
  * An earlier design funded an amount FROM the pool by moving the state scale,
  * and broke all three: `allocated` no longer rose by the amount, `remaining`
@@ -97,12 +134,14 @@
  * anything ever reintroduces a scale-moving discretionary amount, this gate
  * stops being a budget and redistribution stops converging.
  *
+ * What DOES move `pool` now, and did not before: another lead's committed
+ * amounts, since the share's denominator is population-wide. Honest — they are
+ * spending one pool between them — and it cannot happen mid-request.
+ *
  * Pure: one engine pass over the whole population (the scale is a
  * whole-population fact), then the scope filter — the same ruleMatches the
  * read boundary (lib/scope-core.ts) and write boundary (lib/write-scope.ts)
  * use, so the rows counted here are exactly the rows they see and may edit.
- * That single whole-population pass is also why per-manager sub-pools are not
- * the fix: there is one scale, and overlapping scopes have no defined answer.
  */
 import type { Dataset, Overrides } from "./schema";
 import type { Scope } from "./access";
@@ -111,7 +150,8 @@ import { ruleMatches } from "./access-rules";
 import {
   applyOverrides,
   computeScalesAndBonuses,
-  inStateHomeTotal,
+  fundedByStatePool,
+  stateRoom,
   sumAllocated,
   type CalcEmployee,
   type Caps,
@@ -124,67 +164,187 @@ export interface ManagerPool {
   people: number;
 }
 
+/** The states holding a pool of their own. Shared Services has none. */
+const BUDGET_STATES = ["VIC", "NSW"] as const;
+type BudgetState = (typeof BUDGET_STATES)[number];
+
 /**
- * The figures, from rows the engine has ALREADY been run over. The read path
- * takes this one: lib/scope-core.ts has computed the population and filtered
- * it before it needs a header, and /api/preview re-runs that on every
- * keystroke burst — a second engine pass there would be pure waste.
+ * The payout a row carries BEFORE any grant — finalBonus less its
+ * discretionary amount. The share's weight, and the reason `pool` cannot move
+ * when somebody types an amount.
  */
-export function managerPoolFrom(
-  rule: GrantingRule,
-  emps: readonly CalcEmployee[],
-  caps: Caps
-): ManagerPool {
-  const mine = emps.filter((e) => ruleMatches(rule, e));
-  const pool = rulePool(rule, mine, caps);
-  const allocated = sumAllocated(
-    mine.filter((e) => countsAgainstPool(rule, e)),
-    (e) => e.finalBonus
+function committed(e: CalcEmployee): number {
+  return e.finalBonus - e.daEdit;
+}
+
+/**
+ * Whether one in-scope row's payout is charged to this rule's budget — and so
+ * whether the row's own draw is what `pool` was built from. False only for a
+ * row no state pool funds; see the module header, including why a row held by
+ * a nested grant is NOT excluded. Exported so lib/scope-core.ts can send the
+ * same verdict to the browser as `inHomeTotal`, where the lead's ceiling and
+ * the redistribution budget re-measure this sum without the engine.
+ *
+ * Takes the row alone: nothing about the RULE changes the answer, which is the
+ * point — every lead's budget covers their whole authorised scope.
+ */
+export function countsAgainstPool(e: CalcEmployee): boolean {
+  return fundedByStatePool(e);
+}
+
+/**
+ * Does this rule NAME a state, as opposed to merely happening to hold rows in
+ * it? Only consulted when a state's pool has nothing drawing on it at all, to
+ * decide whether the whole thing is this scope's headroom: a NSW lead whose
+ * state is empty holds every row NSW funds — vacuously, all none of them — and
+ * their budget is the NSW pool, not zero. A subset names no state, so an empty
+ * state is not theirs; a group with no states listed means "any", so it is.
+ */
+function coversState(rule: GrantingRule, st: BudgetState): boolean {
+  if (rule.type !== "state" && rule.type !== "group") return false;
+  return (
+    rule.states.length === 0 ||
+    (rule.states as readonly string[]).includes(st)
   );
-  return { pool, allocated, remaining: pool - allocated, people: mine.length };
 }
 
-/**
- * Whether one in-scope row's payout is charged to this rule's budget. Every
- * row counts under an entitlement budget (the budget was built from the same
- * rows); under a state-pool budget a carve-funded VIC/NSW row does not — see
- * the module header. Exported so lib/scope-core.ts can send the same verdict
- * to the browser as `inHomeTotal`, where the lead's ceiling and the
- * redistribution budget re-measure this sum without the engine.
- */
-export function countsAgainstPool(rule: GrantingRule, e: CalcEmployee): boolean {
-  return rule.type !== "state" || inStateHomeTotal(e);
-}
-
-/** Σ calcBonus — the entitlement definition, for scopes with no cap of their own. */
+/** Σ calcBonus — the fallback for a scope no state pool reaches at all. */
 function entitlement(rows: readonly CalcEmployee[]): number {
   return rows.reduce((s, e) => s + e.calcBonus, 0);
 }
 
 /**
- * The budget for one grant shape (see the module header for why they differ).
+ * The budget: for each state this scope draws on, the payouts already committed
+ * to ITS OWN people there, plus its share of what that state has actually not
+ * allocated yet.
  *
- * A whole-state grant gets that state's cap — NET of its carve-outs when the
- * caps carry them (Caps.vCarve / nCarve, which under FY26 hold shared services
- * AND split state, so cap - carve is the state POOL the card headlines). That
- * is the same figure capRoom bounds that state's rows by, so a lead's header,
- * the admin's card and gate 4 stay one number. Anything narrower gets the
- * entitlement of the rows it actually holds. Shared Services has no cap, so it
- * contributes its rows' entitlement even inside a state rule.
+ *   cap(st) = ourAllocated(st) + share(st) × stateRoom(st)
+ *
+ * This is the correction of 28 August 2026. It used to be
+ * `statePool(st) × share(st)` — a slice of the state's GROSS pool — and that
+ * could come out BELOW the payouts already legitimately committed to the
+ * scope's own people, reporting a lead as over a cap they had never spent
+ * against. On the live document it showed Clint Cassar a $1,021,810 cap against
+ * $1,024,893 of standing commitments, $15,880 of which sits on VIC site
+ * managers only a full-access admin may touch. A cap must never retrospectively
+ * turn a valid commitment into an overspend, so the commitment is the FLOOR and
+ * the share applies only to the room that is genuinely left.
+ *
+ * `stateRoom` is lib/calc.ts's, which is the same subtraction /api/state's
+ * gate 4 (capRoom) and the admin's own pool card perform. It is deliberately
+ * not derived from the scope's rows: a lead's share has to be a share of the
+ * state's real position, not of a figure only their own view can see.
+ *
+ * A WHOLE-STATE grant still lands on exactly the state pool, so an admin's card
+ * and a state lead's header stay one number: they hold every row the pool
+ * funds, so share is 1 and ourAllocated is the state's whole home total, giving
+ * homeTotal + (statePool - homeTotal).
+ *
+ * NEGATIVE room is passed straight through rather than clamped to zero. If a
+ * state is genuinely over its cap, saying so is the honest answer and is what
+ * keeps a whole-state lead identical to the authoritative figure; fabricating
+ * room is how a pool gets overspent. What that costs the lead is only new
+ * net-positive spending, which is the intended outcome — poolBreach still lets
+ * a neutral or reducing save through.
+ *
+ * The fallback matters. A scope no state pool funds at all — a hypothetical
+ * Shared-Services-only grant — would otherwise get a budget of 0 and be dead
+ * on arrival, every amount refused with no room to be had anywhere. It keeps
+ * the pre-28-August entitlement figure instead, which is a defensible answer
+ * for rows whose funding lives outside both state pools, and gate 4 gives them
+ * no state bound either. Nobody holds such a grant today.
  */
 function rulePool(
   rule: GrantingRule,
   mine: readonly CalcEmployee[],
+  budgeted: readonly CalcEmployee[],
+  emps: readonly CalcEmployee[],
   caps: Caps
 ): number {
-  if (rule.type !== "state") return entitlement(mine);
   let pool = 0;
-  for (const st of rule.states) {
-    if (st === "VIC") pool += caps.vCap - (caps.vCarve ?? 0);
-    else if (st === "NSW") pool += caps.nCap - (caps.nCarve ?? 0);
-    else pool += entitlement(mine.filter((e) => e.st === st));
+  let funded = false;
+  for (const st of BUDGET_STATES) {
+    const room = stateRoom(st, emps, caps);
+    if (room === null) continue;
+
+    let all = 0;
+    for (const e of emps) {
+      if (e.st === st && fundedByStatePool(e)) all += committed(e);
+    }
+    let ours = 0;
+    let ourAllocated = 0;
+    for (const e of budgeted) {
+      if (e.st !== st) continue;
+      ours += committed(e);
+      ourAllocated += e.finalBonus;
+    }
+
+    // Nothing draws on this pool at all. A rule that NAMES the state holds all
+    // none of its rows and so holds all of its room; anything else gets no
+    // claim on a pool it only reaches by accident. Stated as a share so the one
+    // formula below covers it, and so there is no division by zero.
+    const share = all <= 0 ? (coversState(rule, st) ? 1 : 0) : ours / all;
+    if (share <= 0) continue;
+    funded = true;
+    // `ours / all` is bit-exactly 1 for a whole-state grant (the two sums run
+    // over the same rows in the same order), which is what makes that lead's
+    // cap bit-exactly the figure on the admin's card.
+    pool += ourAllocated + share * room;
   }
-  return pool;
+  return funded ? pool : entitlement(mine);
+}
+
+/**
+ * The figures, from rows the engine has ALREADY been run over. The read path
+ * takes this one: lib/scope-core.ts has computed the population before it needs
+ * a header, and /api/preview re-runs that on every keystroke burst — a second
+ * engine pass there would be pure waste.
+ *
+ * `baseline` is the same population computed from the STORED document, and it
+ * is what the CAP is measured from. Omit it and the document being measured is
+ * its own baseline, which is what the page load means: it is measuring the
+ * stored document already.
+ *
+ * Why the cap needs a baseline at all. Both of its halves move when somebody
+ * types a discretionary amount — the committed floor goes up by the amount and
+ * the state's room goes down by it — so measured on the live document the cap
+ * would drift upward by (1 − share) × amount and `remaining` would fall by only
+ * `share` × amount. Two things break at that point: gate 3 stops being a bound
+ * a lead can spend up to exactly, and a redistribution stops converging (it
+ * spends `remaining`, expecting that to drive it to zero — see
+ * lib/redistribute.ts, which documents pressing the button twice as a no-op).
+ * Holding the cap at the baseline keeps it still while they work, so every
+ * dollar granted lowers `remaining` by exactly a dollar.
+ *
+ * `emps` MUST BE THE WHOLE POPULATION, not the rows already narrowed to the
+ * scope. This function applies the scope filter itself, and the share's
+ * denominator is a whole-population sum — how much of each state pool
+ * everybody draws. Hand it pre-filtered rows and the lead's own draw is divided
+ * by itself, making every share 1 and every budget the entire state pool. (That
+ * is exactly what happened the first time this was wired up: a lead's header
+ * read $767,964 against a true $577,226, because the caller had been passing
+ * the filtered rows since back when the filter was the only thing `emps` was
+ * for.)
+ *
+ */
+export function managerPoolFrom(
+  rule: GrantingRule,
+  emps: readonly CalcEmployee[],
+  caps: Caps,
+  baseline: readonly CalcEmployee[] = emps
+): ManagerPool {
+  const mine = emps.filter((e) => ruleMatches(rule, e));
+  const budgeted = mine.filter((e) => countsAgainstPool(e));
+  const base = baseline === emps ? mine : baseline.filter((e) => ruleMatches(rule, e));
+  const pool = rulePool(
+    rule,
+    base,
+    base.filter((e) => countsAgainstPool(e)),
+    baseline,
+    caps
+  );
+  const allocated = sumAllocated(budgeted, (e) => e.finalBonus);
+  return { pool, allocated, remaining: pool - allocated, people: mine.length };
 }
 
 /**
@@ -196,11 +356,17 @@ function rulePool(
 export function managerPool(
   scope: Scope,
   data: Dataset,
-  overrides: Overrides
+  overrides: Overrides,
+  baselineOverrides?: Overrides
 ): ManagerPool {
   const emps = applyOverrides(data.emp, overrides);
   computeScalesAndBonuses(emps, data);
-  return managerPoolFrom(scope.rule, emps, data);
+  if (baselineOverrides === undefined || baselineOverrides === overrides) {
+    return managerPoolFrom(scope.rule, emps, data);
+  }
+  const base = applyOverrides(data.emp, baselineOverrides);
+  computeScalesAndBonuses(base, data);
+  return managerPoolFrom(scope.rule, emps, data, base);
 }
 
 export interface PoolBreach {
@@ -216,11 +382,16 @@ export interface PoolBreach {
  * accumulated noise, so a breach has to get worse by more than a cent to
  * count.
  */
-const EPSILON = 0.01;
+export const EPSILON = 0.01;
 
 /** How far over their pool this document puts the manager (0 if not over). */
-function overBy(scope: Scope, data: Dataset, doc: Overrides): number {
-  return Math.max(0, -managerPool(scope, data, doc).remaining);
+function overBy(
+  scope: Scope,
+  data: Dataset,
+  doc: Overrides,
+  stored: Overrides
+): number {
+  return Math.max(0, -managerPool(scope, data, doc, stored).remaining);
 }
 
 /**
@@ -228,10 +399,12 @@ function overBy(scope: Scope, data: Dataset, doc: Overrides): number {
  *
  * Null when it wouldn't — which deliberately includes a save that holds or
  * reduces a breach that was already stored. A manager can inherit an
- * over-pool state they did not create (an admin moves a cap, or locks a row
- * above its entitlement); a plain "refuse while over" gate would then lock
- * them out of saving the very correction that fixes it. So the comparison is
- * against the stored document, not against zero.
+ * over-pool state they did not create (an admin grants an amount on a row only
+ * they can edit, or a cap moves under everyone); a plain "refuse while over"
+ * gate would then lock them out of saving the very correction that fixes it. So
+ * the comparison is against the stored document, not against zero. The browser
+ * mirrors this, and used to not: it disabled Save on any negative Remaining at
+ * all, which is how a lead ended up unable to save anything.
  *
  * Null for a full-access scope: an admin allocates against the group caps,
  * which the pool cards already report, and has no manager pool to breach.
@@ -248,8 +421,11 @@ export function poolBreach(
   stored: Overrides
 ): PoolBreach | null {
   if (scope.rule.type === "full") return null;
-  const wasOver = overBy(scope, data, stored);
-  const over = overBy(scope, data, next);
+  // Both measured against the cap the STORED document implies, so the only
+  // thing that moves between them is the allocation. That is what makes
+  // spending exactly `remaining` land on nil and a dollar more not.
+  const wasOver = overBy(scope, data, stored, stored);
+  const over = overBy(scope, data, next, stored);
   if (over <= wasOver + EPSILON) return null;
   return { over, wasOver };
 }

@@ -386,6 +386,28 @@ export function inStateHomeTotal(e: { vp: number; np: number; st: string }): boo
 }
 
 /**
+ * Whether a STATE POOL funds this row at all — the narrower question
+ * lib/manager-pool.ts asks of a lead's budget.
+ *
+ * The difference from inStateHomeTotal above is Shared Services. That
+ * predicate answers "does this row belong in a HOME-STATE total", and a SHARED
+ * row is never in one, so it returns `true` there and lets the state filter
+ * beside it do the excluding. A lead's budget has no state filter beside it —
+ * a group rule can hold VIC and SHARED rows together — so it needs the
+ * question asked outright, and the answer for a SHARED row is no: it is funded
+ * by the shared-services carve, which the FY26 state pools are already defined
+ * net of (lib/fy26-caps.ts).
+ *
+ * That also settles a disagreement the two sides of the app had about SHARED
+ * rows: capRoom (gate 4) already returns Infinity for one, having no state cap
+ * to bound it by, while the browser's clamp held it to the lead's pool because
+ * inStateHomeTotal called it a home row. Both now say "no state-pool bound".
+ */
+export function fundedByStatePool(e: { vp: number; np: number; st: string }): boolean {
+  return (e.st === "VIC" || e.st === "NSW") && !isCarveFunded(e);
+}
+
+/**
  * Derivation the prototype performs at login (lines 252–266):
  * cpm is inferred from the source bipm so that pkg * bp * cpm * ipm === bipm.
  */
@@ -702,6 +724,56 @@ export function floorCents(v: number): number {
 }
 
 /**
+ * Σ payout over the rows counted in one state's HOME TOTAL — the figure a state
+ * pool is enforced against.
+ *
+ * THE one definition, so that the three places that measure a state's spending
+ * cannot drift: capRoom below (/api/state's gate 4), poolCardTotals's
+ * vicHome/nswHome (the admin's cards) and lib/manager-pool.ts's state room (a
+ * scoped lead's cap). A lead's header being a slice of a figure the admin's
+ * card did not recognise is exactly the class of bug this prevents.
+ */
+export function stateHomeTotal(
+  st: string,
+  emps: readonly CalcEmployee[]
+): number {
+  let total = 0;
+  for (const r of emps) {
+    if (r.st === st && inStateHomeTotal(r)) total += r.finalBonus;
+  }
+  return total;
+}
+
+/**
+ * What one state's pool has ACTUALLY not allocated yet: its cap net of the FY26
+ * carve-outs, less every payout charged to it. The same subtraction capRoom
+ * performs, and the same figure the admin's card headlines as that state's
+ * Remaining.
+ *
+ * NEGATIVE when existing commitments already exceed the pool. Callers must not
+ * clamp that away: it is the honest answer, and fabricating room from it is how
+ * a pool gets overspent.
+ *
+ * Returns null for a state with no pool of its own (Shared Services, or
+ * anything that is not VIC/NSW) — there is no room to divide because there is
+ * no cap.
+ */
+export function stateRoom(
+  st: string,
+  emps: readonly CalcEmployee[],
+  caps: Caps
+): number | null {
+  const cap =
+    st === "VIC"
+      ? caps.vCap - (caps.vCarve ?? 0)
+      : st === "NSW"
+        ? caps.nCap - (caps.nCarve ?? 0)
+        : null;
+  if (cap === null) return null;
+  return cap - stateHomeTotal(st, emps);
+}
+
+/**
  * Room left under the applicable caps for one row, measured EXACTLY the way
  * the dashboard's pool cards measure their totals: Σ finalBonus over the rows
  * that COUNT in a home state (inStateHomeTotal) against that state's cap, and
@@ -722,11 +794,8 @@ function capRoom(
   bound: CapBound
 ): number {
   let groupTotal = 0;
-  let homeTotal = 0;
-  for (const r of emps) {
-    groupTotal += r.finalBonus;
-    if (r.st === e.st && inStateHomeTotal(r)) homeTotal += r.finalBonus;
-  }
+  for (const r of emps) groupTotal += r.finalBonus;
+  const homeTotal = stateHomeTotal(e.st, emps);
   // Back out this row's own amount so each figure measures every OTHER draw on
   // the cap, then the room is what the cap has left for this one.
   let room = bound === "both" ? caps.gCap - (groupTotal - e.daEdit) : Infinity;

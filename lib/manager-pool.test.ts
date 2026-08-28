@@ -10,8 +10,10 @@
  * against the CFO's sheet, not the contract.
  *
  * Clint's grant is a GROUP rule (VIC + SHARED, fifteen positions), so these
- * figures use the entitlement definition of `pool` rather than a state cap —
- * see lib/manager-pool.ts. The state-cap case is covered separately below.
+ * figures exercise a PROPORTIONAL share of the VIC pool rather than the whole
+ * of it — see lib/manager-pool.ts. The whole-state case (share exactly 1) is
+ * covered separately below, and is the regression proof that replacing the old
+ * entitlement definition moved no state lead's figures.
  *
  * The fixture is a point-in-time PRODUCTION capture (data/prod-fixture.json,
  * gitignored, created 2026-08-21 — regenerate with a read-only pull of the
@@ -23,13 +25,28 @@ import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { AccessRuleSchema, ruleMatches } from "./access-rules";
+import type { GrantingRule } from "./access-rules";
 import { DatasetSchema, OverridesSchema } from "./schema";
 import type { Dataset, Employee, Overrides } from "./schema";
 import { ParamsSchema, applyParams } from "./params-apply";
 import type { Scope } from "./access";
-import { managerPool, managerPoolFrom, poolBreach } from "./manager-pool";
-import { applyOverrides, computeScalesAndBonuses, floorCents, getMaxDA } from "./calc";
-import { FY26_PUBLISHED, attachFy26Carves, statePoolOf } from "./fy26-caps";
+import { EPSILON, managerPool, managerPoolFrom, poolBreach } from "./manager-pool";
+import {
+  applyOverrides,
+  computeScalesAndBonuses,
+  floorCents,
+  fundedByStatePool,
+  getMaxDA,
+  stateHomeTotal,
+  stateRoom,
+} from "./calc";
+import type { CalcEmployee } from "./calc";
+import {
+  FY26_PUBLISHED,
+  attachFy26Carves,
+  stateCarveOf,
+  statePoolOf,
+} from "./fy26-caps";
 
 const FIXTURE = join(__dirname, "..", "data", "prod-fixture.json");
 
@@ -66,62 +83,113 @@ describe.skipIf(!existsSync(FIXTURE))(
       expect(result.people).toBe(57);
     });
 
-    it("Allocated is exactly sum(finalBonus) over the in-scope rows", () => {
-      const expected = mine.reduce((s, e) => s + e.finalBonus, 0);
+    /** The rows the budget covers: the ones a state pool actually funds. */
+    const budgeted = mine.filter((e) => fundedByStatePool(e));
+
+    it("Allocated is sum(finalBonus) over the rows the budget covers", () => {
+      const expected = budgeted.reduce((s, e) => s + e.finalBonus, 0);
       expect(result.allocated).toBeCloseTo(expected, 6);
+      // and that is NOT every row in scope — the carve-funded ones are out
+      expect(budgeted.length).toBeLessThan(mine.length);
+      expect(result.allocated).not.toBeCloseTo(
+        mine.reduce((s, e) => s + e.finalBonus, 0),
+        2
+      );
     });
 
-    it("the old VIC-card total is still a plain sum of VIC finals", () => {
-      const oldCard = mine
-        .filter((e) => e.st === "VIC")
+    it("Allocated is the VIC-home finals, with Shared Services left out", () => {
+      const vicHome = mine
+        .filter((e) => e.st === "VIC" && fundedByStatePool(e))
         .reduce((s, e) => s + e.finalBonus, 0);
-      const sharedInScope = mine
-        .filter((e) => e.st === "SHARED")
-        .reduce((s, e) => s + e.finalBonus, 0);
-      expect(oldCard + sharedInScope).toBeCloseTo(result.allocated, 6);
+      expect(vicHome).toBeCloseTo(result.allocated, 6);
+      // the shared-services row in scope is real, and deliberately not in it:
+      // the VIC pool is already defined net of the carve that funds it
+      const sharedInScope = mine.filter((e) => e.st === "SHARED");
+      expect(sharedInScope).toHaveLength(1);
+      expect(sharedInScope[0].finalBonus).toBeGreaterThan(0);
     });
 
     // ── the composition, knob by knob ──
 
-    it("pool is Σ calcBonus over exactly the rows the scope filter admits", () => {
-      const expected = mine.reduce((s, e) => s + e.calcBonus, 0);
-      expect(result.pool).toBe(expected);
-      // and it is a pool, not a total: calcBonus, never finalBonus
-      expect(result.pool).not.toBeCloseTo(result.allocated, 2);
+    it("pool is this scope's share of the VIC pool, weighted by committed payouts", () => {
+      const committed = (e: CalcEmployee) => e.finalBonus - e.daEdit;
+      const allVic = population()
+        .filter((e) => e.st === "VIC" && fundedByStatePool(e))
+        .reduce((s, e) => s + committed(e), 0);
+      const ourVic = budgeted
+        .filter((e) => e.st === "VIC")
+        .reduce((s, e) => s + committed(e), 0);
+      // the fixture's caps have no carve-outs attached (attachFy26Carves runs
+      // in lib/data.ts, not here), so the state pool IS the raw cap — same
+      // figure the module reads off Caps
+      const vicPool = data.vCap - (data.vCarve ?? 0);
+      expect(result.pool).toBeCloseTo(vicPool * (ourVic / allVic), 6);
+      // a real share of the state, and not all of it — this is a group rule
+      expect(ourVic / allVic).toBeGreaterThan(0.5);
+      expect(ourVic / allVic).toBeLessThan(1);
+      expect(result.pool).toBeLessThan(vicPool);
     });
 
-    it("locked rows are INCLUDED — they still draw from their manager's pool", () => {
-      const locked = mine.filter((e) => e.locked);
-      const unlocked = mine.filter((e) => !e.locked);
+    it("pool is NOT Σ calcBonus — that was the definition being replaced", () => {
+      // the basis mismatch this whole module was rewritten to remove: `pool`
+      // on the advisory Calc bonus column while `allocated` was the stored
+      // payouts, which drifted apart once a payout became a stored figure
+      const entitlement = mine.reduce((s, e) => s + e.calcBonus, 0);
+      expect(result.pool).not.toBeCloseTo(entitlement, 2);
+    });
+
+    it("a locked row's committed amount is on BOTH sides, so it cannot manufacture a breach", () => {
+      const locked = budgeted.filter((e) => e.locked);
       // a real share of this scope, so the assertion has teeth
       expect(locked.length).toBeGreaterThan(20);
 
-      const lockedDraw = locked.reduce((s, e) => s + e.calcBonus, 0);
-      const unlockedDraw = unlocked.reduce((s, e) => s + e.calcBonus, 0);
-      expect(result.pool).toBeCloseTo(unlockedDraw + lockedDraw, 6);
-      // excluding them is the misreading that halves the cap
-      expect(unlockedDraw).toBeLessThan(result.pool * 0.6);
+      // A frozen person still draws from the pool their manager answers for,
+      // so they stay counted. What changed is that the amount they draw is now
+      // the SAME figure in the weight and in `allocated`. Under the old
+      // entitlement definition the weight was their live entitlement while
+      // `allocated` was their frozen payout, and the gap between the two was
+      // reported to the lead as an overspend they could not act on.
+      const drift = locked.reduce(
+        (s, e) => s + (e.finalBonus - e.daEdit - e.calcBonus),
+        0
+      );
+      expect(Math.abs(drift)).toBeGreaterThan(1_000); // the gap is real…
+      const noDa = managerPool(
+        scope,
+        data,
+        Object.fromEntries(
+          Object.entries(overrides).map(([id, ov]) => [id, { ...ov, daEdit: 0 }])
+        )
+      );
+      // …and with every amount cleared it does not put the lead over at all
+      expect(noDa.remaining).toBeGreaterThan(0);
     });
 
-    it("shared services are excluded by the SCOPE, not by a state filter", () => {
-      // 24 of the 25 SHARED rows never reach this sum because the access rule
-      // doesn't admit them. The 25th (Peter Clements) does, and is counted —
-      // a split is a statement about which caps fund someone, not a reason to
-      // drop their draw from the pool their manager answers for. The fixture
-      // is a 21 Aug 2026 capture, taken while he was still flagged SHARED.
+    it("a shared-services row in scope is still theirs to manage, and outside their budget", () => {
+      // 24 of the 25 SHARED rows never reach this scope at all because the
+      // access rule doesn't admit them. The 25th (Peter Clements) does — the
+      // fixture is a 21 Aug 2026 capture, taken while he was still flagged
+      // SHARED — and he is counted in `people` while being funded from outside
+      // both state pools, so no state pool is charged for him.
       const sharedInScope = mine.filter((e) => e.st === "SHARED");
       const sharedAtLarge = population().filter((e) => e.st === "SHARED");
       expect(sharedInScope).toHaveLength(1);
       expect(sharedAtLarge.length).toBeGreaterThan(sharedInScope.length);
 
-      const stateFiltered = mine
-        .filter((e) => e.st !== "SHARED")
-        .reduce((s, e) => s + e.calcBonus, 0);
-      expect(result.pool - stateFiltered).toBeCloseTo(
-        sharedInScope[0].calcBonus,
-        6
-      );
-      expect(result.pool).not.toBeCloseTo(stateFiltered, 2);
+      expect(result.people).toBe(mine.length); // in scope, and counted
+      expect(budgeted).not.toContain(sharedInScope[0]); // out of the budget
+
+      // so a grant to him moves nothing the budget measures, and gate 3 has no
+      // opinion on it — exactly as for a carve-funded VIC row
+      const withDa = managerPool(scope, data, {
+        ...overrides,
+        [sharedInScope[0].id]: {
+          ...overrides[sharedInScope[0].id],
+          daEdit: 5_000,
+        },
+      });
+      expect(withDa.allocated).toBeCloseTo(result.allocated, 6);
+      expect(withDa.remaining).toBeCloseTo(result.remaining, 6);
     });
 
     it("out-of-scope rows are excluded", () => {
@@ -130,19 +198,56 @@ describe.skipIf(!existsSync(FIXTURE))(
     });
 
     it("a discretionary amount spends the pool: remaining falls by exactly the DA", () => {
-      // 25 Aug 2026 reversal to DA-on-top: the DA moves no scale, so the pool
-      // itself (Σ calcBonus in scope) does not move at all and the whole grant
-      // lands on `allocated` — remaining falls by exactly the amount granted,
-      // which is what makes a lead's own pool a clean bound on their grants.
+      // The cap is measured from the STORED document, so it does not move when
+      // a lead types and the whole grant lands on `allocated` — remaining falls
+      // by exactly the amount granted, which is what makes a lead's own pool a
+      // clean bound on their grants and what lets a redistribution converge in
+      // one pass (lib/redistribute.ts).
       const target = mine.find((e) => !e.locked && !e.sm && e.vp + e.np > 0)!;
-      const withDa = managerPool(scope, data, {
+      const next = {
         ...overrides,
         [target.id]: { ...overrides[target.id], daEdit: 1_000 },
-      });
+      };
+      const withDa = managerPool(scope, data, next, overrides);
       expect(withDa.pool).toBeCloseTo(result.pool, 6);
       expect(withDa.allocated).toBeCloseTo(result.allocated + 1_000, 6);
       expect(withDa.remaining).toBeCloseTo(result.remaining - 1_000, 6);
       expect(withDa.people).toBe(result.people);
+    });
+
+    it("without a baseline the cap drifts — which is why the baseline exists", () => {
+      // Measuring the what-if as its own baseline moves BOTH halves of the cap:
+      // the committed floor rises by the amount and the state's room falls by
+      // it, so the cap drifts up by (1 - share) x amount and `remaining` falls
+      // by only `share` x amount. Gate 3 would stop being a bound a lead can
+      // spend up to exactly, and a redistribution would stop converging. Pinned
+      // here so the baseline argument cannot be dropped as redundant.
+      const target = mine.find((e) => !e.locked && !e.sm && e.vp + e.np > 0)!;
+      const next = {
+        ...overrides,
+        [target.id]: { ...overrides[target.id], daEdit: 1_000 },
+      };
+      const drifted = managerPool(scope, data, next); // no baseline
+      const share = (drifted.pool - result.pool) / 1_000;
+      expect(share).toBeGreaterThan(0); // it really does drift
+      expect(1 - share).toBeCloseTo(
+        // ...by exactly (1 - the scope's share of the VIC pool)
+        (() => {
+          const committed = (e: CalcEmployee) => e.finalBonus - e.daEdit;
+          const all = population()
+            .filter((e) => e.st === "VIC" && fundedByStatePool(e))
+            .reduce((sum, e) => sum + committed(e), 0);
+          const ours = mine
+            .filter((e) => e.st === "VIC" && fundedByStatePool(e))
+            .reduce((sum, e) => sum + committed(e), 0);
+          return ours / all;
+        })(),
+        6
+      );
+      // and the properly-baselined figure is the one that moves dollar for dollar
+      expect(
+        managerPool(scope, data, next, overrides).remaining
+      ).toBeCloseTo(result.remaining - 1_000, 6);
     });
 
     it("managerPoolFrom agrees with managerPool on already-computed rows", () => {
@@ -490,7 +595,7 @@ describe("poolBreach", () => {
     expect(getMaxDA(rows.find((e) => e.id === "P")!, rows, carved, "state")).toBe(Infinity);
   });
 
-  it("an entitlement-budgeted rule still counts a carve-funded row: its entitlement is in the pool", () => {
+  it("a subset rule gets its share of the state pool, and a carve-funded row is not in it", () => {
     const P = emp({ id: "P", vp: 0.9, np: 0.1, bipm: 300, pkg: 3000 });
     const withP: Dataset = { ...data, emp: [...data.emp, P] };
     const subset: Scope = {
@@ -510,19 +615,46 @@ describe("poolBreach", () => {
     const by = (id: string) => rows.find((e) => e.id === id)!;
     const p = managerPool(subset, withP, {});
     expect(p.people).toBe(2);
-    expect(p.pool).toBeCloseTo(by("A").calcBonus + by("P").calcBonus, 8);
-    expect(p.allocated).toBeCloseTo(by("A").finalBonus + by("P").finalBonus, 8);
+    // A and B are the two rows the VIC pool funds; this scope holds A alone, so
+    // its budget is A's share of that pool. P is in scope and counted in
+    // `people`, but the split-state carve funds them, so they are in neither
+    // the weight nor Allocated — charging them to VIC would bill it twice.
+    const committed = (e: CalcEmployee) => e.finalBonus - e.daEdit;
+    const share =
+      committed(by("A")) / (committed(by("A")) + committed(by("B")));
+    expect(share).toBeCloseTo(0.4, 8);
+    expect(p.pool).toBeCloseTo(withP.vCap * share, 8);
+    expect(p.allocated).toBeCloseTo(by("A").finalBonus, 8);
+    expect(by("P").finalBonus).toBeGreaterThan(0); // real money, funded elsewhere
   });
 
-  it("several states sum their caps", () => {
+  it("several states sum their shares — and an empty state's pool is wholly a lead's who names it", () => {
     const both: Scope = {
       ...lead,
       rule: { ...lead.rule, type: "state", states: ["VIC", "NSW"] } as typeof lead.rule,
     };
+    // The fixture has no NSW rows at all. This lead holds every row the NSW
+    // pool funds — vacuously, all none of them — so its whole room is theirs,
+    // and their VIC share is 1 the ordinary way.
     expect(managerPool(both, data, {}).pool).toBe(data.vCap + data.nCap);
+    // whereas a scope that only reaches an empty state by accident gets no
+    // claim on it: a subset names no state
+    const subset: Scope = {
+      ...lead,
+      rule: {
+        type: "subset",
+        employeeIds: ["A"],
+        visibleFields: ["da", "final"],
+        editableFields: ["da"],
+        canLock: true,
+        canActAs: [],
+        canDownloadLetter: false,
+      },
+    };
+    expect(managerPool(subset, data, {}).pool).toBeLessThan(data.vCap);
   });
 
-  it("Shared Services has no cap, so those rows fall back to their entitlement", () => {
+  it("Shared Services has no cap, so it adds nothing to a budget and is charged to none", () => {
     const shared: Dataset = {
       ...data,
       emp: [...data.emp, emp({ id: "S", st: "SHARED", vp: 0.5, np: 0.5, bipm: 200 })],
@@ -531,12 +663,32 @@ describe("poolBreach", () => {
     const both: Scope = { ...lead, rule };
     const emps = applyOverrides(shared.emp, {});
     computeScalesAndBonuses(emps, shared);
-    const sCalc = emps.find((e) => e.id === "S")!.calcBonus;
-    expect(sCalc).toBeGreaterThan(0);
-    expect(managerPool(both, shared, {}).pool).toBeCloseTo(shared.vCap + sCalc, 8);
+    const s = emps.find((e) => e.id === "S")!;
+    expect(s.finalBonus).toBeGreaterThan(0);
+
+    const p = managerPool(both, shared, {});
+    // The shared-services carve funds S, and the state pools are DEFINED net of
+    // it, so S belongs to neither side of a state budget. Adding S's
+    // entitlement to the pool (what this did before 28 Aug 2026) handed the
+    // lead room the state cap does not hold, and handed the SAME room to every
+    // other lead whose rule includes SHARED.
+    expect(p.pool).toBeCloseTo(shared.vCap, 8);
+    expect(p.allocated).toBeCloseTo(
+      emps
+        .filter((e) => e.st === "VIC")
+        .reduce((acc, e) => acc + e.finalBonus, 0),
+      8
+    );
+    expect(p.people).toBe(3); // still one of their people
+    // and a VIC+SHARED lead and a NSW+SHARED lead no longer both book S
+    const nswShared: Scope = {
+      ...lead,
+      rule: { ...lead.rule, states: ["NSW", "SHARED"] } as typeof lead.rule,
+    };
+    expect(managerPool(nswShared, shared, {}).pool).toBeCloseTo(shared.nCap, 8);
   });
 
-  it("a group rule keeps the entitlement definition — a state cap is not its budget", () => {
+  it("a group rule holding only some of a state gets only that share of its pool", () => {
     const group: Scope = {
       ...lead,
       rule: {
@@ -550,10 +702,24 @@ describe("poolBreach", () => {
       },
       label: "VIC group lead",
     };
-    const roomy: Dataset = { ...data, vCap: 1500, gCap: 2500 };
+    // B is moved out of the group's positions, so the group holds A alone of
+    // the two rows the VIC pool funds
+    const roomy: Dataset = {
+      ...data,
+      emp: [data.emp[0], { ...data.emp[1], pos: "Other Role" }],
+      vCap: 1500,
+      gCap: 2500,
+    };
     const p = managerPool(group, roomy, {});
-    expect(p.pool).not.toBe(roomy.vCap);
-    expect(p.pool).toBeCloseTo(p.allocated, 8); // entitlement, so no free room
+    expect(p.people).toBe(1);
+    // A demands 400 of the 1000 the two rows demand between them, so 40% of the
+    // pool is theirs — not the whole cap (which would be a budget for people
+    // they are not accountable for) and not their bare entitlement (which left
+    // them no room at all, and is what this replaced).
+    expect(p.pool).toBeCloseTo(roomy.vCap * 0.4, 8);
+    expect(p.remaining).toBeGreaterThan(0);
+    // a whole-state lead over the same data still gets the whole cap
+    expect(managerPool(lead, roomy, {}).pool).toBe(roomy.vCap);
   });
 
   it("blocks a save that goes over from a balanced start", () => {
@@ -599,5 +765,406 @@ describe("poolBreach", () => {
     expect(
       poolBreach(lead, data, { A: { daEdit: 0.001 } }, {})
     ).toBeNull();
+  });
+});
+/**
+ * OVERLAPPING SCOPES — and why nothing is deducted for them.
+ *
+ * Jonathan Glick holds seven VIC positions, every one of which is also in Clint
+ * Cassar's sixteen, so their shares of the VIC pool sum to more than 100% and
+ * the same room is offered to both. For part of 28 August 2026 the inner
+ * scope's rows were deducted from the outer one's budget. That was reverted
+ * (owner decision, same day): a nested manager scope is a PERMISSION boundary,
+ * not a reserved funding carve-out, and a lead is accountable for everyone
+ * their grant authorises. These tests pin the reversal so the deduction cannot
+ * creep back, and name what does the bounding instead — the state-level gate.
+ *
+ * Fixture: four VIC rows demanding 250 each, cap 1000, so the scale is exactly
+ * 1 and each row is a clean quarter of the pool.
+ */
+describe("overlapping scopes", () => {
+  function emp(over: Partial<Employee> & { id: string }): Employee {
+    return {
+      sn: "Surname",
+      gn: "Given",
+      pos: "Inner",
+      dept: "Dept",
+      mgr: "Mgr",
+      cat: "Employee",
+      st: "VIC",
+      vp: 1,
+      np: 0,
+      pkg: 2500,
+      bp: 0.1,
+      ipm: 1,
+      bipm: 250,
+      da: 0,
+      f25: 0,
+      sm: 0,
+      ...over,
+    };
+  }
+  const data: Dataset = {
+    emp: [
+      emp({ id: "I1", pos: "Inner" }),
+      emp({ id: "I2", pos: "Inner" }),
+      emp({ id: "O1", pos: "Outer" }),
+      emp({ id: "O2", pos: "Outer" }),
+    ],
+    vCap: 1000,
+    nCap: 1000,
+    gCap: 2000,
+    cats: ["Employee"],
+    depts: ["Dept"],
+    mgrs: ["Mgr"],
+    excludedIds: [],
+  };
+  const group = (positions: string[]): GrantingRule => ({
+    type: "group",
+    states: ["VIC"],
+    positions,
+    visibleFields: ["da", "final"],
+    editableFields: ["da"],
+    canLock: true,
+    canActAs: [],
+    canDownloadLetter: false,
+  });
+  const inner = group(["Inner"]);
+  const outer = group(["Inner", "Outer"]);
+  const scopeOf = (rule: GrantingRule): Scope => ({
+    email: "lead@texco.net.au",
+    rule,
+    canEdit: false,
+    visibleFields: ["da", "final"],
+    label: "lead",
+  });
+
+  it("the outer lead's cap covers their FULL authorised scope, nested rows included", () => {
+    const p = managerPool(scopeOf(outer), data, {});
+    // all four rows are theirs, so all four are in the weight and in Allocated
+    expect(p.people).toBe(4);
+    expect(p.pool).toBe(data.vCap);
+    expect(p.allocated).toBeCloseTo(1000, 8);
+    // the deduction would have halved both — pinned so it cannot return
+    expect(p.pool).not.toBeCloseTo(500, 2);
+  });
+
+  it("the inner lead keeps their own share, and the two overlap by design", () => {
+    const o = managerPool(scopeOf(outer), data, {});
+    const i = managerPool(scopeOf(inner), data, {});
+    expect(i.pool).toBeCloseTo(500, 8);
+    expect(i.people).toBe(2);
+    // more than the pool between them, which is expected rather than a fault:
+    // the inner rows are genuinely in both leads' remit
+    expect(o.pool + i.pool).toBeGreaterThan(data.vCap);
+  });
+
+  it("gate 3 bounds each lead by their own share, and the state cap bounds them both", () => {
+    // 1200 of cap against 1000 of committed demand: 200 of real room in the
+    // pool. The outer lead holds it all, the inner lead holds half of it.
+    const roomy: Dataset = { ...data, vCap: 1200, gCap: 2200 };
+    expect(managerPool(scopeOf(outer), roomy, {}).remaining).toBeCloseTo(200, 8);
+    expect(managerPool(scopeOf(inner), roomy, {}).remaining).toBeCloseTo(100, 8);
+
+    // each is bounded by their OWN share (gate 3)
+    expect(poolBreach(scopeOf(inner), roomy, { I1: { daEdit: 100 } }, {})).toBeNull();
+    expect(
+      poolBreach(scopeOf(inner), roomy, { I1: { daEdit: 101 } }, {})
+    ).not.toBeNull();
+
+    // ...and the state pool is what stops the room being spent twice: once the
+    // inner lead has taken 100, the whole state has only 100 left, and gate 4's
+    // measure (lib/calc.ts's capRoom over every VIC payout) says so to the
+    // outer lead whatever their own share allows.
+    const spent = { I1: { daEdit: 100 } };
+    const rows = applyOverrides(roomy.emp, spent);
+    computeScalesAndBonuses(rows, roomy);
+    const o1 = rows.find((e) => e.id === "O1")!;
+    expect(getMaxDA(o1, rows, roomy, "state")).toBe(floorCents(100));
+  });
+
+  it("a Shared-Services-only grant keeps the entitlement figure rather than a budget of nothing", () => {
+    const shared: Dataset = {
+      ...data,
+      emp: [...data.emp, emp({ id: "S", st: "SHARED", vp: 0.5, np: 0.5 })],
+    };
+    const sharedOnly = scopeOf({
+      type: "group",
+      states: ["SHARED"],
+      positions: ["Inner"],
+      visibleFields: ["da", "final"],
+      editableFields: ["da"],
+      canLock: true,
+      canActAs: [],
+      canDownloadLetter: false,
+    });
+    const emps = applyOverrides(shared.emp, {});
+    computeScalesAndBonuses(emps, shared);
+    const s = emps.find((e) => e.id === "S")!;
+    const p = managerPool(sharedOnly, shared, {});
+    // No state pool funds anybody in this scope, so a share of one would be 0
+    // and every amount they ever typed would be refused with no room to be had.
+    // They keep the pre-28-August entitlement figure instead, and gate 4 gives
+    // them no state bound either.
+    expect(p.people).toBe(1);
+    expect(p.pool).toBeCloseTo(s.calcBonus, 8);
+    expect(p.pool).toBeGreaterThan(0);
+    // and they are charged for nobody, since no state pool funds them
+    expect(p.allocated).toBe(0);
+  });
+});
+
+/**
+ * THE CAP FORMULA — commitment floor plus a share of the room that is actually
+ * left (owner decision, 28 August 2026, correcting the same day's first cut).
+ *
+ * The bug being pinned against: a share of the state's GROSS pool can come out
+ * below the payouts already legitimately committed to the scope's own people,
+ * which reports a lead as over a cap they never spent against.
+ *
+ * Fixture: four VIC rows, cap set per test so the state's room is exact and
+ * hand-checkable. Row demand is 250 each, so the scale clamps at 1 and each
+ * committed payout is exactly 250.
+ */
+describe("lead cap: commitment floor + share of remaining room", () => {
+  function emp(over: Partial<Employee> & { id: string }): Employee {
+    return {
+      sn: "Surname", gn: "Given", pos: "Inner", dept: "Dept", mgr: "Mgr",
+      cat: "Employee", st: "VIC", vp: 1, np: 0, pkg: 2500, bp: 0.1, ipm: 1,
+      bipm: 250, da: 0, f25: 0, sm: 0, ...over,
+    };
+  }
+  /** vCap chosen so the VIC pool has exactly `room` left over 1000 of demand. */
+  const dataWithRoom = (room: number): Dataset => ({
+    emp: [
+      emp({ id: "I1", pos: "Inner" }),
+      emp({ id: "I2", pos: "Inner" }),
+      emp({ id: "O1", pos: "Outer" }),
+      emp({ id: "O2", pos: "Outer" }),
+    ],
+    vCap: 1000 + room,
+    nCap: 1000,
+    gCap: 5000,
+    cats: ["Employee"], depts: ["Dept"], mgrs: ["Mgr"], excludedIds: [],
+  });
+  const group = (positions: string[]): GrantingRule => ({
+    type: "group", states: ["VIC"], positions,
+    visibleFields: ["da", "final"], editableFields: ["da"],
+    canLock: true, canActAs: [], canDownloadLetter: false,
+  });
+  const scopeOf = (rule: GrantingRule): Scope => ({
+    email: "lead@texco.net.au", rule, canEdit: false,
+    visibleFields: ["da", "final"], label: "lead",
+  });
+  const half = scopeOf(group(["Inner"])); // 2 of the 4 VIC rows => share 1/2
+  const whole = scopeOf({
+    type: "state", states: ["VIC"],
+    visibleFields: ["da", "final"], editableFields: ["da"],
+    canLock: true, canActAs: [], canDownloadLetter: false,
+  });
+  const measure = (d: Dataset, doc: Overrides = {}) => {
+    const rows = applyOverrides(d.emp, doc);
+    computeScalesAndBonuses(rows, d);
+    return rows;
+  };
+
+  // ── 1. the regression itself ──
+  it("a standing commitment is never turned into an overspend by the cap", () => {
+    // The state is exactly at its cap: 1000 of entitlement plus a legitimate
+    // 120 of discretionary inside the half-scope, against a 1120 pool. So the
+    // room is nil and nobody has overspent anything.
+    const d = dataWithRoom(120);
+    const doc: Overrides = { I1: { daEdit: 120 } };
+    const p = managerPool(half, d, doc);
+    const rows = measure(d, doc);
+    const ourAllocated = rows
+      .filter((e) => e.pos === "Inner")
+      .reduce((s, e) => s + e.finalBonus, 0);
+    expect(ourAllocated).toBeCloseTo(620, 8); // 250 + 250 + 120
+    expect(stateRoom("VIC", rows, d)).toBeCloseTo(0, 8);
+
+    // the cap covers what is already committed to their own people...
+    expect(p.allocated).toBeCloseTo(ourAllocated, 8);
+    expect(p.pool).toBeGreaterThanOrEqual(p.allocated - EPSILON);
+    // ...so they are not reported as overspent
+    expect(p.remaining).toBeGreaterThanOrEqual(-EPSILON);
+
+    // THE REGRESSION: share x the GROSS pool is 560, below the 620 already
+    // committed to their own people, which is what reported a lead as $3,084
+    // over a cap they had never spent against.
+    const grossShare = 0.5 * d.vCap;
+    expect(grossShare).toBeCloseTo(560, 8);
+    expect(grossShare).toBeLessThan(ourAllocated);
+    expect(p.pool).toBeGreaterThan(grossShare);
+  });
+
+  // ── 2. cap = X + (R x S) ──
+  it("cap is existing allocation plus share of state remaining", () => {
+    const room = 200;
+    const d = dataWithRoom(room);
+    const p = managerPool(half, d, {});
+    const rows = measure(d);
+    const X = rows
+      .filter((e) => e.pos === "Inner")
+      .reduce((s, e) => s + e.finalBonus, 0);
+    const S = 500 / 1000; // half the committed demand
+    expect(X).toBeCloseTo(500, 8);
+    expect(p.pool).toBeCloseTo(X + room * S, 8);
+    expect(p.pool).toBeCloseTo(600, 8);
+  });
+
+  // ── 3. remaining = cap - allocated ──
+  it("remaining is the cap less the current allocation, and starts at the share of room", () => {
+    const room = 200;
+    const d = dataWithRoom(room);
+    const p = managerPool(half, d, {});
+    expect(p.remaining).toBeCloseTo(p.pool - p.allocated, 8);
+    expect(p.remaining).toBeCloseTo(room * 0.5, 8); // 100
+    expect(p.remaining).toBeGreaterThan(0); // positive on load, the whole point
+  });
+
+  it("zero state room floors the cap at the existing allocation and remaining at nil", () => {
+    const p = managerPool(half, dataWithRoom(0), {});
+    expect(p.pool).toBeCloseTo(p.allocated, 8);
+    expect(p.remaining).toBeCloseTo(0, 8);
+    // and new net-positive spending is refused
+    expect(
+      poolBreach(half, dataWithRoom(0), { I1: { daEdit: 1 } }, {})
+    ).not.toBeNull();
+  });
+
+  it("a state genuinely over its cap fabricates no room, and still allows a reducing save", () => {
+    // Lowering the cap cannot put a state over it — the engine's scale absorbs
+    // that (lib/calc.ts). What CAN is stored payouts above what the pool funds,
+    // which is the real shape: committed amounts frozen above entitlement.
+    const d = dataWithRoom(0); // pool 1000, entitlement 1000, scale 1
+    const committedAbove: Overrides = {
+      I1: { baseAmount: 275 }, I2: { baseAmount: 275 },
+      O1: { baseAmount: 275 }, O2: { baseAmount: 275 },
+    };
+    const rows = measure(d, committedAbove);
+    expect(stateRoom("VIC", rows, d)).toBeCloseTo(-100, 8); // 1000 - 1100
+
+    const over = managerPool(half, d, committedAbove);
+    expect(over.pool).toBeCloseTo(550 + 0.5 * -100, 8); // no room fabricated
+    expect(over.remaining).toBeCloseTo(-50, 8);
+    expect(over.remaining).toBeLessThan(0);
+
+    // net-positive spending blocked...
+    expect(
+      poolBreach(half, d, { ...committedAbove, I1: { baseAmount: 275, daEdit: 10 } }, committedAbove)
+    ).not.toBeNull();
+    // ...while a neutral save and a reducing one go through, and no stored
+    // payout is rewritten to make that true
+    expect(poolBreach(half, d, committedAbove, committedAbove)).toBeNull();
+    expect(
+      poolBreach(
+        half, d,
+        { ...committedAbove, I1: { baseAmount: 275, daEdit: -10 } },
+        { ...committedAbove, I1: { baseAmount: 275, daEdit: 0 } }
+      )
+    ).toBeNull();
+  });
+
+  // ── 4. SHARED does not consume VIC capacity ──
+  it("a SHARED-funded payout consumes no VIC scoped capacity", () => {
+    const room = 200;
+    const base = dataWithRoom(room);
+    const withShared: Dataset = {
+      ...base,
+      emp: [...base.emp, emp({ id: "S", pos: "Inner", st: "SHARED", vp: 0.5, np: 0.5 })],
+    };
+    // a scope that ADMITS shared services, so the row is genuinely in view
+    const withSharedScope = scopeOf({
+      ...group(["Inner"]),
+      states: ["VIC", "SHARED"],
+    } as GrantingRule);
+    const before = managerPool(withSharedScope, base, {});
+    const after = managerPool(withSharedScope, withShared, {});
+    // the SHARED row joins their people but moves neither figure
+    expect(after.people).toBe(before.people + 1);
+    expect(after.pool).toBeCloseTo(before.pool, 8);
+    expect(after.allocated).toBeCloseTo(before.allocated, 8);
+    expect(after.remaining).toBeCloseTo(before.remaining, 8);
+    // and a grant to them consumes none of the VIC budget
+    const granted = managerPool(
+      withSharedScope, withShared, { S: { daEdit: 5_000 } }, {}
+    );
+    expect(granted.remaining).toBeCloseTo(after.remaining, 8);
+    expect(granted.allocated).toBeCloseTo(after.allocated, 8);
+  });
+
+  // ── 5. nested scopes are not deducted ──
+  it("a nested manager scope is not deducted from the parent's funding scope", () => {
+    const room = 200;
+    const d = dataWithRoom(room);
+    const outer = scopeOf(group(["Inner", "Outer"]));
+    const p = managerPool(outer, d, {});
+    // all four rows are the outer lead's, so share is 1 and the cap is the pool
+    expect(p.people).toBe(4);
+    expect(p.pool).toBeCloseTo(d.vCap, 8);
+    expect(p.remaining).toBeCloseTo(room, 8);
+    // the inner lead keeps their own half; the two overlap by design
+    const inner = managerPool(half, d, {});
+    expect(inner.remaining).toBeCloseTo(room * 0.5, 8);
+    expect(p.remaining + inner.remaining).toBeGreaterThan(room);
+  });
+
+  // ── 6. whole-state / admin identity ──
+  it("a whole-state lead is numerically identical to the authoritative state pool", () => {
+    for (const room of [500, 200, 0, -100]) {
+      const d = attachFy26Carves(dataWithRoom(room + stateCarveOf("VIC")));
+      const rows = measure(d);
+      const p = managerPool(whole, d, {});
+      // the authoritative figures: lib/calc.ts's own, which gate 4 and the
+      // admin's VIC card both read
+      expect(p.pool).toBeCloseTo(statePoolOf("VIC", d.vCap), 6);
+      expect(p.allocated).toBeCloseTo(stateHomeTotal("VIC", rows), 8);
+      expect(p.remaining).toBeCloseTo(stateRoom("VIC", rows, d)!, 6);
+    }
+  });
+
+  // ── 7. the state gate is still the final protection ──
+  it("the state save gate still stops total VIC spending exceeding the real cap", () => {
+    const room = 200;
+    const d = dataWithRoom(room);
+    const rows = measure(d);
+    const i1 = rows.find((e) => e.id === "I1")!;
+    // the half-scope lead's own bound is 100 (their share)...
+    expect(managerPool(half, d, {}).remaining).toBeCloseTo(100, 8);
+    // ...while gate 4 independently caps the ROW at the whole state's 200, so
+    // the state cap is what ultimately binds however the shares are drawn
+    expect(getMaxDA(i1, rows, d, "state")).toBe(floorCents(room));
+    // and once 200 is spent anywhere in VIC, gate 4 offers nothing more
+    const spent = measure(d, { O1: { daEdit: room } });
+    expect(getMaxDA(spent.find((e) => e.id === "I1")!, spent, d, "state")).toBe(
+      floorCents(0)
+    );
+    expect(stateRoom("VIC", spent, d)).toBeCloseTo(0, 8);
+  });
+
+  // ── 8. no side effects on locks or payouts ──
+  it("measuring the cap rewrites no lock and no payout", () => {
+    const d = dataWithRoom(200);
+    const doc: Overrides = {
+      I1: { daEdit: 50, locked: true },
+      O1: { locked: true, baseAmount: 250 },
+    };
+    const before = JSON.parse(JSON.stringify(doc));
+    const rows = measure(d, doc);
+    const snapshot = rows.map((e) => ({
+      id: e.id, locked: e.locked, finalBonus: e.finalBonus, daEdit: e.daEdit,
+    }));
+
+    managerPool(half, d, doc);
+    managerPoolFrom(half.rule, rows, d);
+    poolBreach(half, d, doc, doc);
+
+    expect(doc).toEqual(before); // the document is untouched
+    expect(
+      rows.map((e) => ({
+        id: e.id, locked: e.locked, finalBonus: e.finalBonus, daEdit: e.daEdit,
+      }))
+    ).toEqual(snapshot); // and so are the computed rows
   });
 });

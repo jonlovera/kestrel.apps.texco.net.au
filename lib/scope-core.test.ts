@@ -11,6 +11,8 @@ import { join } from "node:path";
 import type { Dataset } from "./schema";
 import type { Scope } from "./access";
 import { buildPayloadCore } from "./scope-core";
+import { managerPool } from "./manager-pool";
+import { attachFy26Carves, statePoolOf } from "./fy26-caps";
 
 const data = JSON.parse(
   readFileSync(join(__dirname, "..", "data", "bonus.json"), "utf-8")
@@ -290,5 +292,58 @@ describe("a lead sees their own pool and nothing wider", () => {
     // pool. Their draw is still measurable, and it is what they answer for.
     expect(payload.managerPool.people).toBe(1);
     expect(payload.managerPool.pool).toBeGreaterThan(0);
+  });
+
+  /**
+   * THE CALL SITE, not the arithmetic.
+   *
+   * managerPoolFrom's share denominator is a whole-population sum, so it has to
+   * be handed the whole population and left to apply the scope filter itself.
+   * This module used to hand it the already-filtered rows — harmless while
+   * `pool` was a sum over the scope alone, and silently wrong the moment it
+   * became a share: the lead's own draw got divided by itself, every share came
+   * out at 1, and a narrow scope was handed the entire state pool. It showed as
+   * a lead's header reading $767,964 against a true $577,226, and no unit test
+   * caught it because managerPoolFrom's own tests pass it the full population.
+   */
+  it("a narrow scope's pool is a real share of the state pool, not all of it", () => {
+    const carved = attachFy26Carves(data);
+    const narrow: Scope = {
+      ...vicScopeNoPkg,
+      rule: {
+        type: "group",
+        states: ["VIC"],
+        // a handful of the VIC positions, so the scope is a genuine subset
+        positions: ["Project Manager"],
+        visibleFields: ["final"],
+        editableFields: ["da"],
+        canLock: false,
+        canActAs: [],
+        canDownloadLetter: false,
+      },
+      visibleFields: ["final"],
+    };
+    const payload = buildPayloadCore(carved, {}, narrow, user);
+    if (payload.mode !== "readonly") throw new Error("expected readonly");
+    const statePool = statePoolOf("VIC", carved.vCap);
+
+    // a real scope, and a proper subset of VIC
+    expect(payload.managerPool.people).toBeGreaterThan(3);
+    expect(payload.managerPool.people).toBeLessThan(
+      data.emp.filter((e) => e.st === "VIC").length
+    );
+
+    // the whole point: strictly less than the state pool, and not by a rounding
+    // error — a filtered denominator would have made this exactly the pool
+    expect(payload.managerPool.pool).toBeLessThan(statePool * 0.5);
+    expect(payload.managerPool.pool).toBeGreaterThan(0);
+
+    // and it agrees with measuring it directly off the whole population
+    expect(payload.managerPool).toEqual(managerPool(narrow, carved, {}));
+
+    // while a whole-state scope over the same data still gets all of it
+    const whole = buildPayloadCore(carved, {}, vicScopeNoPkg, user);
+    if (whole.mode !== "readonly") throw new Error("expected readonly");
+    expect(whole.managerPool.pool).toBeCloseTo(statePool, 8);
   });
 });
