@@ -50,10 +50,12 @@ export function PoolStrip({ summary }: { summary: PoolSummary }) {
     const vic = by("vic");
     const nsw = by("nsw");
     const group = by("group");
+    const vicRemaining = { key: "vicRemaining", title: "VIC Remaining", value: vic?.remaining ?? 0, over: false };
+    const nswRemaining = { key: "nswRemaining", title: "NSW Remaining", value: nsw?.remaining ?? 0, over: false };
     items = [];
     if (group?.cap !== undefined)
       items.push({ key: "cap", title: "Total cap", value: fmt(group.cap), alert: false });
-    for (const it of [vic, nsw, group]) {
+    for (const it of [vic, vicRemaining, nsw, nswRemaining, group]) {
       if (!it) continue;
       items.push({ key: it.key, title: it.title, value: fmt(it.value), alert: it.over });
     }
