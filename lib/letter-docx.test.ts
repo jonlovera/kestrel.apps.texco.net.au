@@ -173,6 +173,63 @@ describe.skipIf(!template)("buildLetter", () => {
     });
   });
 
+  describe("the main heading", () => {
+    const WITH_BONUS = "FY27 REMUNERATION REVIEW AND FY26 EMPLOYEE BONUS AWARD";
+
+    it("announces both halves when there is an award", async () => {
+      const l = await letter(emp({ finalBonus: 24571 }));
+      expect(l.flat).toContain(WITH_BONUS);
+    });
+
+    it("drops the award half when there is no award", async () => {
+      // the FY26 section below it has been removed outright, so a heading still
+      // announcing a bonus award would be introducing nothing
+      const l = await letter(emp({ finalBonus: 0 }));
+      expect(l.flat).toContain("FY27 REMUNERATION REVIEW");
+      expect(l.flat).not.toContain("EMPLOYEE BONUS AWARD");
+      expect(l.body).not.toContain("FY26 ");
+      // the sub-heading below is NOT conditional and is untouched
+      expect(l.flat).toContain("FY27 Remuneration Review");
+    });
+
+    it("uses the same rounding the FY26 section does", async () => {
+      // fmt would have printed 0.4 as "$0", so heading and section must agree
+      const l = await letter(emp({ finalBonus: 0.4 }));
+      expect(l.flat).not.toContain("EMPLOYEE BONUS AWARD");
+      expect(l.flat).not.toContain("FY26 Employee Bonus Scheme Award");
+    });
+
+    it("keeps both halves for a negative award, which is a real figure", async () => {
+      const l = await letter(emp({ finalBonus: -1500 }));
+      expect(l.flat).toContain(WITH_BONUS);
+    });
+
+    it("leaves the orange arrow beside it alone", async () => {
+      // the arrow is anchored in the PRECEDING paragraph, so rewriting the
+      // heading's runs must not disturb it — on either kind of letter
+      const awarded = await letter(emp({ finalBonus: 24571 }));
+      const none = await letter(emp({ finalBonus: 0 }));
+      expect(none.drawings.length).toBe(awarded.drawings.length);
+      for (const d of none.drawings) expect(none.rels[d.rel]).toMatch(/^media\//);
+    });
+
+    it("refuses the letter if the template's heading changed", async () => {
+      const zip = await JSZip.loadAsync(template!);
+      const doc = await zip.file("word/document.xml")!.async("string");
+      // Word split the heading across four runs, so the tampering has to stay
+      // inside the first one to actually land
+      zip.file(
+        "word/document.xml",
+        doc.replace("FY27 REMUNERATION REVIEW AND ", "FY27 REVIEW OF ")
+      );
+      const broken = await zip.generateAsync({ type: "uint8array" });
+      await expect(letter(emp(), broken)).rejects.toThrow(/main heading/);
+      await expect(letter(emp({ finalBonus: 0 }), broken)).rejects.toThrow(
+        /main heading/
+      );
+    });
+  });
+
   describe("the FY26 award section", () => {
     it("states the award when there is one", async () => {
       const l = await letter(emp({ finalBonus: 24571 }));
@@ -404,8 +461,11 @@ describe.skipIf(!template)("buildLetter", () => {
 });
 
 describe("letterFilename", () => {
+  /** A named person with an award, which is the ordinary case. */
+  const awarded = (gn: string, sn: string) => ({ gn, sn, finalBonus: 24571 });
+
   it("names the file after the person, defaulting to Word", () => {
-    expect(letterFilename({ gn: "Ann", sn: "Alpha" })).toBe(
+    expect(letterFilename(awarded("Ann", "Alpha"))).toBe(
       "Ann Alpha - FY27 Remuneration Review and FY26 EBS Award.docx"
     );
   });
@@ -413,23 +473,45 @@ describe("letterFilename", () => {
   it("carries the format through to the extension", () => {
     // The extension is what tells the recipient's machine what to open it
     // with, so a PDF named .docx is a file nobody can read.
-    expect(letterFilename({ gn: "Ann", sn: "Alpha" }, "pdf")).toBe(
+    expect(letterFilename(awarded("Ann", "Alpha"), "pdf")).toBe(
       "Ann Alpha - FY27 Remuneration Review and FY26 EBS Award.pdf"
     );
-    expect(letterFilename({ gn: "Ann", sn: "Alpha" }, "docx")).toBe(
-      letterFilename({ gn: "Ann", sn: "Alpha" })
+    expect(letterFilename(awarded("Ann", "Alpha"), "docx")).toBe(
+      letterFilename(awarded("Ann", "Alpha"))
     );
   });
 
   it("keeps the apostrophes and hyphens real names have", () => {
-    expect(letterFilename({ gn: "Mary-Anne", sn: "O'Brien" })).toBe(
+    expect(letterFilename(awarded("Mary-Anne", "O'Brien"))).toBe(
       "Mary-Anne O'Brien - FY27 Remuneration Review and FY26 EBS Award.docx"
     );
   });
 
   it("strips anything that would break a Content-Disposition header", () => {
-    expect(letterFilename({ gn: 'Bad"', sn: "Name\\/" })).toBe(
+    expect(letterFilename({ gn: 'Bad"', sn: "Name\\/", finalBonus: 24571 })).toBe(
       "Bad Name - FY27 Remuneration Review and FY26 EBS Award.docx"
+    );
+  });
+
+  it("drops the award from the name when there is no award", () => {
+    // The name is read before the file is opened, so it has to agree with the
+    // letter inside, which has had its whole FY26 section removed.
+    expect(letterFilename({ gn: "Ann", sn: "Alpha", finalBonus: 0 })).toBe(
+      "Ann Alpha - FY27 Remuneration Review.docx"
+    );
+    expect(letterFilename({ gn: "Ann", sn: "Alpha", finalBonus: 0 }, "pdf")).toBe(
+      "Ann Alpha - FY27 Remuneration Review.pdf"
+    );
+  });
+
+  it("uses the same rounding the letter does", () => {
+    // fmt would have printed this as "$0", so the name must not promise it
+    expect(letterFilename({ gn: "Ann", sn: "Alpha", finalBonus: 0.4 })).toBe(
+      "Ann Alpha - FY27 Remuneration Review.docx"
+    );
+    // a negative award is a real figure and is named as one
+    expect(letterFilename({ gn: "Ann", sn: "Alpha", finalBonus: -1500 })).toBe(
+      "Ann Alpha - FY27 Remuneration Review and FY26 EBS Award.docx"
     );
   });
 });

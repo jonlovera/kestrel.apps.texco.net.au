@@ -209,6 +209,49 @@ const BONUS_HEADING = "Employee Bonus Scheme Award";
 const BONUS_BODY = "Employee Bonus Scheme for the period";
 
 /**
+ * Whether this letter has an award to state at all.
+ *
+ * The test is what the letter would PRINT, not the raw figure: fmt rounds, so a
+ * residual fraction of a cent shows as "$0" and must count as none. A genuinely
+ * negative award is a real figure and is stated as one.
+ *
+ * Shared rather than local because three things turn on the same answer — the
+ * FY26 section, the main heading, and the download filename — and a letter
+ * headed for an award it does not contain is exactly the mismatch this module
+ * exists to prevent.
+ */
+export function statesBonus(emp: Pick<LetterEmployee, "finalBonus">): boolean {
+  return Math.round(emp.finalBonus) !== 0;
+}
+
+/**
+ * The letter's MAIN HEADING, in its two forms.
+ *
+ * Held here rather than in the .docx for the same reason OPENING_PARAGRAPH is:
+ * the master is re-supplied by hand, and a correction made inside it is
+ * reverted by the next copy with nothing to show that it happened.
+ *
+ * Two forms because the FY26 section below is removed outright when there is
+ * nothing to award (see the FY26 branch), and a heading announcing a bonus
+ * award over a letter that contains none is the same wrong as the "$0" sentence
+ * that removal exists to avoid (owner, 31 August 2026).
+ */
+const HEADING_WITH_BONUS =
+  "FY27 REMUNERATION REVIEW AND FY26 EMPLOYEE BONUS AWARD";
+const HEADING_NO_BONUS = "FY27 REMUNERATION REVIEW";
+
+/**
+ * The words the main heading is FOUND by.
+ *
+ * Upper case is what tells it apart from the "FY27 Remuneration Review"
+ * sub-heading a few paragraphs below, which is never conditional. Word split
+ * the heading into four runs (`FY27 REMUNERATION REVIEW AND ` + `FY26 ` +
+ * `EMPLOYEE ` + `BONUS AWARD`), so like the FY26 section it is matched on
+ * joined paragraph text and no single-run match can see it.
+ */
+const HEADING_ANCHOR = "REMUNERATION REVIEW AND";
+
+/**
  * Corrections to the template's own sentences, applied wherever they are found.
  *
  * "reflected the in the pay run" sat in the increase paragraph, which was
@@ -536,10 +579,11 @@ export async function buildLetter(
   // ── the person ────────────────────────────────────────────────────────────
   const drop = new Set<number>();
   let openingFound = false;
+  let headingFound = false;
   let bonusHeadingFound = false;
   let bonusBodyFound = false;
   /** Whether this letter has an award to state at all — see the FY26 branch. */
-  const statesBonus = Math.round(emp.finalBonus) !== 0;
+  const hasAward = statesBonus(emp);
 
   paras.forEach((p, i) => {
     // The date line, which is the letter's own date rather than the template's.
@@ -552,6 +596,22 @@ export async function buildLetter(
     }
     if (paras[i].xml.includes("[Preferred Name]")) {
       paras[i].xml = fillIn(paras[i].xml, "[Preferred Name]", emp.gn);
+    }
+    // THE MAIN HEADING, which says what the letter is about and so has to agree
+    // with what is actually left in it once the FY26 branch below has run.
+    //
+    // Replaced in BOTH directions rather than only edited down, which puts its
+    // FY-year copy under the same code control as OPENING_PARAGRAPH: a master
+    // whose heading has drifted is then caught by the guard rather than shipped.
+    //
+    // replaceParagraphText, not fillIn — there is no marker to fill, and Word
+    // split the heading across four runs that all have to go.
+    if (p.text.includes(HEADING_ANCHOR)) {
+      headingFound = true;
+      paras[i].xml = replaceParagraphText(
+        p.xml,
+        hasAward ? HEADING_WITH_BONUS : HEADING_NO_BONUS
+      );
     }
     // THE FY26 AWARD. Each [Amount] is filled from its OWN paragraph's figure —
     // there are two in the finished letter and they are different numbers, so a
@@ -567,14 +627,14 @@ export async function buildLetter(
     // genuinely negative award is a real figure and is stated as one.
     if (p.text.includes(BONUS_BODY)) {
       bonusBodyFound = true;
-      if (statesBonus) {
+      if (hasAward) {
         paras[i].xml = fillIn(paras[i].xml, "[Amount]", fmt(emp.finalBonus));
       } else {
         drop.add(i);
       }
     } else if (p.text.includes(BONUS_HEADING)) {
       bonusHeadingFound = true;
-      if (!statesBonus) drop.add(i);
+      if (!hasAward) drop.add(i);
     }
     // THE FY27 REVIEW. The template offers two alternative paragraphs and the
     // letter keeps exactly one of them: the person either moved package or was
@@ -630,10 +690,17 @@ export async function buildLetter(
       `template no longer has an opening paragraph starting "${OPENING_ANCHOR}" — it has been edited, and the letter's wording cannot be applied`
     );
   }
+  // Same reasoning, and it bites hardest on a no-award letter: an unrewritten
+  // heading announces a bonus the letter below it does not contain.
+  if (!headingFound) {
+    throw new TemplateError(
+      `template no longer has a main heading containing "${HEADING_ANCHOR}" — it has been edited, and the letter's heading cannot be applied`
+    );
+  }
   // Only when the section is being removed: half a removal is a heading with
   // nothing under it, or a stray "$0" sentence under no heading. Either would
   // go out looking like a mistake nobody made on purpose.
-  if (!statesBonus && !(bonusHeadingFound && bonusBodyFound)) {
+  if (!hasAward && !(bonusHeadingFound && bonusBodyFound)) {
     throw new TemplateError(
       `template no longer has both parts of the FY26 award section ("${BONUS_HEADING}" and "${BONUS_BODY}"), so it cannot be removed cleanly for a letter with no award`
     );
@@ -762,11 +829,21 @@ async function stripUnusedMedia(zip: JSZip, doc: string): Promise<void> {
 /** The two things a letter can be downloaded as. */
 export type LetterFormat = "docx" | "pdf";
 
-/** "Ann Alpha - FY27 Remuneration Review and FY26 EBS Award.docx" */
+/**
+ * "Ann Alpha - FY27 Remuneration Review and FY26 EBS Award.docx", or
+ * "Ann Alpha - FY27 Remuneration Review.docx" where there is no award.
+ *
+ * The subject tracks the main heading for the same reason the heading tracks
+ * the FY26 section: a file named for a bonus award that is not inside it is a
+ * mismatch the recipient sees before they have opened anything.
+ */
 export function letterFilename(
-  emp: Pick<LetterEmployee, "gn" | "sn">,
+  emp: Pick<LetterEmployee, "gn" | "sn" | "finalBonus">,
   format: LetterFormat = "docx"
 ): string {
   const name = `${emp.gn} ${emp.sn}`.replace(/[^\w\s'-]/g, "").trim();
-  return `${name} - FY27 Remuneration Review and FY26 EBS Award.${format}`;
+  const subject = statesBonus(emp)
+    ? "FY27 Remuneration Review and FY26 EBS Award"
+    : "FY27 Remuneration Review";
+  return `${name} - ${subject}.${format}`;
 }
